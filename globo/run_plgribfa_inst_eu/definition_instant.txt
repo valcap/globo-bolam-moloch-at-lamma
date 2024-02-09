@@ -1,0 +1,198 @@
+# File contains indications to plot or jump read data field:
+# if 'y', then the current filed will be plotted, if 'n', then current filed will be jumped 
+#
+'y'   #  file 2 messsage 01 : GPH 850
+'y'   #  file 2 messsage 02 : T 850
+'y'   #  file 2 messsage 03 : U 850
+'y'   #  file 2 messsage 04 : V 850
+'y'   #  file 2 messsage 05 : GPH 700
+'y'   #  file 2 messsage 06 : T 700
+'y'   #  file 2 messsage 07 : U 700
+'y'   #  file 2 messsage 08 : V 700
+'n'   #  file 2 messsage 09 : RH 700
+'y'   #  file 2 messsage 10 : GPH 500
+'y'   #  file 2 messsage 11 : T 500
+'y'   #  file 2 messsage 12 : U 500
+'y'   #  file 2 messsage 13 : V 500
+'y'   #  file 2 messsage 14 : PV 300
+'y'   #  file 2 messsage 15 : GPH 250
+'y'   #  file 2 messsage 16 : U 250
+'y'   #  file 2 messsage 17 : V 250
+'y'   #  file 2 messsage 18 : GPH 50
+'y'   #  file 2 messsage 19 : U 50
+'y'   #  file 2 messsage 20 : V 50
+'n'   #  file 2 messsage 21 : QG 1
+'n'   #  file 2 messsage 22 : QG 2
+'n'   #  file 2 messsage 23 : QG 3
+'n'   #  file 2 messsage 24 : QG 4
+'n'   #  file 2 messsage 25 : QG 5
+'n'   #  file 2 messsage 26 : QG 6
+'n'   #  file 2 messsage 27 : QG 7
+'n'   #  file 2 messsage 28 : QG 8
+'n'   #  file 2 messsage 29 : QG 9
+'n'   #  file 2 messsage 30 : QG 10
+'n'   #  file 2 messsage 31 : QG 11
+'n'   #  file 2 messsage 32 : QG 12
+'n'   #  file 2 messsage 33 : QG 13
+'n'   #  file 2 messsage 34 : TG 1
+'n'   #  file 2 messsage 35 : TG 2
+'n'   #  file 2 messsage 36 : TG 3
+'n'   #  file 2 messsage 37 : TG 4
+'n'   #  file 2 messsage 38 : TG 5
+'n'   #  file 2 messsage 39 : TG 6
+'n'   #  file 2 messsage 40 : TG 7
+'n'   #  file 2 messsage 41 : TG 8
+'n'   #  file 2 messsage 42 : TG 9
+'n'   #  file 2 messsage 43 : TG 10
+'n'   #  file 2 messsage 44 : TG 11
+'n'   #  file 2 messsage 45 : TG 12
+'n'   #  file 2 messsage 46 : TG 13
+'y'   #  file 2 messsage 47 : MSLP
+'n'   #  file 2 messsage 48 : Total precip.
+'n'   #  file 2 messsage 49 : Conv. precip.
+'n'   #  file 2 messsage 50 : Snow precip.
+'y'   #  file 2 messsage 51 : U 10 m
+'y'   #  file 2 messsage 52 : V 10 m
+'y'   #  file 2 messsage 53 : T 2 m
+'y'   #  file 2 messsage 54 : RH 2 m
+'y'   #  file 2 messsage 55 : Tskin
+'y'   #  file 2 messsage 56 : Total cloud cover (%)
+'n'   #  file 2 messsage 57 : Low cloud cover (%)
+'n'   #  file 2 messsage 58 : Medium cloud cover (%)
+'n'   #  file 2 messsage 59 : High cloud cover (%)
+'y'   #  file 2 messsage 60 : Water equiv. of accumulated snow depth (kg m-2)
+'n'   #  file 2 messsage 61 : CAPE
+'n'   #  file 2 messsage 62 : Lifted index
+'n'   #  file 2 messsage 63 : H T 0C
+'n'   #  file 2 messsage 64 : Downward SW Rad
+'n'   #  file 2 messsage 65 : Lapse Rate
+'n'   #  file 3 messsage 01 : GPH 850
+'y'   #  file 3 messsage 02 : T 850
+'y'   #  file 3 messsage 03 : U 850
+'y'   #  file 3 messsage 04 : V 850
+'n'   #  file 3 messsage 05 : GPH 700
+'n'   #  file 3 messsage 06 : T 700
+'y'   #  file 3 messsage 07 : U 700
+'y'   #  file 3 messsage 08 : V 700
+'y'   #  file 3 messsage 09 : RH 700
+'y'   #  file 3 messsage 10 : GPH 500
+'n'   #  file 3 messsage 11 : T 500
+'n'   #  file 3 messsage 12 : U 500
+'n'   #  file 3 messsage 13 : V 500
+'n'   #  file 3 messsage 14 : PV 300
+'n'   #  file 3 messsage 15 : GPH 250
+'n'   #  file 3 messsage 16 : U 250
+'n'   #  file 3 messsage 17 : V 250
+'n'   #  file 3 messsage 18 : GPH 50
+'n'   #  file 3 messsage 19 : U 50
+'n'   #  file 3 messsage 20 : V 50
+'n'   #  file 3 messsage 21 : QG 1
+'n'   #  file 3 messsage 22 : QG 2
+'n'   #  file 3 messsage 23 : QG 3
+'n'   #  file 3 messsage 24 : QG 4
+'n'   #  file 3 messsage 25 : QG 5
+'n'   #  file 3 messsage 26 : QG 6
+'n'   #  file 3 messsage 27 : QG 7
+'n'   #  file 3 messsage 28 : QG 8
+'n'   #  file 3 messsage 29 : QG 9
+'n'   #  file 3 messsage 30 : QG 10
+'n'   #  file 3 messsage 31 : QG 11
+'n'   #  file 3 messsage 32 : QG 12
+'n'   #  file 3 messsage 33 : QG 13
+'n'   #  file 3 messsage 34 : TG 1
+'n'   #  file 3 messsage 35 : TG 2
+'n'   #  file 3 messsage 36 : TG 3
+'n'   #  file 3 messsage 37 : TG 4
+'n'   #  file 3 messsage 38 : TG 5
+'n'   #  file 3 messsage 39 : TG 6
+'n'   #  file 3 messsage 40 : TG 7
+'n'   #  file 3 messsage 41 : TG 8
+'n'   #  file 3 messsage 42 : TG 9
+'n'   #  file 3 messsage 43 : TG 10
+'n'   #  file 3 messsage 44 : TG 11
+'n'   #  file 3 messsage 45 : TG 12
+'n'   #  file 3 messsage 46 : TG 13
+'n'   #  file 3 messsage 47 : MSLP
+'n'   #  file 3 messsage 48 : Total precip.
+'n'   #  file 3 messsage 49 : Conv. precip.
+'n'   #  file 3 messsage 50 : Snow precip.
+'n'   #  file 3 messsage 51 : U 10 m
+'n'   #  file 3 messsage 52 : V 10 m
+'n'   #  file 3 messsage 53 : T 2 m
+'n'   #  file 3 messsage 54 : RH 2 m
+'n'   #  file 3 messsage 55 : Tskin
+'n'   #  file 3 messsage 56 : Total cloud cover (%)
+'n'   #  file 3 messsage 57 : Low cloud cover (%)
+'n'   #  file 3 messsage 58 : Medium cloud cover (%)
+'n'   #  file 3 messsage 59 : High cloud cover (%)
+'n'   #  file 3 messsage 60 : Water equiv. of accumulated snow depth (kg m-2)
+'n'   #  file 3 messsage 61 : CAPE
+'n'   #  file 3 messsage 62 : Lifted index
+'n'   #  file 3 messsage 63 : H T 0C
+'n'   #  file 2 messsage 64 : Downward SW Rad
+'n'   #  file 3 messsage 65 : Lapse Rate
+'n'   #  file 4 messsage 01 : GPH 850
+'y'   #  file 4 messsage 02 : T 850
+'n'   #  file 4 messsage 03 : U 850
+'n'   #  file 4 messsage 04 : V 850
+'n'   #  file 4 messsage 05 : GPH 700
+'n'   #  file 4 messsage 06 : T 700
+'n'   #  file 4 messsage 07 : U 700
+'n'   #  file 4 messsage 08 : V 700
+'y'   #  file 4 messsage 09 : RH 700
+'y'   #  file 4 messsage 10 : GPH 500
+'n'   #  file 4 messsage 11 : T 500
+'n'   #  file 4 messsage 12 : U 500
+'n'   #  file 4 messsage 13 : V 500
+'n'   #  file 4 messsage 14 : PV 300
+'n'   #  file 4 messsage 15 : GPH 250
+'y'   #  file 4 messsage 16 : U 250
+'y'   #  file 4 messsage 17 : V 250
+'y'   #  file 4 messsage 18 : GPH 50
+'n'   #  file 4 messsage 19 : U 50
+'n'   #  file 4 messsage 20 : V 50
+'n'   #  file 4 messsage 21 : QG 1
+'n'   #  file 4 messsage 22 : QG 2
+'n'   #  file 4 messsage 23 : QG 3
+'n'   #  file 4 messsage 24 : QG 4
+'n'   #  file 4 messsage 25 : QG 5
+'n'   #  file 4 messsage 26 : QG 6
+'n'   #  file 4 messsage 27 : QG 7
+'n'   #  file 4 messsage 28 : QG 8
+'n'   #  file 4 messsage 29 : QG 9
+'n'   #  file 4 messsage 30 : QG 10
+'n'   #  file 4 messsage 31 : QG 11
+'n'   #  file 4 messsage 32 : QG 12
+'n'   #  file 4 messsage 33 : QG 13
+'n'   #  file 4 messsage 34 : TG 1
+'n'   #  file 4 messsage 35 : TG 2
+'n'   #  file 4 messsage 36 : TG 3
+'n'   #  file 4 messsage 37 : TG 4
+'n'   #  file 4 messsage 38 : TG 5
+'n'   #  file 4 messsage 39 : TG 6
+'n'   #  file 4 messsage 40 : TG 7
+'n'   #  file 4 messsage 41 : TG 8
+'n'   #  file 4 messsage 42 : TG 9
+'n'   #  file 4 messsage 43 : TG 10
+'n'   #  file 4 messsage 44 : TG 11
+'n'   #  file 4 messsage 45 : TG 12
+'n'   #  file 4 messsage 46 : TG 13
+'y'   #  file 4 messsage 47 : MSLP
+'n'   #  file 4 messsage 48 : Total precip.
+'n'   #  file 4 messsage 49 : Conv. precip.
+'n'   #  file 4 messsage 50 : Snow precip.
+'n'   #  file 4 messsage 51 : U 10 m
+'n'   #  file 4 messsage 52 : V 10 m
+'n'   #  file 4 messsage 53 : T 2 m
+'n'   #  file 4 messsage 54 : RH 2 m
+'n'   #  file 4 messsage 55 : Tskin
+'n'   #  file 4 messsage 56 : Total cloud cover (%)
+'n'   #  file 4 messsage 57 : Low cloud cover (%)
+'n'   #  file 4 messsage 58 : Medium cloud cover (%)
+'n'   #  file 4 messsage 59 : High cloud cover (%)
+'n'   #  file 4 messsage 60 : Water equiv. of accumulated snow depth (kg m-2)
+'n'   #  file 4 messsage 61 : CAPE
+'n'   #  file 4 messsage 62 : Lifted index
+'n'   #  file 4 messsage 63 : H T 0C
+'n'   #  file 2 messsage 64 : Downward SW Rad
+'n'   #  file 4 messsage 65 : Lapse Rate

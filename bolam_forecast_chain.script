@@ -1,0 +1,350 @@
+#! /bin/bash
+
+# Script for Bolam forecast chain
+
+# The following parameters must be exported from model_chain_launch.script:
+
+#MODE="auto" # "auto" or "manual"
+#
+#GLOBAL_MODEL="GFS"
+#DH_START_BOLAM=0
+#INIDATE_BOLAM="2019120300"
+#HRUN_BOLAM=72
+#DH_NEXT_FORECAST=24
+#DHINPUT_BOLAM=1
+#DHOUTPUT_BOLAM_MAIN=1
+#NJUMP_BOLAM_MAIN=3
+#DHOUTPUT_BOLAM_ADD=1
+#NJUMP_BOLAM_ADD=1
+#HOUR_LIMIT_PRE_BOLAM=6
+#HOUR_LIMIT_BOLAM=6
+#HOUR_LIMIT_POST_BOLAM=6
+#
+#DIR_START=`pwd`
+#DIR_LOG="${DIR_START}/log/current"
+#DIR_SOURCES_COMMON="/home/oper/sources/common"
+#DIR_SOURCES_PLGRIBFA="/home/oper/sources/plgribfa"
+#DIR_GEO_DATA="/data/oper/geo_dataset"
+#DIR_SST_DATA="/data/oper/sst"
+#DIR_INPUT_DATA_BOLAM="/scratch/oper/globo"
+#DIR_PREMODEL_DATA_BOLAM="/data/oper/bolam_globo/premodel"
+#DIR_MODEL_DATA_MHF_BOLAM="/data/oper/bolam_globo/mhf"
+#DIR_MODEL_DATA_MHF_SOIL_COPY_BOLAM="/data/oper/bolam_globo/mhf_soil_copy"
+#DIR_MODEL_DATA_SHF_BOLAM="/data/oper/bolam_globo/shf"
+#DIR_POSTMODEL_DATA_GRIB2_BOLAM="/data/oper/bolam_globo/ppf_grib2"
+#DIR_POSTMODEL_SHF_DATA_GRIB2_BOLAM="/data/oper/bolam_globo/shf_grib2"
+#DIR_METEOGRAMS_BOLAM="/data/oper/bolam_globo/meteograms"
+#DIR_GRAPH_BOLAM="/data/oper/bolam_globo/graph"
+#
+#FILE_FLAG_BOLAM_INPUT_DATA_PROBLEM=${DIR_START}/gfs_data_download/gfs_bolam_data_problem.txt"
+#FILE_FLAG_BOLAM_RUN_ERROR="${DIR_START}/bolam_run_error.txt"
+#FILE_FLAG_BOLAM_RUN_FINISH="${DIR_START}/bolam_run_finish.txt"
+#FILE_FLAG_PREBOLAM_FINISH="${DIR_START}/prebolam_finish.txt"
+#FILE_FLAG_PREMOLOCH_FINISH="${DIR_START}/premoloch_finish.txt"
+#
+#DIR_ECCODES="${DIR_START}/eccodes/eccodes_ifort"
+#
+#FLAG_BOLAM_PREMODEL=1
+#FLAG_BOLAM_MODEL=1
+#FLAG_BOLAM_POSTMODEL=1
+#FLAG_BOLAM_POST_SHF=1             # shf ---> grib2
+#FLAG_BOLAM_METEOGRAMS=1
+#FLAG_BOLAM_PLGRIBFA=1             # Graphics SW
+#FLAG_BOLAM_FILE_CLEANIG=1
+#
+#NNODE_BOLAM=8
+#NPROC_NODE_BOLAM=16
+#
+# Optionally, for the case GLOBAL_MODEL==GLOBO only:
+#FLAG_GLOBO=1
+#FLAG_GLOBO_MODEL=1
+#FILE_FLAG_GLOBO_RUN_ERROR="${DIR_START}/globo_run_error.txt
+#FILE_FLAG_GLOBO_RUN_FINISH="${DIR_START}/globo_run_finish.txt"
+
+# MPI library application (for parallel calculation):
+export NNODE=$NNODE_BOLAM
+export NPROC_NODE=$NPROC_NODE_BOLAM
+
+DATE=`echo $INIDATE_BOLAM | cut -c 1-8`
+
+export MODEL="BOLAM"
+export MODEL_LOWER=`echo ${MODEL} | tr [:upper:] [:lower:]`
+
+GLOBAL_MODEL_LOWER=`echo ${GLOBAL_MODEL} | tr [:upper:] [:lower:]`
+
+MODEL_INPUT=$GLOBAL_MODEL
+MODEL_INPUT_LOWER=$GLOBAL_MODEL_LOWER
+
+echo "  "
+echo "Bolam forecast chain started at:"
+date
+echo "  "
+
+export FILE_FLAG_MODEL_RUN_ERROR=$FILE_FLAG_BOLAM_RUN_ERROR
+
+COM="rm -f $FILE_FLAG_MODEL_RUN_ERROR"; echo $COM; $COM
+
+# --------------------------------------------------------------------
+
+# ---- Premodel: initial and boundary condition preparation ----
+
+if [ $FLAG_BOLAM_PREMODEL == 1 ]; then
+
+  cd ${DIR_START}/bolam/run_premodel
+
+  export GLOBAL_MODEL=$MODEL_INPUT
+  export INIDATE=$INIDATE_BOLAM
+  export HRUN=$HRUN_BOLAM
+  export DHINPUT=$DHINPUT_BOLAM
+  export DH_START=$DH_START_BOLAM
+  export DH_PREV_FORECAST=$DH_NEXT_FORECAST
+  export HOUR_LIMIT=$HOUR_LIMIT_PRE_BOLAM
+  export DIR_GEO_DATA
+  export DIR_SST_DATA
+  export DIRINPUT=$DIR_INPUT_DATA_BOLAM
+  export DIRINPUT_CONST=$DIR_INPUT_DATA_BOLAM
+  export DIROUTPUT=$DIR_PREMODEL_DATA_BOLAM
+  export DIR_MHF_SOIL=$DIR_MODEL_DATA_MHF_SOIL_COPY_BOLAM
+  export FILE_FLAG_INPUT=$FILE_FLAG_BOLAM_INPUT_DATA_PROBLEM
+  if [ $GLOBAL_MODEL == "GLOBO" ]; then
+    export MODEL_INP_LOWER="globo_zoom"
+    export FILE_FLAG_MODEL_INP_RUN_ERROR=$FILE_FLAG_GLOBO_RUN_ERROR
+  fi
+echo " poisk"
+echo $GLOBAL_MODEL
+echo ${MODEL_INP_LOWER}
+echo $FILE_FLAG_MODEL_INP_RUN_ERROR
+  export FILE_FLAG_PREMODEL_FINISH=$FILE_FLAG_PREBOLAM_FINISH
+  export MODEL_LOWER
+  export DIR_BIN="${DIR_ECCODES}/bin"
+
+  ./premodel_${GLOBAL_MODEL_LOWER}_data_run.script 1>${DIR_LOG}/stout_bolam_premodel 2>&1 &
+
+fi # premodel run
+
+# ---- End of Premodel ----
+
+# ---- Model run ----
+
+if [ $FLAG_BOLAM_MODEL == 1 ]; then
+
+# Witing of Globo model run finish
+
+  if [ $GLOBAL_MODEL == "GLOBO" ]; then
+
+    cd ${DIR_START}
+
+    echo "  "
+    I=0
+    while true; do
+      if [ ! -s $FILE_FLAG_GLOBO_RUN_FINISH ] && [ $FLAG_GLOBO == 1 ] && [ $FLAG_GLOBO_MODEL == 1 ]; then
+        if [ $I  == 0 ]; then
+          I=1; echo "Bolam launching: pause because Globo has not finished"; date
+        fi
+        sleep 30
+      else
+        echo "Bolam run launchs"; date
+        break
+      fi
+    done
+
+  fi
+
+# Cleaning of model output for case of Postprocessing 
+
+  if [ $FLAG_BOLAM_POSTMODEL == 1 ]; then
+    COM="rm -f ${DIR_MODEL_DATA_MHF_BOLAM}/*${INIDATE_BOLAM}*.mhf"; echo $COM; $COM
+  fi
+  if [ $FLAG_BOLAM_POST_SHF == 1 ]; then
+    COM="rm -f ${DIR_MODEL_DATA_SHF_BOLAM}/*${INIDATE_BOLAM}*.shf"; echo $COM; $COM
+  fi
+
+  cd ${DIR_START}/bolam/run_model
+
+  export NNODE
+  export NPROC_NODE
+  export INIDATE=$INIDATE_BOLAM
+  export DH_NEXT_FORECAST
+  export HRUN=$HRUN_BOLAM
+  export DHINPUT=$DHINPUT_BOLAM
+  export DHOUTPUT=$DHOUTPUT_BOLAM_MAIN
+  export DHOUTPUT_SHF=$DHOUTPUT_BOLAM_ADD
+  export DIROUTPUT_MHF=$DIR_MODEL_DATA_MHF_BOLAM
+  export DIROUTPUT_SHF=$DIR_MODEL_DATA_SHF_BOLAM
+  export HOUR_LIMIT=$HOUR_LIMIT_BOLAM
+  export MODEL_LOWER
+  export FILE_FLAG_MODEL_RUN_ERROR=$FILE_FLAG_BOLAM_RUN_ERROR
+  export FILE_FLAG_MODEL_RUN_FINISH=$FILE_FLAG_BOLAM_RUN_FINISH
+
+  ./bolam_run.script 1>${DIR_LOG}/stout_bolam_model 2>&1 &
+
+fi # model run
+
+# ---- End of Model run ----
+
+# ---- Postprocessing with complete MHF ----
+
+if [ $FLAG_BOLAM_POSTMODEL == 1 ]; then
+
+# Cleaning of post-mortem output for case of meteogram (or/and graphics) products creation
+
+  if [ $FLAG_BOLAM_METEOGRAMS == 1 ] ; then
+    COM="rm -f ${DIR_POSTMODEL_DATA_GRIB2_BOLAM}/*${INIDATE_BOLAM}*.grib2"; echo $COM; $COM
+  fi
+
+  cd ${DIR_START}/bolam/run_postmodel
+
+  export INIDATE=$INIDATE_BOLAM
+  export HRUN=$HRUN_BOLAM
+  export DHOUTPUT=$DHOUTPUT_BOLAM_MAIN
+  export NJUMP=$NJUMP_BOLAM_MAIN
+  export HOUR_LIMIT=$HOUR_LIMIT_POST_BOLAM
+  export DIRINPUT=$DIR_MODEL_DATA_MHF_BOLAM
+  export DIRINPUT_GEO=$DIR_PREMODEL_DATA_BOLAM
+  export DIROUTPUT=$DIR_POSTMODEL_DATA_GRIB2_BOLAM
+  export DIROUTPUT_CROSS=$DIR_POSTMODEL_DATA_GRIB2_CROSS_BOLAM
+  export DIROUTPUT_GEO=$DIR_POSTMODEL_DATA_GRIB2_BOLAM
+  export MODEL
+  export MODEL_LOWER
+  export FILE_FLAG_MODEL_RUN_ERROR=$FILE_FLAG_BOLAM_RUN_ERROR
+
+  ./postmodel_run.script 1>${DIR_LOG}/stout_bolam_postmodel 2>&1 &
+
+fi # postmodel run
+
+# ---- End of Postprocessing with complete MHF ----
+
+# ---- Conversion SHF fo grib2 format ----
+
+if [ $FLAG_BOLAM_POST_SHF == 1 ]; then
+
+  cd ${DIR_START}/bolam/run_convert_shf_to_grib2
+
+  export INIDATE=$INIDATE_BOLAM
+  export HRUN=$HRUN_BOLAM
+  export DHOUTPUT_SHF=`expr $NJUMP_BOLAM_ADD "*" $DHOUTPUT_BOLAM_ADD`
+  export HOUR_LIMIT=$HOUR_LIMIT_POST_BOLAM
+  export DIRINPUT=$DIR_MODEL_DATA_SHF_BOLAM
+  export DIROUTPUT=$DIR_POSTMODEL_SHF_DATA_GRIB2_BOLAM
+  export MODEL
+  export MODEL_LOWER
+  export FILE_FLAG_MODEL_RUN_ERROR=$FILE_FLAG_BOLAM_RUN_ERROR
+
+./convert_shf_to_grib2_run.script 1>${DIR_LOG}/stout_bolam_convert_shf_to_grib2 &
+
+fi # conversion shf to grib2
+
+# ---- End of "Postprocessing" with SHF ----
+
+# ---- Calculation and plotting of meteograms ----
+
+pause_bolam_meteograms=""
+if [ $FLAG_BOLAM_METEOGRAMS == 1 ]; then
+
+  export INIDATE=$INIDATE_BOLAM
+  export HRUN=$HRUN_BOLAM
+  export DH=$(($DHOUTPUT_BOLAM_MAIN*$NJUMP_BOLAM_MAIN))
+  export HOUR_LIMIT=$HOUR_LIMIT_POST_BOLAM
+  export DIR_DATA_INP=$DIR_POSTMODEL_DATA_GRIB2_BOLAM
+  export DIR_DATA_INP_GEO=$DIR_POSTMODEL_DATA_GRIB2_BOLAM
+  export DIR_DATA_OUT=$DIR_METEOGRAMS_BOLAM
+  export MODEL_LOWER
+  export FILE_FLAG_MODEL_RUN_ERROR=$FILE_FLAG_BOLAM_RUN_ERROR
+
+# Meteograms
+
+  cd ${DIR_START}/bolam/run_meteograms
+
+# Cleaning of "old" output data:
+
+  echo " "
+  COM="rm -f ${DIR_DATA_OUT}/*_meteogram_inst_${INIDATE}_*.dat"; echo $COM; $COM
+  echo " "
+
+  ./read_grib2_write_metrogram.script 1>${DIR_LOG}/stout_bolam_meteograms_calcul 2>&1 &
+
+  export DIR_DATA_INP=$DIR_METEOGRAMS_BOLAM
+  export DIR_DATA_OUT=$DIR_METEOGRAMS_BOLAM
+  export DIR_SOURCES=$DIR_SOURCES_COMMON
+
+  ./meteogram_rd_wr.script 1>${DIR_LOG}/stout_bolam_meteograms_point 2>&1 &
+
+  pause_bolam_meteograms=$!
+  pause_bolam_meteograms="${pause_bolam_meteograms} $!"
+
+fi # Meteograms
+
+# ---- End of calculation of meteograms ----
+
+# ---- Graphics elaboration: maps with Plgribfa SW ----
+
+if [ $FLAG_BOLAM_PLGRIBFA == 1 ]; then
+
+  export INIDATE=$INIDATE_BOLAM
+  export HRUN=$HRUN_BOLAM
+  export DH=$(($DHOUTPUT_BOLAM_MAIN*$NJUMP_BOLAM_MAIN))
+  export HOUR_LIMIT=$HOUR_LIMIT_POST_BOLAM
+  export DIRINPUT=$DIR_POSTMODEL_DATA_GRIB2_BOLAM
+  export DIRINPUT_GEO=$DIR_POSTMODEL_DATA_GRIB2_BOLAM
+  export DIROUTPUT1=$DIR_GRAPH_BOLAM
+  export MODEL_LOWER
+  export FILE_FLAG_MODEL_RUN_ERROR=$FILE_FLAG_BOLAM_RUN_ERROR
+  export DIR_ECCODES
+  export DIR_SOURCES_PLGRIBFA
+
+  cd ${DIR_START}/bolam/run_plgribfa_inst
+
+  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_bolam_plgribfa_map_ints 2>&1 &
+
+  cd ${DIR_START}/bolam/run_plgribfa_acc_06h
+
+  export HACCUM=6
+  export H_UTC_ACCUM_FINISH_LIST="0 6 12 18" # List of instant (UTC hour) of accumulation termination 
+
+  ./plgribfa_run_accum.script 1>${DIR_LOG}/stout_bolam_plgribfa_map_acc_06h 2>&1 &
+
+  cd ${DIR_START}/bolam/run_plgribfa_acc_24h
+
+  export HACCUM=24
+  export H_UTC_ACCUM_FINISH_LIST="0" # List of instant (UTC hour) of accumulation termination 
+
+  ./plgribfa_run_accum.script 1>${DIR_LOG}/stout_bolam_plgribfa_map_acc_24h 2>&1 &
+
+fi # Plgribfa
+
+# ---- End of Graphics elaboration: maps with Plgribfa SW ----
+
+echo "  "
+echo "Waiting of all Bolam chain procedures finish"; wait
+
+# ---- Cleanig of working and old data file ----
+
+if [ $FLAG_BOLAM_FILE_CLEANIG == 1 ]; then
+
+  cd ${DIR_START}/bolam
+
+  export INIDATE=$INIDATE_BOLAM
+  export HRUN=$HRUN_BOLAM
+  export DHINPUT=$DHINPUT_BOLAM
+  export DHOUTPUT_MHF=$DHOUTPUT_BOLAM_MAIN
+  export DHOUTPUT_SHF=$DHOUTPUT_BOLAM_ADD
+  export DHOUTPUT_PROD=$(($DHOUTPUT_BOLAM_MAIN*$NJUMP_BOLAM_MAIN))
+  export DIR_PREMODEL=$DIR_PREMODEL_DATA_BOLAM
+  export DIR_MHF=$DIR_MODEL_DATA_MHF_BOLAM
+  export DIR_SHF=$DIR_MODEL_DATA_SHF_BOLAM
+  export DIR_POSTMODEL_GRIB2=$DIR_POSTMODEL_DATA_GRIB2_BOLAM
+  export DIR_SHF_POSTMODEL_GRIB2=$DIR_POSTMODEL_SHF_DATA_GRIB2_BOLAM
+  export DIR_METEOGRAMS=$DIR_METEOGRAMS_BOLAM
+  export DIR_GRAPH=$DIR_GRAPH_BOLAM
+  export DIR_BIN="${DIR_ECCODES}/bin"
+  export MODEL_LOWER
+
+  ./file_clean.script
+
+fi # file cleanig
+
+# ---- End of data file cleaning ----
+
+echo "  "
+echo "Bolam forecast chain finished at:"
+date

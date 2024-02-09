@@ -1,0 +1,71 @@
+#! /bin/bash
+
+# Variable exported from ./bolam_run.script
+#INIDATE="2023050400"
+#HRUN=72
+#HRESTART=0
+#DHOUTPUT=1
+#HOUR_LIMIT=4
+#DIR_MODEL_OUTPUT=`pwd`
+#DIROUTPUT_MHF="/home/meteo/meteo/bolam/mhf"
+#FILE_FLAG_MODEL_RUN_ERROR="../../bolam_run_error.txt"
+#MODEL_LOWER="bolam"
+
+#echo " "
+#FILE_CONST_LOC="${DIR_MODEL_OUTPUT}/model_param_constant_not_full_res.bin"
+#FILE_CONST_REM="${DIROUTPUT_MHF}/model_param_constant_work.bin"
+#COM="mv $FILE_CONST_LOC ${FILE_CONST_REM}_work"; echo $COM; $COM
+#COM="mv ${FILE_CONST_REM}_work $FILE_CONST_REM"; echo $COM; $COM
+
+IFILE_START=1
+if [ $HRESTART -gt 0 ]; then
+  I=$(($HRESTART/$DHOUTPUT))
+  IFILE_START=$(($I+2))
+fi
+
+echo " "
+COM="rm -f ${MODEL_LOWER}_atm*.mhf.txt"; echo $COM; $COM
+COM="rm -f ${MODEL_LOWER}_soil*.mhf.txt"; echo $COM; $COM
+
+NFILE=$(($HRUN/$DHOUTPUT)); NFILE=$(($NFILE+1))
+
+timemax=$(($HOUR_LIMIT*3600))
+time_curr=0
+
+IFILE=$IFILE_START
+while [ $IFILE -le $NFILE ]
+do
+  AFILE=`printf '%03d\n' $IFILE` # nlclimate=.f.
+#  AFILE=`printf '%04d\n' $IFILE` # nlclimate=.t.
+  FILE_FLAG_1="${MODEL_LOWER}_atm_${AFILE}.mhf.txt"
+  FILE_FLAG_2="${MODEL_LOWER}_soil_${AFILE}.mhf.txt"
+  FILE_LOC_1="${DIR_MODEL_OUTPUT}/${MODEL_LOWER}_atm_${AFILE}.mhf"
+  FILE_LOC_2="${DIR_MODEL_OUTPUT}/${MODEL_LOWER}_soil_${AFILE}.mhf"
+  FILE_REM_1="${DIROUTPUT_MHF}/${MODEL_LOWER}_atm_${INIDATE}_${AFILE}.mhf"
+  FILE_REM_2="${DIROUTPUT_MHF}/${MODEL_LOWER}_soil_${INIDATE}_${AFILE}.mhf"
+  while true; do
+    if [ -s $FILE_FLAG_1 ] && [ -s $FILE_FLAG_2 ]; then
+#      sleep 2
+      echo " "
+      COM="mv $FILE_LOC_1 ${FILE_REM_1}_work"; echo $COM; $COM
+      COM="mv $FILE_LOC_2 ${FILE_REM_2}_work"; echo $COM; $COM
+      COM="mv ${FILE_REM_1}_work $FILE_REM_1"; echo $COM; $COM
+      COM="mv ${FILE_REM_2}_work $FILE_REM_2"; echo $COM; $COM
+###      rm $FILE_FLAG_1 $FILE_FLAG_2
+      break
+    else
+      if [ -s $FILE_FLAG_MODEL_RUN_ERROR ]; then
+        echo "mv_mhf.script: Flag-file $FILE_FLAG_MODEL_RUN_ERROR exists and means that Bolam model run terminated with error => exit" 
+        exit
+      fi
+      time_curr=$(($time_curr+10))
+      if [ $time_curr -ge $timemax ]
+      then
+         echo "Execution time exceeded maximum time (${HOUR_LIMIT} h) => exit" 
+         exit
+      fi 
+      sleep 10
+    fi 
+  done
+  IFILE=$(($IFILE+1))
+done

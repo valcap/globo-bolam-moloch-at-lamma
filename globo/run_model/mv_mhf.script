@@ -1,0 +1,66 @@
+#! /bin/bash
+
+# Variable exported from ./globo_run.script
+#INIDATE="2023003070"
+#HRUN=168
+#HRESTART=72
+#DHOUTPUT=12
+#HOUR_LIMIT=8
+#DIROUTPUT_MHF="/home/meteo/meteo/globo/mhf"
+#FILE_FLAG_MODEL_RUN_ERROR="../../globo_run_error.txt"
+#MODEL_LOWER="globo"
+
+IFILE_START=1
+if [ $HRESTART -gt 0 ]; then
+  I=$(($HRESTART/$DHOUTPUT))
+  IFILE_START=$(($I+2))
+fi
+
+echo " "
+COM="rm -f ${MODEL_LOWER}_atm_*.mhf.txt"; echo $COM; $COM
+COM="rm -f ${MODEL_LOWER}_soil_*.mhf.txt"; echo $COM; $COM
+
+NFILE=$(($HRUN/$DHOUTPUT)); NFILE=$(($NFILE+1))
+
+timemax=$(($HOUR_LIMIT*3600))
+time_curr=0
+
+IFILE=$IFILE_START
+while [ $IFILE -le $NFILE ]
+do
+  AFILE=`printf '%03d\n' $IFILE` # nlclimate=.f.
+#  AFILE=`printf '%04d\n' $IFILE` # nlclimate=.t.
+  FILE_LOC_1="${MODEL_LOWER}_atm_${AFILE}.mhf"
+  FILE_LOC_2="${MODEL_LOWER}_soil_${AFILE}.mhf"
+  FILE_REM_1="${DIROUTPUT_MHF}/${MODEL_LOWER}_atm_${INIDATE}_${AFILE}.mhf"
+  FILE_REM_2="${DIROUTPUT_MHF}/${MODEL_LOWER}_soil_${INIDATE}_${AFILE}.mhf"
+  FILE_FLAG_1="${FILE_LOC_1}.txt"
+  FILE_FLAG_2="${FILE_LOC_2}.txt"
+  while true
+  do
+    if [ -s $FILE_FLAG_1 ] && [ -s $FILE_FLAG_2 ]
+    then
+      sleep 2
+      echo " "
+      COM="mv ${FILE_LOC_1} ${FILE_REM_1}_work"; echo $COM; $COM
+      COM="mv ${FILE_LOC_2} ${FILE_REM_2}_work"; echo $COM; $COM
+      COM="mv ${FILE_REM_1}_work $FILE_REM_1"; echo $COM; $COM
+      COM="mv ${FILE_REM_2}_work $FILE_REM_2"; echo $COM; $COM
+###      rm $FILE_FLAG
+      break
+    else
+      if [ -s $FILE_FLAG_MODEL_RUN_ERROR ]; then
+        echo "mv_mhf.script: Flag-file $FILE_FLAG_MODEL_RUN_ERROR exists and means that model run terminated with error => exit" 
+        exit
+      fi
+      time_curr=$(($time_curr+30))
+      if [ $time_curr -ge $timemax ]
+      then
+         echo "Execution time exceeded maximum time (${HOUR_LIMIT} h) => exit" 
+         exit
+      fi 
+      sleep 30
+    fi 
+  done
+  IFILE=$(($IFILE+1))
+done

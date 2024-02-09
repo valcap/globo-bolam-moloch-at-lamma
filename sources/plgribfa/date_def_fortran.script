@@ -1,0 +1,21 @@
+#! /bin/bash
+YEAR0=$1; MONTH0=$2; DAY0=$3; HOUR0=$4; MIN0=$5
+DDAY=$6; DHOUR=$7; DMIN=$8
+
+DATEINI="${YEAR0}${MONTH0}${DAY0} ${HOUR0}:${MIN0}"
+D1=`expr $DDAY "*" 1440`; D2=`expr $DHOUR "*" 60`
+DDATE=`expr $D1 "+" $D2`; DDATE=`expr $DDATE "+" $DMIN`
+
+WEEK_DAY0=`date -u --date="${DATEINI}" +%u`
+YEARC=`date -u --date="${DATEINI} ${DDATE}min" +%Y` 
+MONTHC=`date -u --date="${DATEINI} ${DDATE}min" +%m` 
+DAYC=`date -u --date="${DATEINI} ${DDATE}min" +%d` 
+HOURC=`date -u --date="${DATEINI} ${DDATE}min" +%H` 
+MINC=`date -u --date="${DATEINI} ${DDATE}min" +%M` 
+WEEK_DAYC=`date -u --date="${DATEINI} ${DDATE}min" +%u` 
+
+#echo "             SCRIPT:"
+#echo "Initial week day $WEEK_DAY0"
+#echo "Current date: $YEARC $MONTHC $DAYC $HOURC $MINC $WEEK_DAYC"
+
+echo "$WEEK_DAY0 $YEARC $MONTHC $DAYC $HOURC $MINC $WEEK_DAYC" > graph_date_work.txt

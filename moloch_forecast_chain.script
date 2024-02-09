@@ -1,0 +1,354 @@
+#! /bin/bash
+
+# Script for Moloch forecast chain
+
+# The following parameters must be exported from model_chain_launch.script:
+
+#MODE="auto" # "auto" or "manual"
+#
+#INPUT_MODEL_MOLOCH="BOLAM"
+#DH_START_MOLOCH=3
+#DH_NEXT_FORECAST=24
+#INIDATE_MOLOCH="2014011003"
+#HRUN_MOLOCH=45
+#DHINPUT_MOLOCH=1
+#DHOUTPUT_MOLOCH_MAIN=3
+#NJUMP_MOLOCH_MAIN=1
+#DHOUTPUT_MOLOCH_ADD=1
+#NJUMP_MOLOCH_ADD=1
+#DHOUTPUT_MOLOCH_MAIN_FULL_RES=24
+#HOUR_LIMIT_PRE_MOLOCH=4
+#HOUR_LIMIT_MOLOCH=3
+#HOUR_LIMIT_POST_MOLOCH=3
+#
+#DIR_START=`pwd`
+#DIR_LOG="${DIR_START}/log/current"
+#DIR_SOURCES_COMMON="/home/oper/sources/common"
+#DIR_SOURCES_PLGRIBFA="/home/oper/sources/plgribfa"
+#DIR_GEO_DATA="/data/geo_dataset"
+#DIR_INPUT_DATA_MOLOCH="/data/oper/bolam_globo/mhf"
+#DIR_INPUT_DATA_CONST_MOLOCH="/data/oper/bolam/premodel"
+#DIR_PREMODEL_DATA_MOLOCH="/data/oper/moloch/premodel"
+#DIR_MODEL_DATA_MHF_MOLOCH="/data/oper/moloch/mhf"
+#DIR_MODEL_DATA_MHF_SOIL_COPY_MOLOCH="/data/oper/moloch/mhf_soil_copy"
+#DIR_MODEL_DATA_SHF_MOLOCH="/data/oper/moloch/shf"
+#DIR_POSTMODEL_DATA_GRIB2_MOLOCH="/data/oper/moloch/ppf_grib2"
+#DIR_POSTMODEL_SHF_DATA_GRIB2_MOLOCH="/data/oper/moloch/shf_grib2"
+#DIR_METEOGRAMS_MOLOCH="/data/oper/moloch/meteograms"
+#DIR_GRAPH_MOLOCH="/data/oper/moloch/graph"
+#
+#DIR_ECCODES="${DIR_START}/eccodes/eccodes_ifort"
+#
+#FILE_FLAG_MOLOCH_RUN_ERROR="${DIR_START}/moloch_run_error.txt"
+#FILE_FLAG_MOLOCH_RUN_FINISH="${DIR_START}/moloch_run_finish.txt"
+#FILE_FLAG_PREMOLOCH_FINISH="${DIR_START}/premoloch_finish.txt"
+#
+#FILE_FLAG_BOLAM_RUN_ERROR="${DIR_START}/bolam_run_error.txt"
+#FILE_FLAG_BOLAM_RUN_FINISH="${DIR_START}/bolam_run_finish.txt"
+#
+#FLAG_BOLAM=1
+#FLAG_BOLAM_MODEL=1
+#FLAG_MOLOCH=1
+#FLAG_MOLOCH_PREMODEL=1
+#FLAG_MOLOCH_MODEL=1
+#FLAG_MOLOCH_POSTMODEL=1
+#FLAG_MOLOCH_POST_SHF=1              # shf ---> grib2
+#FLAG_MOLOCH_METEOGRAMS=1
+#FLAG_MOLOCH_FILE_CLEANIG=1
+#
+#NNODE_MOLOCH=8
+#NPROC_NODE_MOLOCH=16
+
+# MPI library application (for parallel calculation):
+export NNODE=$NNODE_MOLOCH
+export NPROC_NODE=$NPROC_NODE_MOLOCH
+
+DATE=`echo $INIDATE_MOLOCH | cut -c 1-8`
+
+export MODEL="MOLOCH"
+export MODEL_LOWER=`echo ${MODEL} | tr [:upper:] [:lower:]`
+
+INPUT_MODEL_LOWER=`echo ${INPUT_MODEL_MOLOCH} | tr [:upper:] [:lower:]`
+
+echo "  "
+echo "Moloch forecast chain (with Bolam input data) started at:"
+date
+echo "  "
+
+export FILE_FLAG_MODEL_RUN_ERROR=$FILE_FLAG_MOLOCH_RUN_ERROR
+
+COM="rm -f $FILE_FLAG_MODEL_RUN_ERROR"; echo $COM; $COM
+
+# ---- Premodel: Initial and boundary condition preparation ----
+
+if [ $FLAG_MOLOCH_PREMODEL == 1 ]; then
+
+  cd ${DIR_START}/moloch/run_premodel
+
+  export MODEL_INP=$INPUT_MODEL_MOLOCH
+  export INIDATE=$INIDATE_MOLOCH
+  export HRUN=$HRUN_MOLOCH
+  export DHINPUT=$DHINPUT_MOLOCH
+  export DH_START=$DH_START_MOLOCH
+  export DH_PREV_FORECAST=$DH_NEXT_FORECAST
+  export HOUR_LIMIT=$HOUR_LIMIT_PRE_MOLOCH
+  export DIR_GEO_DATA
+  export DIRINPUT=$DIR_INPUT_DATA_MOLOCH
+  export DIRINPUT_CONST=$DIR_INPUT_DATA_CONST_MOLOCH
+  export DIROUTPUT=$DIR_PREMODEL_DATA_MOLOCH
+  export DIR_MHF_SOIL=$DIR_MODEL_DATA_MHF_SOIL_COPY_MOLOCH
+  export FILE_FLAG_INPUT=$FILE_FLAG_BOLAM_RUN_ERROR
+  export FILE_FLAG_PREMODEL_FINISH=$FILE_FLAG_PREMOLOCH_FINISH
+  export MODEL_LOWER
+
+#  wait_premoloch=""
+  ./premodel_${INPUT_MODEL_LOWER}_data_run.script 1>${DIR_LOG}/stout_moloch_premodel 2>&1 &
+#  wait_premoloch=$!
+  
+fi # premodel run
+
+# ---- End if Premodel ----
+
+# ---- Model run ----
+
+if [ $FLAG_MOLOCH_MODEL == 1 ]; then
+
+#  echo " "
+#  echo "Waiting for termination of Pre-Moloch procedures on nodes, job: ${wait_premoloch}"
+#  wait $wait_premoloch
+
+# Case of Bolam data in input
+# Witing of Bolam model run finish
+
+  cd ${DIR_START}
+
+  echo "  "
+  I=0
+  while true; do
+    if [ $INPUT_MODEL_MOLOCH == "BOLAM" ] && [ ! -s $FILE_FLAG_BOLAM_RUN_FINISH ] && [ $FLAG_BOLAM == 1 ] && [ $FLAG_BOLAM_MODEL == 1 ]; then
+      if [ $I  == 0 ]; then
+        I=1; echo "Moloch launching: pause because Bolam has not finished"
+      fi
+      sleep 30
+    else
+      echo "Moloch run launchs"
+      break
+    fi
+  done
+
+# Cleaning of model output for case of Postprocessing
+
+  if [ $FLAG_MOLOCH_POSTMODEL == 1 ]; then
+    COM="rm -f ${DIR_MODEL_DATA_MHF_MOLOCH}/*${INIDATE_MOLOCH}*.mhf"; echo $COM; $COM
+  fi
+  if [ $FLAG_MOLOCH_POST_SHF == 1 ]; then
+    COM="rm -f ${DIR_MODEL_DATA_SHF_MOLOCH}/*${INIDATE_MOLOCH}*.shf"; echo $COM; $COM
+  fi
+
+  cd ${DIR_START}/moloch/run_model
+
+  export NNODE
+  export NPROC_NODE
+  export INIDATE=$INIDATE_MOLOCH
+  export DH_NEXT_FORECAST
+  export HRUN=$HRUN_MOLOCH
+  export DHINPUT=$DHINPUT_MOLOCH
+  export DHOUTPUT=$DHOUTPUT_MOLOCH_MAIN
+  export DHOUTPUT_SHF=$DHOUTPUT_MOLOCH_ADD
+  export DHOUTPUT_MAIN_FULL_RES=$DHOUTPUT_MOLOCH_MAIN_FULL_RES
+  export DIROUTPUT_MHF=$DIR_MODEL_DATA_MHF_MOLOCH
+  export DIROUTPUT_SHF=$DIR_MODEL_DATA_SHF_MOLOCH
+  export DIR_MHF_SOIL=$DIR_MODEL_DATA_MHF_SOIL_COPY_MOLOCH
+  export HOUR_LIMIT=$HOUR_LIMIT_MOLOCH
+  export FILE_FLAG_MODEL_RUN_ERROR=$FILE_FLAG_MOLOCH_RUN_ERROR
+  export FILE_FLAG_MODEL_RUN_FINISH=$FILE_FLAG_MOLOCH_RUN_FINISH
+  export MODEL_LOWER
+
+  ./moloch_run.script 1>${DIR_LOG}/stout_moloch_model 2>&1 &
+
+fi # model run
+
+# ---- End of Model run ----
+
+# ---- Postprocessing with complete MHF ----
+
+if [ $FLAG_MOLOCH_POSTMODEL == 1 ]; then
+
+# Cleaning of Post-mortem output for case of meteogram (or/and graphics) products creation
+
+  if [ $FLAG_MOLOCH_METEOGRAMS == 1 ] ; then
+    COM="rm -f ${DIR_POSTMODEL_DATA_GRIB2_MOLOCH}/*${INIDATE_MOLOCH}*.grib2"; echo $COM; $COM
+  fi
+
+  cd ${DIR_START}/moloch/run_postmodel
+
+  export INIDATE=$INIDATE_MOLOCH
+  export HRUN=$HRUN_MOLOCH
+  export DHOUTPUT=$DHOUTPUT_MOLOCH_MAIN
+  export NJUMP=$NJUMP_MOLOCH_MAIN
+  export HOUR_LIMIT=$HOUR_LIMIT_POST_MOLOCH
+  export DIRINPUT=$DIR_MODEL_DATA_MHF_MOLOCH
+###  export DIRINPUT_GEO=$DIR_MODEL_DATA_MHF_MOLOCH # for the case of mhf half resolution
+  export DIRINPUT_GEO=$DIR_PREMODEL_DATA_MOLOCH # for the case of mhf full resolution
+  export DIROUTPUT=$DIR_POSTMODEL_DATA_GRIB2_MOLOCH
+  export DIROUTPUT_CROSS=$DIR_POSTMODEL_DATA_GRIB2_CROSS_MOLOCH
+  export DIROUTPUT_GEO=$DIR_POSTMODEL_DATA_GRIB2_MOLOCH
+  export MODEL
+  export MODEL_LOWER
+  export FILE_FLAG_MODEL_RUN_ERROR
+
+  ./postmodel_run.script 1>${DIR_LOG}/stout_moloch_postmodel 2>&1 &
+
+fi # postmodel run
+
+# ---- End of Postprocessing with complete MHF ----
+
+# ---- Conversion SHF to grib2 format ----
+
+if [ $FLAG_MOLOCH_POST_SHF == 1 ]; then
+
+  cd ${DIR_START}/moloch/run_convert_shf_to_grib2
+
+  export INIDATE=$INIDATE_MOLOCH
+  export HRUN=$HRUN_MOLOCH
+  export DHOUTPUT_SHF=`expr $DHOUTPUT_MOLOCH_ADD "*" $NJUMP_MOLOCH_ADD`
+  export HOUR_LIMIT=$HOUR_LIMIT_POST_MOLOCH
+  export DIRINPUT=$DIR_MODEL_DATA_SHF_MOLOCH
+  export DIROUTPUT=$DIR_POSTMODEL_SHF_DATA_GRIB2_MOLOCH
+  export MODEL
+  export MODEL_LOWER
+  export FILE_FLAG_MODEL_RUN_ERROR
+
+  ./convert_shf_to_grib2_run.script 1>${DIR_LOG}/stout_moloch_convert_shf_to_grib2 2>&1 &
+
+fi # conversion shf to grib2
+
+# ---- End of "Postprocessing" with short SHF ----
+
+# ---- Calculation and plotting of meteograms ----
+
+pause_moloch_meteograms=""
+if [ $FLAG_MOLOCH_METEOGRAMS == 1 ]; then
+
+  export INIDATE=$INIDATE_MOLOCH
+  export HRUN=$HRUN_MOLOCH
+  export DH=$(($DHOUTPUT_MOLOCH_MAIN*$NJUMP_MOLOCH_MAIN))
+  export HOUR_LIMIT=$HOUR_LIMIT_POST_MOLOCH
+  export DIR_DATA_INP=$DIR_POSTMODEL_DATA_GRIB2_MOLOCH
+  export DIR_DATA_INP_GEO=$DIR_POSTMODEL_DATA_GRIB2_MOLOCH
+  export DIR_DATA_OUT=$DIR_METEOGRAMS_MOLOCH
+  export MODEL_LOWER
+  export FILE_FLAG_MODEL_RUN_ERROR=$FILE_FLAG_MOLOCH_RUN_ERROR
+
+  cd ${DIR_START}/moloch/run_meteograms
+
+# Cleaning of "old" output data:
+
+  echo " "
+  COM="rm -f ${DIR_DATA_OUT}/*_meteogram_inst_${INIDATE}_*.dat"; echo $COM; $COM
+  echo " "
+
+  ./read_grib2_write_metrogram.script 1>${DIR_LOG}/stout_moloch_meteograms_calcul 2>&1 &
+
+  export DIR_DATA_INP=$DIR_METEOGRAMS_MOLOCH
+  export DIR_DATA_OUT=$DIR_METEOGRAMS_MOLOCH
+  export DIR_SOURCES=$DIR_SOURCES_COMMON
+
+  ./meteogram_rd_wr.script 1>${DIR_LOG}/stout_moloch_meteograms_point 2>&1 &
+
+  pause_moloch_meteograms=$!
+  pause_moloch_meteograms="${pause_moloch_meteograms} $!"
+
+fi # Meteograms
+
+# ---- End of calculation and plotting of meteograms ----
+
+# ---- Graphics elaboration: maps with Plgribfa SW ----
+
+if [ $FLAG_MOLOCH_PLGRIBFA == 1 ]; then
+
+  export INIDATE=$INIDATE_MOLOCH
+  export HRUN=$HRUN_MOLOCH
+  export DH=$(($DHOUTPUT_MOLOCH_MAIN*$NJUMP_MOLOCH_MAIN))
+  export HOUR_LIMIT=$HOUR_LIMIT_POST_MOLOCH
+  export DIRINPUT=$DIR_POSTMODEL_DATA_GRIB2_MOLOCH
+  export DIRINPUT_GEO=$DIR_POSTMODEL_DATA_GRIB2_MOLOCH
+  export DIROUTPUT1=$DIR_GRAPH_MOLOCH
+  export MODEL_LOWER
+  export FILE_FLAG_MODEL_RUN_ERROR=$FILE_FLAG_MOLOCH_RUN_ERROR
+  export DIR_ECCODES
+  export DIR_SOURCES_PLGRIBFA
+
+#  cd ${DIR_START}/moloch/run_plgribfa_inst_atm_1
+#
+#  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_ints_atm_1 2>&1 &
+#
+#  cd ${DIR_START}/moloch/run_plgribfa_inst_atm_2
+#
+#  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_ints_atm_2 2>&1 &
+#
+#  cd ${DIR_START}/moloch/run_plgribfa_inst_atm_3
+#
+#  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_ints_atm_3 2>&1 &
+#
+#  cd ${DIR_START}/moloch/run_plgribfa_inst_srf_1
+#
+#  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_ints_srf_1 2>&1 &
+#
+#  cd ${DIR_START}/moloch/run_plgribfa_inst_srf_2
+#
+#  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_ints_srf_2 2>&1 &
+
+  cd ${DIR_START}/moloch/run_plgribfa_acc_06h
+
+  export HACCUM=6
+  export H_UTC_ACCUM_FINISH_LIST="0 6 12 18" # List of instant (UTC hour) of accumulation termination 
+
+  ./plgribfa_run_accum.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_acc_06h 2>&1 &
+
+  cd ${DIR_START}/moloch/run_plgribfa_acc_24h
+
+  export HACCUM=24
+  export H_UTC_ACCUM_FINISH_LIST="0" # List of instant (UTC hour) of accumulation termination 
+
+  ./plgribfa_run_accum.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_acc_24h 2>&1 &
+
+fi # Plgribfa
+
+# ---- End of Graphics elaboration: maps with Plgribfa SW ----
+
+echo "  "
+echo "Waiting for all Moloch chain procedures finish"; wait
+
+# ---- Cleanig of working and old data file ----
+
+if [ $FLAG_MOLOCH_FILE_CLEANIG == 1 ]; then
+
+  cd ${DIR_START}/moloch
+
+  export INIDATE=$INIDATE_MOLOCH
+  export HRUN=$HRUN_MOLOCH
+  export DHINPUT=$DHINPUT_MOLOCH
+  export DHOUTPUT_MHF=$DHOUTPUT_MOLOCH_MAIN
+  export DIR_RUN_MODEL="${DIR_START}/moloch/run_model"
+  export DHOUTPUT_SHF=$DHOUTPUT_MOLOCH_ADD
+  export DHOUTPUT_PROD=`expr $DHOUTPUT_MOLOCH_MAIN "*" $NJUMP_MOLOCH_MAIN`
+  export DIR_PREMODEL=$DIR_PREMODEL_DATA_MOLOCH
+  export DIR_MHF=$DIR_MODEL_DATA_MHF_MOLOCH
+  export DIR_SHF=$DIR_MODEL_DATA_SHF_MOLOCH
+  export DIR_POSTMODEL_GRIB2=$DIR_POSTMODEL_DATA_GRIB2_MOLOCH
+  export DIR_SHF_POSTMODEL_GRIB2=$DIR_POSTMODEL_SHF_DATA_GRIB2_MOLOCH
+  export DIR_METEOGRAMS=$DIR_METEOGRAMS_MOLOCH
+  export DIR_GRAPH=$DIR_GRAPH_MOLOCH
+  export DIR_BIN="${DIR_ECCODES}/bin"
+  export MODEL_LOWER
+
+  ./file_clean.script
+
+fi # file cleanig
+
+# ---- End of data file cleaning ----
+
+echo "  "
+echo "Moloch forecast chain finished at:"
+date

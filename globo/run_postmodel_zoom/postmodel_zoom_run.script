@@ -1,0 +1,138 @@
+#! /bin/bash
+# Variables exported from ../../globo_forecast_chain.script
+#INIDATE="2023030700"
+#HRUN=168
+#DHOUTPUT=1
+#NJUMP=3
+#HOUR_LIMIT=6
+#DIRINPUT="/home/meteo/meteo/globo/mhf_zoom"
+#DIRINPUT_GEO="/home/meteo/meteo/globo/mhf_zoom"
+#DIROUTPUT="/home/meteo/meteo/globo/ppf_zoom"
+#DIROUTPUT_GEO="/home/meteo/meteo/globo/ppf_zoom"
+#MODEL_LOWER="globo"
+#FILE_FLAG_MODEL_RUN_ERROR="../../globo_run_error.txt"
+#DIR_BIN="/home/meteo/eccodes/eccodes_gfortran/bin"
+
+DIR_EXE="../executable_postmodel"
+
+echo " "
+echo "Start at ";date
+echo " "
+
+MHF_LOC_1="bolam_atm.mhf"
+MHF_LOC_2="bolam_soil.mhf"
+FILE_LOC_CONST="model_param_constant.bin"
+FILE_REM_CONST="${DIRINPUT_GEO}/model_param_constant_zoom.bin"
+
+MODEL_LOWER_LOC="bolam"
+
+COM="ln -sf $FILE_REM_CONST $FILE_LOC_CONST"; echo $COM; $COM
+
+HINI=0
+FILE_JUMP=1
+
+MIN_INI=$(($HINI*60))
+MIN_RUN=$(($HRUN*60))
+DMIN=$(($DHOUTPUT*$NJUMP)); DMIN=$(($DMIN*$FILE_JUMP)); DMIN=$(($DMIN*60))
+
+timemax=$(($HOUR_LIMIT*3600))
+time_curr=0
+
+MIN=$MIN_INI
+while [ $MIN -le $MIN_RUN ]
+do
+
+  IFILE=$(($MIN/60)); IFILE=$(($IFILE/$DHOUTPUT)); IFILE=$(($IFILE+1))
+  AFILE=`printf '%03d\n' $IFILE` # not climate
+#  AFILE=`printf '%04d\n' $IFILE` # climate
+
+  MHF_REM_1="${DIRINPUT}/${MODEL_LOWER}_zoom_atm_${INIDATE}_${AFILE}.mhf"
+  MHF_REM_2="${DIRINPUT}/${MODEL_LOWER}_zoom_soil_${INIDATE}_${AFILE}.mhf"
+
+  while true
+  do
+    if [ -s $MHF_REM_2 ]
+    then
+      echo "  "
+      echo "     ${MODEL_LOWER} PostProcessing"
+
+#      sleep 1
+      sync
+      if [ $IFILE -eq 1 ]
+      then
+        COM="ln -sf $MHF_REM_1 $MHF_LOC_1"; echo $COM; $COM
+        COM="ln -sf $MHF_REM_2 $MHF_LOC_2"; echo $COM; $COM
+      else
+        I=$(($NJUMP-1)); MHF_REM_1_LIST=""; MHF_REM_2_LIST=""
+        while [ $I -ge 0 ]
+        do
+          I1=$(($IFILE-$I)); AI1=`printf '%03d\n' $I1` # not climate
+#          I1=$(($IFILE-$I)); AI1=`printf '%04d\n' $I1` # climate
+          MHF_REM_1_LIST="${MHF_REM_1_LIST} ${DIRINPUT}/${MODEL_LOWER}_zoom_atm_${INIDATE}_${AI1}.mhf"
+          MHF_REM_2_LIST="${MHF_REM_2_LIST} ${DIRINPUT}/${MODEL_LOWER}_zoom_soil_${INIDATE}_${AI1}.mhf"
+          I=$(($I-1))
+        done
+        echo "cat $MHF_REM_1_LIST > ./${MHF_LOC_1}"
+        cat $MHF_REM_1_LIST > ./${MHF_LOC_1}
+        echo "cat $MHF_REM_2_LIST > ./${MHF_LOC_2}"
+        cat $MHF_REM_2_LIST > ./${MHF_LOC_2}
+      fi
+      break
+    else
+      if [ -s $FILE_FLAG_MODEL_RUN_ERROR ]; then
+        echo "Flag-file $FILE_FLAG_MODEL_RUN_ERROR exists and means that Globo model run terminated with error => exit" 
+        exit
+      fi
+      time_curr=$(($time_curr+60))
+      if [ $time_curr -ge $timemax ]
+      then
+         echo "Execution time exceeded maximum time (${HOUR_LIMIT} h) => exit" 
+         exit
+      fi
+      echo "Post-${MODEL_LOWER}: input file ${MHF_REM_2} not created yet, sleep 60"
+      sleep 60
+    fi
+  done
+
+#########################
+
+time ${DIR_EXE}/post${MODEL_LOWER_LOC}
+
+#########################
+
+  ND=$(($MIN/1440))
+  N1=$(($ND*1440)); N2=$(($MIN-$N1)); NH=$(($N2/60))
+  N3=$(($NH*60)); NM=$(($N2-$N3))
+  AND=`printf '%03d\n' $ND`; ANH=`printf '%02d\n' $NH`; ANM=`printf '%02d\n' $NM`
+
+  OUTPUTFILE="${MODEL_LOWER_LOC}_${INIDATE}_${AND}${ANH}${ANM}.grib2"
+  OUTPUTFILE_REM="${MODEL_LOWER}_zoom_${INIDATE}_${AND}${ANH}${ANM}.grib2"
+
+  echo " "
+  if [ -s $OUTPUTFILE ]
+  then
+    COM="${DIR_BIN}/grib_set -s generatingProcessIdentifier=3 $OUTPUTFILE file.grib2"; echo $COM; $COM
+    COM="mv file.grib2 $OUTPUTFILE"; echo $COM; $COM
+    COM="mv $OUTPUTFILE ${DIROUTPUT}/${OUTPUTFILE_REM}_work"; echo $COM; $COM
+    COM="mv ${DIROUTPUT}/${OUTPUTFILE_REM}_work ${DIROUTPUT}/${OUTPUTFILE_REM}"; echo $COM; $COM
+  else
+    echo "Post-${MODEL_LOWER}: output file $OUTPUTFILE not created"
+  fi
+
+  if [ -s ${MODEL_LOWER_LOC}_domain_orogr_lsm.grib2 ]; then
+    echo " "
+    COM="${DIR_BIN}/grib_set -s generatingProcessIdentifier=3 ${MODEL_LOWER_LOC}_domain_orogr_lsm.grib2 file.grib2"; echo $COM; $COM
+    COM="mv file.grib2 ${MODEL_LOWER_LOC}_domain_orogr_lsm.grib2"; echo $COM; $COM
+    COM="mv ${MODEL_LOWER_LOC}_domain_orogr_lsm.grib2 ${DIROUTPUT_GEO}/${MODEL_LOWER}_zoom_domain_orogr_lsm.grib2"; echo $COM; $COM
+  fi
+
+  rm $MHF_LOC_1 $MHF_LOC_2
+
+  MIN=$(($MIN+$DMIN))
+done
+
+COM="rm $FILE_LOC_CONST"; echo $COM; $COM
+
+echo " "
+echo "Finish at ";date
+echo " "

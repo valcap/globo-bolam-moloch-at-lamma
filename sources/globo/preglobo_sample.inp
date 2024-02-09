@@ -1,0 +1,17 @@
+&param_preglobo
+nlon = NPOINTX, nlat = NPOINTY, nlev = NLEVATM, npolcap = 12,
+alfa = 1.45, pzer = 1.e5,
+soil_lev0 = 0.05, 0.13, 0.32, 0.69, 1.30, 2.21, 3.48, 5.17, 7.34, 10.05, 13.36, 17.33, 22.02,
+ -9999., -9999., -9999., -9999., -9999., -9999., -9999., 
+nlev_atm_inp_max = 150, nlev_soil_inp_max = 5
+&end
+
+nlon    - Points in x of the model grids
+nlat    - Points in y of the model grids
+nlev    - Vertical levels
+npolcap -
+nlevg   - Soil levels
+pzer    -
+alfa    -
+nlevp   - Vertical levels of input data
+soil_lev0(20) - Depth of soil levels (m)

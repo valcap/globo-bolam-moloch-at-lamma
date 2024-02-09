@@ -1,0 +1,51 @@
+#! /bin/bash
+
+# Variable exported from ./bolam_run.script
+#INIDATE="2019120300"
+#HRUN=72
+#DHOUTPUT_SHF=1
+#HOUR_LIMIT=4
+#DIROUTPUT_SHF="/data/oper/bolam_globo/shf"
+#FILE_FLAG_MODEL_RUN_ERROR="../../bolam_run_error.txt"
+#MODEL_LOWER="bolam"
+
+echo " "
+COM="rm -f ${MODEL_LOWER}_*.shf.txt"; echo $COM; $COM
+
+NFILE=$(($HRUN/$DHOUTPUT_SHF)); NFILE=`expr $NFILE "+" 1`
+
+timemax=$(($HOUR_LIMIT*3600))
+time_curr=0
+
+IFILE=1
+while [ $IFILE -le $NFILE ]
+do
+  AFILE=`printf '%03d\n' $IFILE`
+  FILE="${MODEL_LOWER}_${AFILE}.shf.txt"
+  FILE1="${MODEL_LOWER}_${AFILE}.shf"
+  FILE2="${DIROUTPUT_SHF}/${MODEL_LOWER}_${INIDATE}_${AFILE}.shf"
+  while true
+  do
+    if [ -s $FILE ]
+    then
+      sleep 2
+      echo " "
+      COM="mv $FILE1 ${FILE2}_work"; echo $COM; $COM
+      COM="mv ${FILE2}_work $FILE2"; echo $COM; $COM
+      break
+    else
+      if [ -s $FILE_FLAG_MODEL_RUN_ERROR ]; then
+        echo "mv_shf.script: Flag-file $FILE_FLAG_MODEL_RUN_ERROR exists and means that Bolam model run terminated with error => exit" 
+        exit
+      fi
+      time_curr=$(($time_curr+3)) 
+      if [ $time_curr -ge $timemax ]
+      then
+         echo "Execution time exceeded maximum time (${HOUR_LIMIT} h) => exit" 
+         exit
+      fi 
+      sleep 3
+    fi 
+  done
+  IFILE=$(($IFILE+1))
+done

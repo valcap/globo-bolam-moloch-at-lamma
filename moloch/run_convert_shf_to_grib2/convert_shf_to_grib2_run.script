@@ -1,0 +1,77 @@
+#! /bin/bash
+
+# Variable exported from ../../moloch_forecast_chain.script
+#INIDATE="2019120303"
+#HRUN=45
+#DHOUTPUT_SHF=1
+#HOUR_LIMIT=6
+#DIRINPUT="/data/oper/moloch/shf"
+#DIROUTPUT="/data/oper/moloch/shf_grib2"
+#MODEL="MOLOCH"
+#MODEL_LOWER=`echo ${MODEL} | tr [:upper:] [:lower:]`
+#FILE_FLAG_MODEL_RUN_ERROR="../../moloch_run_error.txt"
+
+IFILE_INI=1
+DIFILE=1
+
+NFILE=$(($HRUN/$DHOUTPUT_SHF)); NFILE=$(($NFILE+1))
+
+timemax=$(($HOUR_LIMIT*3600))
+time_curr=0
+
+IFILE=$IFILE_INI
+while [ $IFILE -le $NFILE ]
+do
+
+  IFILE_INP=$IFILE
+  AFILE=`printf '%03d\n' $IFILE_INP`
+  SHF="${DIRINPUT}/${MODEL_LOWER}_${INIDATE}_${AFILE}.shf"
+
+  while true
+  do
+    if [ -s $SHF ]
+    then
+      echo " "
+      echo "     Convert ${MODEL_LOWER}.shf to grib2"
+
+      sleep 1
+      COM="ln -sf $SHF input.shf"; echo $COM; $COM
+      break
+    else
+      if [ -s $FILE_FLAG_MODEL_RUN_ERROR ]; then
+        echo "Flag-file $FILE_FLAG_MODEL_RUN_ERROR exists and means that ${MODEL} model run terminated with error => exit" 
+        exit
+      fi
+      time_curr=$(($time_curr+5))
+      if [ $time_curr -ge $timemax ]
+      then
+         echo "Execution time exceeded maximum time (${HOUR_LIMIT} h) => exit" 
+         exit
+      fi
+      echo "Convert ${MODEL_LOWER} shf to grib2: input file ${SHF} not created yet, sleep 5"
+      sleep 5
+    fi
+  done
+
+time ../executable_convert_shf_to_grib2/convert_shf_to_grib2
+
+  I=$(($IFILE-1)); I=$(($I*$DHOUTPUT_SHF)); I=$(($I*60))
+  ID=$(($I/1440))
+  I2=$(($ID*1440)); I3=$(($I-$I2)); IH=$(($I3/60))
+  I4=$(($IH*60)); IM=$(($I3-$I4))
+  AD=`printf '%03d\n' $ID`; AH=`printf '%02d\n' $IH`; AM=`printf '%02d\n' $IM`
+###  if [ $I -eq 0 ]; then AM="01"; fi #####
+  OUTPUTFILE="${MODEL_LOWER}_${INIDATE}_${AD}${AH}${AM}.grib2"
+  if [ -s $OUTPUTFILE ]
+  then
+
+    COM="mv $OUTPUTFILE ${DIROUTPUT}/${OUTPUTFILE}"; echo $COM; $COM
+
+  else
+    echo "Convert ${MODEL_LOWER} shf to grib2: output file $OUTPUTFILE not created"
+  fi
+
+  rm input.shf
+
+  IFILE=$(($IFILE+$DIFILE))
+done

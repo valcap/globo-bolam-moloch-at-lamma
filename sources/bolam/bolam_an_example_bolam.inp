@@ -1,0 +1,44 @@
+&model
+dtstep =  60., anu2 = 0.06, anu2v = 0.06, ddamp = 0.085,
+hrun = 72., hdiag = 1.00, hbound = 1.,
+hist =  1., mswshf =  60., hrst = 240.0,
+mradconv = 28., nradm = 2,
+ntop = 4, nadj = 4, nbl = 8,
+nlcadj = .t., nlana = .t., nlbfix = .f., nlclimate = .f.,
+nlrst = .f.,
+mslfilter = 10.,
+hist_soil_full=-24., hist_zoom = -1.,
+zoom_lon_ini=305., zoom_lon_fin=55., zoom_lat_ini=15., zoom_lat_fin=80.
+&end
+
+! dtstep    integration time step (in seconds)
+! anu2      second order diffusion (max=1.0) for temperature
+! anu2v     second order diffusion (max=1.0) for momentum
+! ddamp     divergence damping     (max=1.0)
+! hrun      forecast duration in hours
+! hbound    interval (in hours) between two boundary conditions
+! hist      interval (in hours) between two writings of model output (mhf_atm, mhf_soil), if < 0, then no output writing
+! hrst      interval (in hour) between two writings of model restart file,
+!                variables (mhf_soil) to using in initialization of a next run
+! hdiag     interval (in hours) between two model diagnostics printouts
+! mswshf    interval (in minutes) between two writings of surface fields (shf), if < 0, then no output writing
+! mradconv  interval (in minutes) between calls of radiat. and convect. parameteriz.
+! ntop      no. of levels from top without physics
+! nadj      no. of adjustment steps
+! nbl       no. of lateral boundary lines
+! nradm     0: no radiation; 1: only Geleyn rad.; 2: Geleyn + ECMWF radiation
+! nlcadj    if true, parameterization of convection
+! nlana     if true, saves initial condition in output (mhf)
+! nlbfix    if true, fixed boundary conditions
+! nlclimate if true, then the regime of long (climate) run switch on
+! nlrst     if true, then the restart file reading switch on
+! mslfilter period (in minutes) of filtering of turbulent coefficient of the surface layer exchanging
+!
+! GLOBO only:
+! hist_soil_full interval (in hours) between two writings of surface, soil and snow cover model, if < 0, then no output writing
+! hist_zoom interval (in hours) between two writings of model output (mhf_atm, mhf_soil) over cut domain, if < 0, then no output writing
+! zoom_lon_ini, zoom_lon_fin, zomm_lat_ini, zoom_lat_fin : geographical coordinate for definition
+! for zoomed (cut) domain to writting of output data in Bolam-mhf format: 
+! zoom_lon_ini=0., zoom_lon_fin=359.99, zoom_lat_ini=60., zoom_lat_fin=90.  ! North Pole
+! zoom_lon_ini=305., zoom_lon_fin=55., zoom_lat_ini=15., zoom_lat_fin=80.   ! operational globo
+! zoom_lon_ini=70., zoom_lon_fin=160., zoom_lat_ini=-30., zoom_lat_fin=30.  ! Indonesia

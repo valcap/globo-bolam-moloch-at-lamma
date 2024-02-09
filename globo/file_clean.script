@@ -1,0 +1,245 @@
+#!/bin/bash
+# The following variables are exported from ../globo_forecast_chain.script
+#INIDATE="2019120300"
+#HRUN=168
+#DHOUTPUT_MHF=12
+#DHOUTPUT_MHF_ZOOM=1
+#DHOUTPUT_POST=12
+#DHOUTPUT_POST_ZOOM=3
+#DHOUTPUT_SHF=12
+#DIR_PREMODEL="/data/oper/globo/premodel"
+#DIR_MHF="/scratch/oper/globo"
+#DIR_MHF_ZOOM="/scratch/oper/globo"
+#DIR_SHF="/data/oper/globo/shf"
+#DIR_POSTMODEL_GRIB2="/data/oper/globo/ppf"
+#DIR_POSTMODEL_ZOOM_GRIB2="/data/oper/globo/ppf_globolam"
+#DIR_SHF_GRIB2="/data/oper/globo/shf_grib2"
+#DIR_GRAPH_EU="/data/oper/globo/graph_eu"
+#DIR_GRAPH_IT="/data/oper/globo/graph_it"
+#DIR_GRAPH_NH="/data/oper/globo/graph_nh"
+#DIR_GRAPH_SH="/data/oper/globo/graph_sh"
+#DIR_METEOGRAMS_EU="/data/oper/globo/meteograms_eu"
+#DIR_METEOGRAMS_IT="/data/oper/globo/meteograms_it"
+#MODEL_LOWER="globo"
+#DIR_BIN="/home/oper/eccodes/eccodes_ifort/bin"
+
+DAY0=`echo $INIDATE | cut -c 1-8`; HOUR0=`echo $INIDATE | cut -c 9-10`
+DAY=`date --date="$DAY0 $HOUR0 2day ago" +%Y%m%d`
+HOUR=`date --date="$DAY0 $HOUR0 2day ago" +%H`
+
+MINRUN=$(($HRUN*60))
+DMINOUTPUT_POST=$(($DHOUTPUT_POST*60))
+DMINOUTPUT_POST_ZOOM=$(($DHOUTPUT_POST_ZOOM*60))
+DMINOUTPUT_SHF=$(($DHOUTPUT_SHF*60))
+
+# Input data file
+
+echo " "
+FILE1="${DIR_PREMODEL}/${DAY0}${HOUR0}_atm.mhf"
+FILE2="${DIR_PREMODEL}/${DAY0}${HOUR0}_soil.mhf"
+COM="rm -f $FILE1"; echo $COM; $COM
+COM="rm -f $FILE2"; echo $COM; $COM
+
+# Model run output MHF files, whole domain
+
+echo " "
+NFILE=$(($HRUN/$DHOUTPUT_MHF)); NFILE=$(($NFILE+1))
+IFILE=1
+while [ $IFILE -le $NFILE ]
+do
+  AFILE=`printf '%03d\n' $IFILE`
+  FILE1="${DIR_MHF}/${MODEL_LOWER}_atm_${DAY}${HOUR}_${AFILE}.mhf"
+  FILE2="${DIR_MHF}/${MODEL_LOWER}_soil_${DAY}${HOUR}_${AFILE}.mhf"
+  COM="rm -f $FILE1"; echo $COM; $COM
+  COM="rm -f $FILE2"; echo $COM; $COM
+  IFILE=$(($IFILE+1))
+done
+DAY_OLD=`date --date="$DAY0 $HOUR0 3day ago" +%Y%m%d`
+COM="rm -f ${DIR_MHF}/${MODEL_LOWER}_*_${DAY_OLD}*.mhf"; echo $COM; $COM
+DAY_OLD=`date --date="$DAY0 $HOUR0 4day ago" +%Y%m%d`
+COM="rm -f ${DIR_MHF}/${MODEL_LOWER}_*_${DAY_OLD}*.mhf"; echo $COM; $COM
+DAY_OLD=`date --date="$DAY0 $HOUR0 5day ago" +%Y%m%d`
+
+# Model run output MHF files, domain zoom
+
+echo " "
+NFILE=$(($HRUN/$DHOUTPUT_MHF_ZOOM)); NFILE=$(($NFILE+1))
+IFILE=1
+while [ $IFILE -le $NFILE ]
+do
+  AFILE=`printf '%03d\n' $IFILE`
+  FILE1="${DIR_MHF_ZOOM}/${MODEL_LOWER}_zoom_atm_${DAY}${HOUR}_${AFILE}.mhf"
+  FILE2="${DIR_MHF_ZOOM}/${MODEL_LOWER}_zoom_soil_${DAY}${HOUR}_${AFILE}.mhf"
+  COM="rm -f $FILE1"; echo $COM; $COM
+  COM="rm -f $FILE2"; echo $COM; $COM
+  IFILE=$(($IFILE+1))
+done
+DAY_OLD=`date --date="$DAY0 $HOUR0 3day ago" +%Y%m%d`
+COM="rm -f ${DIR_MHF_ZOOM}/${MODEL_LOWER}_*_${DAY_OLD}*.mhf"; echo $COM; $COM
+DAY_OLD=`date --date="$DAY0 $HOUR0 4day ago" +%Y%m%d`
+COM="rm -f ${DIR_MHF_ZOOM}/${MODEL_LOWER}_*_${DAY_OLD}*.mhf"; echo $COM; $COM
+DAY_OLD=`date --date="$DAY0 $HOUR0 5day ago" +%Y%m%d`
+COM="rm -f ${DIR_MHF_ZOOM}/${MODEL_LOWER}_*_${DAY_OLD}*.mhf"; echo $COM; $COM
+
+# Model run output SHF files
+
+echo " "
+NFILE=$(($HRUN/$DHOUTPUT_SHF)); NFILE=$(($NFILE+1))
+IFILE=1
+while [ $IFILE -le $NFILE ]
+do
+  AFILE=`printf '%03d\n' $IFILE`
+  FILE="${DIR_SHF}/${MODEL_LOWER}_${DAY}${HOUR}_${AFILE}.shf"
+  COM="rm -f $FILE"; echo $COM; $COM
+  IFILE=$(($IFILE+1))
+done
+FILE="${DIR_SHF}/${MODEL_LOWER}_${DAY}${HOUR}_const.shf"
+COM="rm -f $FILE"; echo $COM; $COM
+
+# Archiving of postprocessed data in grib2 format
+
+#echo " "
+#COM="cd ${DIR_POSTMODEL_GRIB2}"; echo $COM; $COM
+#
+#TARFILE="${MODEL_LOWER}_${DAY}${HOUR}.tar"
+#MONTH=`echo $DAY | cut -c 1-6`
+#
+#if [ ! -s ${MONTH}/${TARFILE} ]; then
+#
+#  FILE_LIST=""; FILE_LIST_ZIP=""
+#  NFILE=0
+#  MIN=0
+#  while [ $MIN -le $MINRUN ]
+#  do
+#    NDAY=$(($MIN/1440))
+#    I1=$(($NDAY*1440)); I2=$(($MIN-$I1)); NHOUR=$(($I2/60))
+#    I3=$(($NHOUR*60)); NMIN=$(($I2-$I3))
+#    ADAY=`printf '%03d\n' $NDAY`; AHOUR=`printf '%02d\n' $NHOUR`; AMIN=`printf '%02d\n' $NMIN`
+#    FILE="${MODEL_LOWER}_${DAY}${HOUR}_${ADAY}${AHOUR}${AMIN}.grib2"
+#    if [ -s $FILE ]; then
+#      NFILE=`expr $NFILE "+" 1`
+#      FILE_LIST="${FILE_LIST} ${FILE}"
+#      FILE_LIST_ZIP="${FILE_LIST_ZIP} ${FILE}.bz2"
+#    fi
+#    MIN=`expr $MIN "+" $DMINOUTPUT_POST`
+#  done
+#  if [ $NFILE -gt 0 ]; then
+#    for FILE in $FILE_LIST
+#    do
+#      COM="bzip2 $FILE"; echo $COM; $COM
+#    done
+#    COM="tar -cvf $TARFILE $FILE_LIST_ZIP"; echo $COM; $COM
+#    COM="mkdir -p $MONTH"; echo $COM; $COM
+#    COM="mv $TARFILE $MONTH"; echo $COM; $COM
+#    COM="rm $FILE_LIST_ZIP"; echo $COM; $COM
+#  fi
+#
+#fi
+#cd -
+
+# Archiving of zoom domain postprocessed data in grib2 format, filtered fileds
+
+#echo " "
+#COM="cp filter_rules_mhf_zoom_grib2 ${DIR_POSTMODEL_ZOOM_GRIB2}"; echo $COM; $COM
+#COM="cd ${DIR_POSTMODEL_ZOOM_GRIB2}"; echo $COM; $COM
+#
+#TARFILE="${MODEL_LOWER}_zoom_${DAY}${HOUR}.tar"
+#MONTH=`echo $DAY | cut -c 1-6`
+#
+#if [ ! -s ${MONTH}/${TARFILE} ]; then
+#
+#  FILE_LIST=""; FILE_LIST_ZIP=""
+#  NFILE=0
+#  MIN=0
+#  while [ $MIN -le $MINRUN ]
+#  do
+#    NDAY=$(($MIN/1440))
+#    I1=$(($NDAY*1440)); I2=$(($MIN-$I1)); NHOUR=$(($I2/60))
+#    I3=$(($NHOUR*60)); NMIN=$(($I2-$I3))
+#    ADAY=`printf '%03d\n' $NDAY`; AHOUR=`printf '%02d\n' $NHOUR`; AMIN=`printf '%02d\n' $NMIN`
+#    FILE="${MODEL_LOWER}_zoom_${DAY}${HOUR}_${ADAY}${AHOUR}${AMIN}.grib2"
+#    if [ -s $FILE ]; then
+#      COM="${DIR_BIN}/grib_filter -o data_filtere.grib2 filter_rules_mhf_zoom_grib2 $FILE"; echo $COM; $COM
+#      if [ -s data_filtere.grib2 ]; then
+#        COM="mv data_filtere.grib2 $FILE"; echo $COM; $COM
+#        NFILE=`expr $NFILE "+" 1`
+#        FILE_LIST="${FILE_LIST} ${FILE}"
+#        FILE_LIST_ZIP="${FILE_LIST_ZIP} ${FILE}.bz2"
+#      else
+#        echo "data_filtered.grib2 not created using $FILE"
+#      fi
+#    fi
+#    MIN=`expr $MIN "+" $DMINOUTPUT_POST_ZOOM`
+#  done
+#  if [ $NFILE -gt 0 ]; then
+#    for FILE in $FILE_LIST
+#    do
+#      COM="bzip2 $FILE"; echo $COM; $COM
+#    done
+#    COM="tar -cvf $TARFILE $FILE_LIST_ZIP"; echo $COM; $COM
+#    COM="mkdir -p $MONTH"; echo $COM; $COM
+#    COM="mv $TARFILE $MONTH"; echo $COM; $COM
+#    COM="rm $FILE_LIST_ZIP"; echo $COM; $COM
+#  fi
+#
+#fi
+#cd -
+
+## Archiving of shf output data file in grib2 format
+#
+#echo " "
+#COM="cd ${DIR_SHF_GRIB2}"; echo $COM; $COM
+#TARFILE="${MODEL_LOWER}_grib2_${DAY}${HOUR}"
+#if [ ! -s ${TARFILE}.tgz ]; then
+#  FILE_LIST=""
+#  NFILE=0
+#  MIN=0
+#  while [ $MIN -le $MINRUN ]
+#  do
+#    NDAY=$(($MIN/1440))
+#    I1=$(($NDAY*1440)); I2=$(($MIN-$I1)); NHOUR=$(($I2/60))
+#    I3=$(($NHOUR*60)); NMIN=$(($I2-$I3))
+#    ADAY=`printf '%03d\n' $NDAY`; AHOUR=`printf '%02d\n' $NHOUR`; AMIN=`printf '%02d\n' $NMIN`
+#    FILE="${MODEL_LOWER}_${DAY}${HOUR}_${ADAY}${AHOUR}${AMIN}.grib2"
+#    if [ -s $FILE ]; then
+#      NFILE=$(($NFILE+1))
+#      FILE_LIST="${FILE_LIST} ${FILE}"
+#    fi
+#    MIN=$(($MIN+$DMINOUTPUT_SHF))
+#  done
+#  FILE="${MODEL_LOWER}_${DAY}${HOUR}_const.grib2"
+#  if [ -s $FILE ]; then
+#    FILE_LIST="${FILE_LIST} ${FILE}"
+#  fi
+#  if [ $NFILE -gt 0 ]; then
+#    COM="tar -cvzf ${TARFILE}.tgz $FILE_LIST"; echo $COM; $COM
+#    COM="rm $FILE_LIST"; echo $COM; $COM
+#  fi
+#fi
+#cd -
+
+# Meteograms
+
+echo " "
+FILE="${DIR_METEOGRAMS_EU}/${MODEL_LOWER}_meteogram_inst_${DAY}${HOUR}_*.dat"
+COM="rm -f $FILE"; echo $COM; $COM
+FILE="${DIR_METEOGRAMS_EU}/${MODEL_LOWER}_meteogram_${DAY}${HOUR}_point_*.dat"
+COM="rm -f $FILE"; echo $COM; $COM
+FILE="${DIR_METEOGRAMS}/${MODEL_LOWER}_meteogram_${DAY}${HOUR}_point_*.png"
+COM="rm -f $FILE"; echo $COM; $COM
+
+echo " "
+FILE="${DIR_METEOGRAMS_IT}/${MODEL_LOWER}_meteogram_inst_${DAY}${HOUR}_*.dat"
+COM="rm -f $FILE"; echo $COM; $COM
+FILE="${DIR_METEOGRAMS_IT}/${MODEL_LOWER}_meteogram_${DAY}${HOUR}_point_*.dat"
+COM="rm -f $FILE"; echo $COM; $COM
+FILE="${DIR_METEOGRAMS_IT}/${MODEL_LOWER}_meteogram_${DAY}${HOUR}_point_*.png"
+COM="rm -f $FILE"; echo $COM; $COM
+
+# Graphics files (maps)
+
+echo " "
+COM="rm -r -f ${DIR_GRAPH_EU}/${DAY}"; echo $COM; $COM
+COM="rm -r -f ${DIR_GRAPH_IT}/${DAY}"; echo $COM; $COM
+COM="rm -r -f ${DIR_GRAPH_NH}/${DAY}"; echo $COM; $COM
+COM="rm -r -f ${DIR_GRAPH_SH}/${DAY}"; echo $COM; $COM

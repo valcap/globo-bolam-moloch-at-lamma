@@ -1,0 +1,5 @@
+# File contains indications to plot or jump read data field:
+# if 'y', then the current filed will be plotted, if 'n', then current filed will be jumped 
+#
+'n'   #  file 1 messsage 01 : orography
+'n'   #  file 1 messsage 02 : lsm

@@ -1,0 +1,60 @@
+#! /bin/bash
+
+# Variable exported from ./globo_run.script
+#INIDATE="2023003070"
+#HRUN=168
+#HRESTART=72
+#DH_NEXT_FORECAST=24
+#HOUR_LIMIT=8
+#DIR_MHF_SOIL="/home/meteo/meteo/globo/mhf_soil_copy"
+#FILE_FLAG_MODEL_RUN_ERROR="../../globo_run_error.txt"
+#MODEL_LOWER="globo"
+
+DAY0=`echo $INIDATE | cut -c 1-8`
+HOUR0=`echo $INIDATE | cut -c 9-10`
+
+echo " "
+COM="rm -f ${MODEL_LOWER}_soil_${INIDATE}_*.mhf.txt"; echo $COM; $COM
+
+timemax=$(($HOUR_LIMIT*3600))
+time_curr=0
+
+HFC=$DH_NEXT_FORECAST
+if [ $HRESTART -gt $DH_NEXT_FORECAST ]; then HFC=$HRESTART; fi
+while [ $HFC -le $HRUN ]
+do
+  MIN=$(($HFC*60))
+  ND=$(($MIN/1440))
+  N1=$(($ND*1440)); N2=$(($MIN-$N1)); NH=$(($N2/60))
+  N3=$(($NH*60)); NM=$(($N2-$N3))
+  AND=`printf '%03d\n' $ND`; ANH=`printf '%02d\n' $NH`; ANM=`printf '%02d\n' $NM`
+  DATE_WORK=`date -u --date="${DAY0} $HOUR0 ${HFC}hour" +%Y%m%d%H`
+  AHFC=`printf '%03d\n' $HFC`
+  FILE_LOC="${MODEL_LOWER}_soil_${INIDATE}_${AND}${ANH}${ANM}.mhf"
+  FILE_REM="${DIR_MHF_SOIL}/${MODEL_LOWER}_${DATE_WORK}_${AHFC}h_soil.mhf"
+  FILE_FLAG="${FILE_LOC}.txt"
+  while true
+  do
+    if [ -s $FILE_FLAG ]
+    then
+      sleep 2
+      echo " "
+      COM="mv ${FILE_LOC} ${FILE_REM}"; echo $COM; $COM
+###      rm $FILE_FLAG
+      break
+    else
+      if [ -s $FILE_FLAG_MODEL_RUN_ERROR ]; then
+        echo "mv_mhf_soil.script: Flag-file $FILE_FLAG_MODEL_RUN_ERROR exists and means that model run terminated with error => exit" 
+        exit
+      fi
+      time_curr=$(($time_curr+60))
+      if [ $time_curr -ge $timemax ]
+      then
+         echo "Execution time exceeded maximum time (${HOUR_LIMIT} h) => exit" 
+         exit
+      fi 
+      sleep 60
+    fi 
+  done
+  HFC=$(($HFC+$DH_NEXT_FORECAST))
+done

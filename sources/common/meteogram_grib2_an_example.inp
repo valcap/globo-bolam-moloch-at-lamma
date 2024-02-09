@@ -1,0 +1,129 @@
+ &PROCES_PARAM
+
+! Parameters for Gaussian interpolation from grid points into the requested geographical points
+
+ INTERP_GAUSS=1, GAUSS_SEMI_RADIUS=2.5,  GAUSS_PAR=1.0,
+
+! Index of 2d field to decide which fields will be processed for meteorgams (see below)
+
+ INDEX_FIELD2D =    15,    17,    18,    19,    30,     6,     8,    31,    32,    33,
+
+! Index of 3d atmospheric field to decide which fields will be processed for meteorgams (see bwlow)
+
+ INDEX_FIELD3D =     3,     4, -9999, -9999, -9999, -9999, -9999, -9999, -9999, -9999,
+
+! Index of 3d soil field to decide which fields will be processed for meteorgams (see below)
+
+ INDEX_FIELD3D_SOIL = -9999, -9999, -9999, -9999, -9999, -9999, -9999, -9999, -9999, -9999,
+
+! List of level value of 3d atmospheric field to decide which fields will be processed for meteorgams
+
+!                          LEV1    LEV2    LEV3    LEV4    LEV5    LEV6    LEV7    LEV8    LEV9   LEV10
+ LEV_ATM_REQ0(001:010) = 85000., 70000., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR1
+ LEV_ATM_REQ0(011:020) = 85000., 70000., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR2
+ LEV_ATM_REQ0(021:030) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR3
+ LEV_ATM_REQ0(031:040) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR4
+ LEV_ATM_REQ0(041:050) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR5
+ LEV_ATM_REQ0(051:060) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR6
+ LEV_ATM_REQ0(061:070) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR7
+ LEV_ATM_REQ0(071:080) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR8
+ LEV_ATM_REQ0(081:090) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR9
+ LEV_ATM_REQ0(091:100) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR10
+
+! List of level value of 3d soil field to decide which fields will be processed for meteorgams
+
+!                           LEV1    LEV2    LEV3    LEV4    LEV5    LEV6    LEV7    LEV8    LEV9   LEV10
+ LEV_SOIL_REQ0(001:010) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR1
+ LEV_SOIL_REQ0(011:020) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR2
+ LEV_SOIL_REQ0(021:030) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR3
+ LEV_SOIL_REQ0(031:040) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR4
+ LEV_SOIL_REQ0(041:050) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR5
+ LEV_SOIL_REQ0(051:060) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR6
+ LEV_SOIL_REQ0(061:070) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR7
+ LEV_SOIL_REQ0(071:080) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR8
+ LEV_SOIL_REQ0(081:090) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., ! PAR9
+ LEV_SOIL_REQ0(091:100) = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999.  ! PAR10
+
+ &END
+
+!------------------------------------------------------------------------------
+! Tables of parameter indexes
+!
+!------------------------------------------------------------------------------
+! 2D fields, GRIB2 codes:
+!                                                     discipline category number
+! field2d(:,:, 1) = Geopot. height at the surface           00         03      005
+! or
+! field2d(:,:, 1) = Geopotential at the surface (surf.)     00         03      004
+! field2d(:,:, 2) = Geopot. height at the surf. (mod.lev. 1)00         03      005
+! or
+! field2d(:,:, 2) = Geopotential at the surf. (mod.lev. 1 ) 00         03      004
+! field2d(:,:, 3) = Land/sea mask                           02         00      000
+! field2d(:,:, 4) = Surface pressure (Pa)                   00         03      000
+! or
+! field2d(:,:, 4) = Logarithm of surface pressure           00         03      025
+! field2d(:,:, 5) = Land surface skin temperature           00         00      000 (00017)
+! field2d(:,:, 6) = Total precipitation (kg/m/m)            00         01      008
+! field2d(:,:, 7) = Convective precipitation (kg/m/m)       00         01      010
+! field2d(:,:, 8) = Total snow precipitation (m)            00         01      029
+! field2d(:,:, 9) = Terrain height (m)                      02         00      007
+! field2d(:,:,14) = Snow depth (equiv. water layer) (mm)    00         01      013 (01060)
+! field2d(:,:,15) = Mean sea level pressure                 00         03      001 (03000)
+! field2d(:,:,16) = Cloud cover (total)                     00         06      001
+! field2d(:,:,17) = U wind component at 10 m                00         02      002
+! 17 will be changed by Wind Speed at 10 m in output
+! field2d(:,:,18) = V wind component at 10 m                00         02      003
+! 18 will be changed by Wind Direction at 10 m in output
+! field2d(:,:,19) = 2 metre temperature                     00         00      000
+! field2d(:,:,20) = 2 metre dew point temperature           00         00      006
+! field2d(:,:,21) = Soil type                               02         03      000
+! field2d(:,:,22) = Fraction of sea ice                     10         02      000
+! field2d(:,:,23) = Total column integrated water (kg/m/m)  00         01      051
+! field2d(:,:,24) = Total column int. condensate (kg/m/m)   00         06      020
+! field2d(:,:,25) = Land surface skin humidity (kg/kg)      00         01      000
+! field2d(:,:,26) = Sea ice thickness (m)                   10         02      001
+! field2d(:,:,27) = Lapse rate (K m-1)                      00         00      008
+! field2d(:,:,30) = Relative humidity 2 m                   00         01      001
+! field2d(:,:,31) = Low cloud cover (%)                     00         06      003
+! field2d(:,:,32) = Medium cloud cover (%)                  00         06      004
+! field2d(:,:,33) = High cloud cover (%)                    00         06      005
+! field2d(:,:,45) = Soil porosity (Proportion = m**3/m**3)  02         03      009
+!------------------------------------------------------------------------------
+! 3D atmospheric fields, GRIB2 codes:
+!                                     discipline category number
+! field3d(:,:,:,1) = Geopotential         00         03      005
+! field3d(:,:,:,2) = Temperature          00         00      000
+! field3d(:,:,:,3) = U-velocity           00         02      002
+! 3 will be changed by Wind Speed in output
+! field3d(:,:,:,4) = V-velocity           00         02      003
+! 4 will be changed by Wind Direction in output
+! field3d(:,:,:,5) = Specific Humidity    00         01      000
+! field3d(:,:,:,6) = Relative Humidity    00         01      001
+! field3d(:,:,:,7) = Cloud water m.r.     00         01      022
+! field3d(:,:,:,8) = Cloud liquid water   00         01      083
+! field3d(:,:,:,9) = Cloud ice water      00         01      084
+! field3d(:,:,:,10) = Vertical velocity   00         02      009
+! field3d(:,:,:,11) = Pressure (Pa)       00         03      000
+! field3d(:,:,:,12) = Geometric height(m) 00         03      006
+!------------------------------------------------------------------------------
+! 3D soil fields, GRIB2 codes:
+!                                         discipline category number
+! field3d(:,:,:,1) = Soil temperature         02         00      002
+! field3d(:,:,:,2) = Volumetric soil wetness  02         00      009 (0200192)
+! field3d(:,:,:,3) = Liquid moisture content  02         00      198
+! field3d(:,:,:,4) = Frozen moisture content  02         00      199
+! field3d(:,:,:,5) = Sea temperature          10         03      000
+! field3d(:,:,:,6) = Sea ice temperature      10         02      192
+!------------------------------------------------------------------------------
+! Level types, grib2 codes:
+!
+! Ground or water surface                  001
+! Isobaric surface (Pa)                    100
+! Mean sea level                           101
+! Specified height level above m.sea.l.(m) 102
+! Specified height level above ground (m)  103
+! Sigma level (sigma value)                104
+! Hybrid level                             105
+! Depth below land surface (m)             106
+! Depth below sea level (m)                160
+!------------------------------------------------------------------------------

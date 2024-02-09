@@ -1,0 +1,54 @@
+ -------------------------------------------------------------------------
+# Parameters for the manual launching of the forecast chain ("manual" mode)
+# -------------------------------------------------------------------------
+# It includes:
+
+# 1) Bolam chain
+# 2) Moloch chain
+# -------------------------------------------------------------------------
+
+# ---- Generic perameters ----
+
+export DATE="20231123" # Initial (analysis) date (YYYMMDD)
+#export DATE=`date -u +%Y%m%d`
+export H0=0            # Initial (analysis) hour  
+
+#  Definition of flags for procedures launching:
+#  1 - active, 0 - disabled
+
+# ---- Bolam ----
+
+export FLAG_BOLAM=0                     # Model chain basic flag
+
+export FLAG_BOLAM_PREMODEL=0            # Preprocessing flag, lasciare 1 se si gira bolam anche se i file di output di prebolam sono gia' presenti
+export FLAG_BOLAM_MODEL=0               # Model run flag
+export FLAG_BOLAM_POSTMODEL=0
+export FLAG_BOLAM_POST_SHF=0            # shf ---> grib2
+export FLAG_BOLAM_METEOGRAMS=0          # Meteograms creation flag, python is required
+export FLAG_BOLAM_PLGRIBFA=1            # Graphic output (forecast maps) with Plgribfa SW, Plplot is required
+export FLAG_BOLAM_FILE_CLEANIG=1        # Flag for input, output files managing and cleaning
+
+# ---- Moloch ----
+
+export FLAG_MOLOCH=0                    # Model chain basic flag
+
+export FLAG_MOLOCH_PREMODEL=0           # Preprocessing flag
+export FLAG_MOLOCH_MODEL=0              # Model run flag
+export FLAG_MOLOCH_POSTMODEL=0          # Postprocessimg flag
+export FLAG_MOLOCH_POST_SHF=0           # Flag for conversation of shf output in grib2 format
+export FLAG_MOLOCH_METEOGRAMS=0         # Meteograms creation flag, python is required
+export FLAG_MOLOCH_PLGRIBFA=1           # Graphic output (forecast maps) with Plgribfa SW, Plplot is required
+export FLAG_MOLOCH_FILE_CLEANIG=1       # Flag for input, output files managing and cleaning
+
+# ---- Globo ----
+
+export FLAG_GLOBO=1                     # Model chain basic flag
+
+export FLAG_GLOBO_PREMODEL=0            # Preprocessing flag
+export FLAG_GLOBO_MODEL=0               # Model run flag
+export FLAG_GLOBO_POSTMODEL=1           # Postprocessing flag
+export FLAG_GLOBO_POSTMODEL_ZOOM=1      # Flag of postprocessing with mhf on zoon mhf domain
+export FLAG_GLOBO_POST_SHF=0            # Flag for conversation of shf output in grib2 format
+export FLAG_GLOBO_METEOGRAMS=1          # Meteograms creation flag, python is re quire
+export FLAG_GLOBO_PLGRIBFA=1            # Graphic output (forecast charts) with Plgribfa SW, Plplot is required
+export FLAG_GLOBO_FILE_CLEANIG=1

@@ -1,0 +1,127 @@
+#Snow depth
+'128141' = {
+	 discipline = 0 ;
+	 parameterCategory = 1 ;
+	 parameterNumber = 13 ;
+	 unitsFactor = 1000 ;
+	}
+#Soil type  ()
+'12843' = {
+	 discipline = 2 ;
+	 parameterCategory = 3 ;
+	 parameterNumber = 0 ;
+	}
+#Soil temperature level 1  (K)
+'128139' = {
+	 discipline = 2 ;
+	 parameterCategory = 0 ;
+	 parameterNumber = 2 ;
+	 typeOfFirstFixedSurface = 106 ;
+	 scaleFactorOfFirstFixedSurface = 3 ;
+	 scaledValueOfFirstFixedSurface = 35 ;
+	 typeOfSecondFixedSurface = 106 ;
+	 scaleFactorOfSecondFixedSurface = 0 ;
+	 scaledValueOfSecondFixedSurface = 0 ;
+	}
+#Soil temperature level 2  (K)
+'128170' = {
+	 discipline = 2 ;
+	 parameterCategory = 0 ;
+	 parameterNumber = 2 ;
+	 typeOfFirstFixedSurface = 106 ;
+	 scaleFactorOfFirstFixedSurface = 3 ;
+	 scaledValueOfFirstFixedSurface = 175 ;
+	 typeOfSecondFixedSurface = 106 ;
+	 scaleFactorOfSecondFixedSurface = 0 ;
+	 scaledValueOfSecondFixedSurface = 0 ;
+	}
+#Soil temperature level 3  (K)
+'128183' = {
+	 discipline = 2 ;
+	 parameterCategory = 0 ;
+	 parameterNumber = 2 ;
+	 typeOfFirstFixedSurface = 106 ;
+	 scaleFactorOfFirstFixedSurface = 3 ;
+	 scaledValueOfFirstFixedSurface = 640 ;
+	 typeOfSecondFixedSurface = 106 ;
+	 scaleFactorOfSecondFixedSurface = 0 ;
+	 scaledValueOfSecondFixedSurface = 0 ;
+	}
+#Soil temperature level 4  (K)
+'128236' = {
+	 discipline = 2 ;
+	 parameterCategory = 0 ;
+	 parameterNumber = 2 ;
+	 typeOfFirstFixedSurface = 106 ;
+	 scaleFactorOfFirstFixedSurface = 3 ;
+	 scaledValueOfFirstFixedSurface = 1945 ;
+	 typeOfSecondFixedSurface = 106 ;
+	 scaleFactorOfSecondFixedSurface = 0 ;
+	 scaledValueOfSecondFixedSurface = 0 ;
+	}
+#Volumetric soil water layer 1  (m**3 m**-3)
+'12839' = {
+	 discipline = 2 ;
+	 parameterCategory = 0 ;
+	 parameterNumber = 9 ;
+	 typeOfFirstFixedSurface = 106 ;
+	 scaleFactorOfFirstFixedSurface = 3 ;
+	 scaledValueOfFirstFixedSurface = 35 ;
+	 typeOfSecondFixedSurface = 106 ;
+	 scaleFactorOfSecondFixedSurface = 0 ;
+	 scaledValueOfSecondFixedSurface = 0 ;
+	}
+#Volumetric soil water layer 2  (m**3 m**-3)
+'12840' = {
+	 discipline = 2 ;
+	 parameterCategory = 0 ;
+	 parameterNumber = 9 ;
+	 typeOfFirstFixedSurface = 106 ;
+	 scaleFactorOfFirstFixedSurface = 3 ;
+	 scaledValueOfFirstFixedSurface = 175 ;
+	 typeOfSecondFixedSurface = 106 ;
+	 scaleFactorOfSecondFixedSurface = 0 ;
+	 scaledValueOfSecondFixedSurface = 0 ;
+	}
+#Volumetric soil water layer 3  (m**3 m**-3)
+'12841' = {
+	 discipline = 2 ;
+	 parameterCategory = 0 ;
+	 parameterNumber = 9 ;
+	 typeOfFirstFixedSurface = 106 ;
+	 scaleFactorOfFirstFixedSurface = 3 ;
+	 scaledValueOfFirstFixedSurface = 640 ;
+	 typeOfSecondFixedSurface = 106 ;
+	 scaleFactorOfSecondFixedSurface = 0 ;
+	 scaledValueOfSecondFixedSurface = 0 ;
+	}
+#Volumetric soil water layer 4  (m**3 m**-3)
+'12842' = {
+	 discipline = 2 ;
+	 parameterCategory = 0 ;
+	 parameterNumber = 9 ;
+	 typeOfFirstFixedSurface = 106 ;
+	 scaleFactorOfFirstFixedSurface = 3 ;
+	 scaledValueOfFirstFixedSurface = 1945 ;
+	 typeOfSecondFixedSurface = 106 ;
+	 scaleFactorOfSecondFixedSurface = 0 ;
+	 scaledValueOfSecondFixedSurface = 0 ;
+	}
+#Sea-ice cover  (0 - 1)
+'12831' = {
+	 discipline = 10 ;
+	 parameterCategory = 2 ;
+	 parameterNumber = 0 ;
+	}
+#Ice surface temperature layer 1  (K)
+'12835' = {
+	 discipline = 10 ;
+	 parameterCategory = 2 ;
+	 parameterNumber = 192 ;
+	 typeOfFirstFixedSurface = 160 ;
+	 scaleFactorOfFirstFixedSurface = 3 ;
+	 scaledValueOfFirstFixedSurface = 35 ;
+	 typeOfSecondFixedSurface = 160 ;
+	 scaleFactorOfSecondFixedSurface = 0 ;
+	 scaledValueOfSecondFixedSurface = 0 ;
+	}

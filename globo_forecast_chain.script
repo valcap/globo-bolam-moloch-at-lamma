@@ -1,0 +1,474 @@
+#!/bin/bash
+
+# Script for Globo forecast chain
+
+# The following parameters must be exported from model_chain_launch.script:
+
+#MODE="auto" # "auto" or "manual"
+#
+#DH_NEXT_FORECAST=24
+#ANALYSIS_MODEL="GFS"
+#ANALYSIS_MODEL_LOWER="gfs"
+#
+#INIDATE_GLOBO="2014011000"
+#HRUN_GLOBO=168
+#DHOUTPUT_GLOBO_MAIN=12
+#DHOUTPUT_GLOBO_MAIN_ZOOM=1
+#DHOUTPUT_GLOBO_ADD=12
+#NJUMP_POST_GLOBO=1
+#NJUMP_POST_GLOBO_ZOOM=3
+#NJUMP_POST_GLOBO_ADD=1
+#NJUMP_GRAPH_GLOBO=1
+#NJUMP_GRAPH_GLOBO_ZOOM=6
+#
+#HOUR_LIMIT_PRE_GLOBO=3
+#HOUR_LIMIT_GLOBO=6
+#HOUR_LIMIT_POST_GLOBO=6
+#
+#DIR_START=`pwd`
+#DIR_LOG="${DIR_START}/log/current"
+#DIR_ECCODES="${HOME}/eccodes/eccodes_gfortran"
+#DIR_SOURCES_COMMON="/home/oper/sources/common"
+#DIR_SOURCES_PLGRIBFA="/home/meteo/sources/plgribfa" # for Plgribfa graphical package application
+#DIR_GEO_DATA="/data/oper/geo_dataset"
+#
+#DIR_INPUT_DATA_GLOBO="/data/oper/gfs_0p25/global"
+#DIR_PREMODEL_DATA_GLOBO="/data/oper/globo/premodel"
+#DIR_MODEL_DATA_MHF_GLOBO="/data/oper/globo/mhf"
+#DIR_MODEL_DATA_MHF_GLOBO_ZOOM="/data/oper/globo/mhf_bolam"
+#DIR_MODEL_DATA_MHF_SOIL_COPY_GLOBO="/data/oper/globo/mhf_soil_copy"
+#DIR_MODEL_DATA_SHF_GLOBO="/data/oper/globo/shf"
+#DIR_MODEL_RESTART_DATA_GLOBO="/data/oper/globo/restart"
+#DIR_POSTMODEL_DATA_GRIB2_GLOBO="${DIR_ARCHIVE}/globo/ppf_grib2"
+#DIR_POSTMODEL_DATA_GRIB2_GLOBO_ZOOM="${DIR_ARCHIVE}/globo/ppf_zoom"
+#DIR_POSTMODEL_SHF_DATA_GRIB2_GLOBO"/data/oper/globo/shf_grib2"
+#DIR_METEOGRAMS_GLOBO_EU="/data/oper/globo/meteograms_eu"
+#DIR_METEOGRAMS_GLOBO_IT="/data/oper/globo/meteograms_it"
+#DIR_GRAPHIC_PROD_GLOBO_NH="${DIR_ARCHIVE}/globo/graph_nh"
+#DIR_GRAPHIC_PROD_GLOBO_SH="${DIR_ARCHIVE}/globo/graph_sh"
+#DIR_GRAPHIC_PROD_GLOBO_EU="${DIR_ARCHIVE}/globo/graph_eu"
+#DIR_GRAPHIC_PROD_GLOBO_IT="${DIR_ARCHIVE}/globo/graph_it"
+#
+#FILE_FLAG_GLOBO_RUN_FINISH="${DIR_START}/globo_run_finish.txt"
+#FILE_FLAG_GLOBO_RUN_ERROR="${DIR_START}/globo_run_error.txt"
+#
+#FLAG_GLOBO_PREMODEL=1
+#FLAG_GLOBO_MODEL=1
+#FLAG_GLOBO_POSTMODEL=1
+#FLAG_GLOBO_POSTMODEL_ZOOM=1
+#FLAG_GLOBO_POST_SHF=1
+#FLAG_GLOBO_METEOGRAMS=1
+#FLAG_GLOBO_PLGRIBFA=1
+#FLAG_GLOBO_FILE_CLEANIG=1
+#
+#NNODE_GLOBO=8
+#NPROC_NODE_GLOBO=48
+
+# MPI library application (for parallel calculation):
+export NNODE=$NNODE_GLOBO
+export NPROC_NODE=$NPROC_NODE_GLOBO
+
+DATE=`echo $INIDATE_GLOBO | cut -c 1-8`
+
+export MODEL="GLOBO"
+export MODEL_LOWER=`echo ${MODEL} | tr [:upper:] [:lower:]`
+MODEL_LOWER_BASE=$MODEL_LOWER
+
+echo "  "
+echo "Globo forecast chain (with $ANALYSIS_MODEL input data) started at:"
+date
+echo "  "
+
+# ---- Premodel: initial condition preparation ----
+
+wait_preglobo=""
+if [ $FLAG_GLOBO_PREMODEL == 1 ]; then
+
+  cd ${DIR_START}/globo/run_premodel
+
+  export ANALYSIS_MODEL
+  export INPUT_DATA_FORMAT
+  export INIDATE=$INIDATE_GLOBO
+  export DH_PREV_FORECAST=$DH_NEXT_FORECAST
+  export DIR_INPUT_DATA=$DIR_INPUT_DATA_GLOBO
+  export DIR_MHF_SOIL=$DIR_MODEL_DATA_MHF_SOIL_COPY_GLOBO
+  export DIR_OUTPUT_DATA=$DIR_PREMODEL_DATA_GLOBO
+  export DIR_GEO_DATA
+  export DIR_BIN="${DIR_ECCODES}/bin"
+  export HOUR_LIMIT=$HOUR_LIMIT_PRE_GLOBO
+  export MODEL_LOWER=$MODEL_LOWER_BASE
+
+  ./preglobo_gfs_data_run.script 1>${DIR_LOG}/stout_globo_premodel 2>&1 &
+  wait_preglobo=$!
+
+fi # premodel run
+
+# ---- End of Premodel ----
+
+# ---- Model run ----
+
+wait_globo=""
+if [ $FLAG_GLOBO_MODEL == 1 ]; then
+
+# Cleaning of model output for case of Postprocessing
+
+  if [ $FLAG_GLOBO_POSTMODEL == 1 ]; then
+    COM="rm -f ${DIR_MODEL_DATA_MHF_GLOBO}/*${INIDATE_GLOBO}*.mhf"; echo $COM; $COM
+  fi
+  if [ $FLAG_GLOBO_POSTMODEL_ZOOM == 1 ]; then
+    COM="rm -f ${DIR_MODEL_DATA_MHF_GLOBO_ZOOM}/*${INIDATE_GLOBO}*.mhf"; echo $COM; $COM
+  fi
+  if [ $FLAG_GLOBO_POST_SHF == 1 ]; then
+    COM="rm -f ${DIR_MODEL_DATA_SHF_GLOBO}/*${INIDATE_GLOBO}*.shf"; echo $COM; $COM
+  fi
+
+  cd ${DIR_START}/globo/run_model
+
+  export NNODE
+  export NPROC_NODE
+  export INIDATE=$INIDATE_GLOBO
+  export HRUN=$HRUN_GLOBO
+  export DH_NEXT_FORECAST
+  export DHOUTPUT_MHF=$DHOUTPUT_GLOBO_MAIN
+  export DHOUTPUT_MHF_ZOOM=$DHOUTPUT_GLOBO_MAIN_ZOOM
+  export DHOUTPUT_SHF=$DHOUTPUT_GLOBO_ADD
+  export DIROUTPUT_MHF_ZOOM=$DIR_MODEL_DATA_MHF_GLOBO_ZOOM
+  export DIROUTPUT_MHF=$DIR_MODEL_DATA_MHF_GLOBO
+  export DIROUTPUT_SHF=$DIR_MODEL_DATA_SHF_GLOBO
+  export DIR_MHF_SOIL=$DIR_MODEL_DATA_MHF_SOIL_COPY_GLOBO
+  export DIR_RESTART_DATA=$DIR_MODEL_RESTART_DATA_GLOBO
+  export MODEL_LOWER
+  export HOUR_LIMIT=$HOUR_LIMIT_GLOBO
+  export FILE_FLAG_MODEL_RUN_ERROR=$FILE_FLAG_GLOBO_RUN_ERROR
+  export FILE_FLAG_MODEL_RUN_FINISH=$FILE_FLAG_GLOBO_RUN_FINISH
+  export HRESTART=0
+
+  ./globo_run.script 1>${DIR_LOG}/stout_globo_model 2>&1 &
+  wait_globo=$!
+
+# <---
+
+fi # model run
+
+# ---- End of Model run ----
+
+# ---- Postprocessing with full domain MHF ----
+
+wait_postmodel_globo=""
+if [ $FLAG_GLOBO_POSTMODEL == 1 ]; then
+
+# Cleaning of post-mortem output for case of graphics products creation
+
+  if [ $FLAG_GLOBO_PLGRIBFA == 1 ] || [ $FLAG_GLOBO_METEOGRAMS == 1 ]; then
+    COM="rm -f ${DIR_POSTMODEL_DATA_GRIB2_GLOBO}/*${INIDATE_GLOBO}*.grib2"; echo $COM; $COM
+  fi
+
+  cd ${DIR_START}/globo/run_postmodel
+
+  export INIDATE=$INIDATE_GLOBO
+  export HRUN=$HRUN_GLOBO
+  export DHOUTPUT=$DHOUTPUT_GLOBO_MAIN
+  export NJUMP=$NJUMP_POST_GLOBO
+  export HOUR_LIMIT=$HOUR_LIMIT_POST_GLOBO
+  export DIRINPUT=$DIR_MODEL_DATA_MHF_GLOBO
+  export DIRINPUT_GEO=$DIR_PREMODEL_DATA_GLOBO
+  export DIROUTPUT=$DIR_POSTMODEL_DATA_GRIB2_GLOBO
+  export DIROUTPUT_GEO=$DIR_POSTMODEL_DATA_GRIB2_GLOBO
+  export MODEL_LOWER=$MODEL_LOWER_BASE
+  export FILE_FLAG_MODEL_RUN_ERROR=$FILE_FLAG_GLOBO_RUN_ERROR
+  export DIR_BIN="${DIR_ECCODES}/bin"
+
+  ./postmodel_run.script 1>${DIR_LOG}/stout_globo_postmodel 2>&1 &
+  wait_postmodel_globo=$!
+
+fi # postmodel run
+
+# ---- End of ostprocessing with zoom domain MHF ----
+
+# ---- Postprocessing with zoom domain MHF ----
+
+wait_postmodel_globo_zoom=""
+if [ $FLAG_GLOBO_POSTMODEL_ZOOM == 1 ]; then
+
+# Cleaning of post-mortem output for case of graphics products creation
+
+  if [ $FLAG_GLOBO_PLGRIBFA == 1 ] || [ $FLAG_GLOBO_METEOGRAMS == 1 ]; then
+    COM="rm -f ${DIR_POSTMODEL_DATA_GRIB2_GLOBO_ZOOM}/*${INIDATE_GLOBO}*.grib2"; echo $COM; $COM
+  fi
+
+  cd ${DIR_START}/globo/run_postmodel_zoom
+
+  export INIDATE=$INIDATE_GLOBO
+  export HRUN=$HRUN_GLOBO
+  export DHOUTPUT=$DHOUTPUT_GLOBO_MAIN_ZOOM
+  export NJUMP=$NJUMP_POST_GLOBO_ZOOM
+  export HOUR_LIMIT=$HOUR_LIMIT_POST_GLOBO
+  export DIRINPUT=$DIR_MODEL_DATA_MHF_GLOBO_ZOOM
+  export DIRINPUT_GEO=$DIR_MODEL_DATA_MHF_GLOBO_ZOOM
+  export DIROUTPUT=$DIR_POSTMODEL_DATA_GRIB2_GLOBO_ZOOM
+  export DIROUTPUT_GEO=$DIR_POSTMODEL_DATA_GRIB2_GLOBO_ZOOM
+  export MODEL_LOWER=$MODEL_LOWER_BASE
+  export FILE_FLAG_MODEL_RUN_ERROR=$FILE_FLAG_GLOBO_RUN_ERROR
+  export DIR_BIN="${DIR_ECCODES}/bin"
+
+  ./postmodel_zoom_run.script 1>${DIR_LOG}/stout_globo_postmodel_zoom 2>&1 &
+  wait_postmodel_globo_zoom=$!
+
+fi # postmodel run
+
+# ---- End of ostprocessing with zoom domain MHF ----
+
+# ---- Conversion SHF fo grib2 format ----
+
+if [ $FLAG_GLOBO_POST_SHF == 1 ]; then # conversion shf to grib2
+
+  export INIDATE=$INIDATE_GLOBO
+  export HRUN=$HRUN_GLOBO
+  export DHOUTPUT_SHF=$DHOUTPUT_GLOBO_ADD
+  export NJUMP=1
+  export HOUR_LIMIT=$HOUR_LIMIT_POST_GLOBO
+  export DIRINPUT=$DIR_MODEL_DATA_SHF_GLOBO
+  export DIROUTPUT=$DIR_POSTMODEL_SHF_DATA_GRIB2_GLOBO
+  export MODEL_LOWER=$MODEL_LOWER_BASE
+  export FILE_FLAG_MODEL_RUN_ERROR=$FILE_FLAG_GLOBO_RUN_ERROR
+
+  cd ${DIR_START}/globo/run_convert_shf_const_to_grib2
+  ./convert_shf_const_to_grib2_run.script 1>${DIR_LOG}/stout_globo_convert_shf_const_to_grib2 &
+
+  cd ${DIR_START}/globo/run_convert_shf_to_grib2
+  ./convert_shf_to_grib2_run.script 1>${DIR_LOG}/stout_globo_convert_shf_to_grib2 &
+
+fi # conversion shf to grib2
+
+# ---- End of conversion SHF to grib2 format ---
+
+# ---- Elaboration of meteograms ----
+
+wait_meteograms_globo=""
+if [ $FLAG_GLOBO_METEOGRAMS == 1 ]; then
+
+  export INIDATE=$INIDATE_GLOBO
+  export HRUN=$HRUN_GLOBO
+  export DH=$(($DHOUTPUT_GLOBO_MAIN_ZOOM*$NJUMP_GRAPH_GLOBO_ZOOM))
+  export HOUR_LIMIT=$HOUR_LIMIT_POST_GLOBO
+  export FILE_FLAG_MODEL_RUN_ERROR=$FILE_FLAG_GLOBO_RUN_ERROR
+
+# Meteograms for European domain
+
+  export DIR_DATA_INP=$DIR_POSTMODEL_DATA_GRIB2_GLOBO_ZOOM
+  export DIR_DATA_INP_GEO=$DIR_POSTMODEL_DATA_GRIB2_GLOBO_ZOOM
+  export DIR_DATA_OUT="${DIR_METEOGRAMS_GLOBO_EU}"
+
+  cd ${DIR_START}/globo/run_meteograms_eu
+
+# Cleaning of "old" output data:
+
+  echo " "
+  COM="rm -f ${DIR_DATA_OUT}/*_meteogram_inst_${INIDATE}_*.dat"; echo $COM; $COM
+  echo " "
+
+  export MODEL_LOWER="globo_zoom"
+
+  ./read_grib2_write_metrogram.script 1> ${DIR_LOG}/stout_globo_meteograms_calcul_eu 2>&1 &
+  wait_work=$!
+  wait_meteograms_globo="$wait_meteograms_globo $wait_work"
+
+  export DIR_DATA_INP="${DIR_METEOGRAMS_GLOBO_EU}"
+  export DIR_DATA_OUT="${DIR_METEOGRAMS_GLOBO_EU}"
+  export MODEL_LOWER=$MODEL_LOWER_BASE
+  export DIR_SOURCES=$DIR_SOURCES_COMMON
+
+  ./meteogram_rd_wr.script 1>${DIR_LOG}/stout_globo_meteograms_point_eu 2>&1 &
+  wait_work=$!
+  wait_meteograms_globo="$wait_meteograms_globo $wait_work"
+
+# Meteograms for Italian domain
+
+  export DIR_DATA_INP=$DIR_POSTMODEL_DATA_GRIB2_GLOBO_ZOOM
+  export DIR_DATA_INP_GEO=$DIR_POSTMODEL_DATA_GRIB2_GLOBO_ZOOM
+  export DIR_DATA_OUT="${DIR_METEOGRAMS_GLOBO_IT}"
+
+  cd ${DIR_START}/globo/run_meteograms_it
+
+# Cleaning of "old" output data:
+
+  echo " "
+  COM="rm -f ${DIR_DATA_OUT}/*_meteogram_inst_${INIDATE}_*.dat"; echo $COM; $COM
+  echo " "
+
+  export MODEL_LOWER="globo_zoom"
+
+  ./read_grib2_write_metrogram.script 1> ${DIR_LOG}/stout_globo_meteograms_calcul_it 2>&1 &
+  wait_work=$!
+  wait_meteograms_globo="$wait_meteograms_globo $wait_work"
+
+  export DIR_DATA_INP="${DIR_METEOGRAMS_GLOBO_IT}"
+  export DIR_DATA_OUT="${DIR_METEOGRAMS_GLOBO_IT}"
+  export MODEL_LOWER=$MODEL_LOWER_BASE
+  export DIR_SOURCES=$DIR_SOURCES_COMMON
+
+  ./meteogram_rd_wr.script 1>${DIR_LOG}/stout_globo_meteograms_point_it 2>&1 &
+  wait_work=$!
+  wait_meteograms_globo="$wait_meteograms_globo $wait_work"
+
+fi # Meteograms
+
+# ---- End of elaboration of meteograms ----
+
+# ---- Graphics elaboration: maps with Plgribfa SW ----
+
+wait_graph_map_globo=""
+if [ $FLAG_GLOBO_PLGRIBFA == 1 ]; then
+
+  export INIDATE=$INIDATE_GLOBO
+  export HRUN=$HRUN_GLOBO
+  export HOUR_LIMIT=$HOUR_LIMIT_POST_GLOBO
+  export DIRINPUT=$DIR_POSTMODEL_DATA_GRIB2_GLOBO_ZOOM
+  export DIRINPUT_GEO=$DIR_POSTMODEL_DATA_GRIB2_GLOBO_ZOOM
+  export MODEL_LOWER="globo_zoom"
+  export FILE_FLAG_MODEL_RUN_ERROR
+  export DIR_ECCODES
+  export DIR_SOURCES_PLGRIBFA
+
+# Maps on European domain
+
+  export DIROUTPUT1="${DIR_GRAPHIC_PROD_GLOBO_EU}"
+
+# Instant variables
+
+  export DH=$(($DHOUTPUT_GLOBO_MAIN_ZOOM*$NJUMP_GRAPH_GLOBO_ZOOM))
+
+  cd ${DIR_START}/globo/run_plgribfa_inst_eu
+
+  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_globo_plgribfa_map_eu_inst 2>&1 &
+  wait_work=$!
+  wait_graph_map_globo="$wait_graph_map_globo $wait_work"
+
+# Statistic (accumulated) variables
+
+  export DH=$(($DHOUTPUT_GLOBO_MAIN_ZOOM*$NJUMP_POST_GLOBO_ZOOM))
+
+  cd ${DIR_START}/globo/run_plgribfa_acc_06h_eu
+
+  export HACCUM=6
+  export H_UTC_ACCUM_FINISH_LIST="0 6 12 18"
+
+  ./plgribfa_run_accum.script 1>${DIR_LOG}/stout_globo_plgribfa_map_eu_accum_06h 2>&1 &
+  wait_work=$!
+  wait_graph_map_globo="$wait_graph_map_globo $wait_work"
+
+  cd ${DIR_START}/globo/run_plgribfa_acc_24h_eu
+
+  export HACCUM=24
+  export H_UTC_ACCUM_FINISH_LIST="0"
+
+  ./plgribfa_run_accum.script 1>${DIR_LOG}/stout_globo_plgribfa_map_eu_accum_24h 2>&1 &
+  wait_work=$!
+  wait_graph_map_globo="$wait_graph_map_globo $wait_work"
+
+# Maps on Italian domain
+
+  export DIROUTPUT1="${DIR_GRAPHIC_PROD_GLOBO_IT}"
+
+# Instant variables
+
+  export DH=$(($DHOUTPUT_GLOBO_MAIN_ZOOM*$NJUMP_GRAPH_GLOBO_ZOOM))
+
+  cd ${DIR_START}/globo/run_plgribfa_inst_it
+
+  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_globo_plgribfa_map_it_inst 2>&1 &
+  wait_work=$!
+  wait_graph_map_globo="$wait_graph_map_globo $wait_work"
+
+# Statistic (accumulated) variables
+
+  export DH=$(($DHOUTPUT_GLOBO_MAIN_ZOOM*$NJUMP_POST_GLOBO_ZOOM))
+
+  cd ${DIR_START}/globo/run_plgribfa_acc_06h_it
+
+  export HACCUM=6
+  export H_UTC_ACCUM_FINISH_LIST="0 6 12 18"
+
+  ./plgribfa_run_accum.script 1>${DIR_LOG}/stout_globo_plgribfa_map_it_accum_06h 2>&1 &
+  wait_work=$!
+  wait_graph_map_globo="$wait_graph_map_globo $wait_work"
+
+  cd ${DIR_START}/globo/run_plgribfa_acc_24h_it
+
+  export HACCUM=24
+  export H_UTC_ACCUM_FINISH_LIST="0"
+
+  ./plgribfa_run_accum.script 1>${DIR_LOG}/stout_globo_plgribfa_map_it_accum_24h 2>&1 &
+  wait_work=$!
+  wait_graph_map_globo="$wait_graph_map_globo $wait_work"
+
+## Maps on global domain
+#
+#  export DH=$(($DHOUTPUT_GLOBO_MAIN*$NJUMP_GRAPH_GLOBO))
+#  export DIRINPUT=$DIR_POSTMODEL_DATA_GRIB2_GLOBO
+#  export DIRINPUT_GEO=$DIR_POSTMODEL_DATA_GRIB2_GLOBO
+#  export MODEL_LOWER=$MODEL_LOWER_BASE
+#
+## North Hemisphere
+#
+#  export DIROUTPUT1="${DIR_GRAPHIC_PROD_GLOBO_NH}"
+#
+#  cd ${DIR_START}/globo/run_plgribfa_inst_nh
+#
+#  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_globo_plgribfa_map_nh 2>&1 &
+#  wait_work=$!
+#  wait_graph_map_globo="$wait_graph_map_globo $wait_work"
+#
+## South Hemisphere
+#
+#  export DIROUTPUT1="${DIR_GRAPHIC_PROD_GLOBO_SH}"
+#
+#  cd ${DIR_START}/globo/run_plgribfa_inst_sh
+#
+#  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_globo_plgribfa_map_sh 2>&1 &
+#  wait_work=$!
+#  wait_graph_map_globo="$wait_graph_map_globo $wait_work"
+
+fi
+
+# ---- End of Graphics elaboration: maps with Plgribfa SW ----
+
+echo "  "
+echo "Waiting of all Globo chain procedures finish"; date; wait
+
+# ---- Cleanig of working and old data file ----
+
+if [ $FLAG_GLOBO_FILE_CLEANIG == 1 ]; then
+
+  cd ${DIR_START}/globo
+
+  export INIDATE=$INIDATE_GLOBO
+  export HRUN=$HRUN_GLOBO
+  export DHOUTPUT_MHF=$DHOUTPUT_GLOBO_MAIN
+  export DHOUTPUT_MHF_ZOOM=$DHOUTPUT_GLOBO_MAIN_ZOOM
+  export DHOUTPUT_SHF=$DHOUTPUT_GLOBO_ADD
+  export DHOUTPUT_POST=$(($DHOUTPUT_GLOBO_MAIN*$NJUMP_POST_GLOBO))
+  export DHOUTPUT_POST_ZOOM=$(($DHOUTPUT_GLOBO_MAIN_ZOOM*$NJUMP_POST_GLOBO_ZOOM))
+  export DIR_PREMODEL=$DIR_PREMODEL_DATA_GLOBO
+  export DIR_MHF=$DIR_MODEL_DATA_MHF_GLOBO
+  export DIR_MHF_ZOOM=$DIR_MODEL_DATA_MHF_GLOBO_ZOOM
+  export DIR_SHF=$DIR_MODEL_DATA_SHF_GLOBO
+  export DIR_POSTMODEL_GRIB2=$DIR_POSTMODEL_DATA_GRIB2_GLOBO
+  export DIR_POSTMODEL_ZOOM_GRIB2=$DIR_POSTMODEL_DATA_GRIB2_GLOBO_ZOOM
+  export DIR_SHF_GRIB2=$DIR_POSTMODEL_SHF_DATA_GRIB2_GLOBO
+  export DIR_GRAPH_EU="${DIR_GRAPHIC_PROD_GLOBO_EU}"
+  export DIR_GRAPH_IT="${DIR_GRAPHIC_PROD_GLOBO_IT}"
+  export DIR_GRAPH_NH="${DIR_GRAPHIC_PROD_GLOBO_NH}"
+  export DIR_GRAPH_SH="${DIR_GRAPHIC_PROD_GLOBO_SH}"
+  export DIR_METEOGRAMS_EU=$DIR_METEOGRAMS_GLOBO_EU
+  export DIR_METEOGRAMS_IT=$DIR_METEOGRAMS_GLOBO_IT
+  export MODEL_LOWER=$MODEL_LOWER_BASE
+  export DIR_BIN="${DIR_ECCODES}/bin"
+
+  ./file_clean.script sbatch 1>${DIR_LOG}/stout_globo_file_clean 2>&1
+
+fi # file cleanig
+
+echo "  "
+echo "Globo forecast chain finished at:"
+date

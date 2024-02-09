@@ -1,0 +1,46 @@
+&PARAM_PREBOLAM
+ INPUT_FORMAT='INPUT_DATA', INPUT_FILE_STD=MHF_STD,
+ NLON=NPOINTX, NLAT=NPOINTY, NLEV=NLEVATM,
+ DLON=DX, DLAT=DY,
+ X0D=X0ROT, Y0D=Y0ROT,
+ ALON0=X1V, ALAT0=Y1V, P0=100000., ALFA=1.00,
+ SOIL_LEV0=  0.05, 0.13, 0.32, 0.69, 1.30, 2.21, 3.48, 5.17, 7.34, 10.05, 13.36, 17.33, 22.02,
+ -9999., -9999., -9999., -9999., -9999., -9999., -9999.,
+ NLEV_ATM_INP_MAX=200, NLEV_SOIL_INP_MAX=15,
+ NIST=01, INST_START=01, NSFC=0
+&END
+
+----------------  PARAMETERS OF THE (OUTPUT) BOLAM MODEL GRID  ----------------------
+
+NLON, NLAT, NLEV: Dimensions of the (rotated) BOLAM grid.
+NLEVG:            Number of soil levels.
+DLON, DLAT:       Resolution in degrees.
+X0D, Y0D:         Geographical coordinates in deg. of the centre of rotation
+                  (normally near the centre of the model grid).
+                  If the input model grid is in rotated coordinates (for ex. IFS or BOLAM),
+                  then the nested domain must be rotated, with the same rotation centre.
+                  For non rotated grid, define X0D=Y0D=0.
+ALON0, ALAT0:     Rotated coordinates in deg of the SW corner (point "v") of the BOLAM grid.
+                  In case of non rotated grid, ALON0, ALAT0 define the true coordinates of the SW corner;
+                  DLON should be set to DLAT/COS(lat0), where lat0 is a mean latitude of the model grid.
+P0                Reference pressure defining the hybrid vertical coordinate.
+ALFA:             Exponent defining the hybrid vertical coordinate over mountains - acceptable values:
+                  .8 < ALFA < 1.5 (low values are better but may not be compatible with high mountains).
+SLT1...:          Model soil layers thickness (m).
+
+----------------  PARAMETERS OF THE INPUT DATA GRID  ----------------------
+
+INPUT_FORMAT:      'grib2' for NOAA-GFS and ECMWF-IFS input data;
+                   'mhfb' for Bolam or Globo (CNR-ISAC) models input data.
+NLEV_ATM_INP_MAX:  Max. possible number of atmospheric levels of the input data.
+NLEV_SOIL_INP_MAX: Max. possible number of soil levels of the input data.
+INPUT_FILE_STD:    used only for INPUT_FORMAT='mhfb', denotes type of the input data:
+                   1 - united file (all instants in the same file),
+                   2 - separated files (one file for each instant).
+NIST:              Number of instants present in input data (total of analysis + forecasts);
+                   for INPUT_FORMAT='mhfb' and INPUT_FILE_STD=1: last instant number present
+                   in input data to be processed.
+INST_START:        For INPUT_FORMAT='mhfb' and INPUT_FILE_STD=1: progressive instant
+                   number in input data to be used as initial condition.
+NSFC:              Flag (0 or 1) for surface parameters (soil, snow depth, etc.)
+                   If surface data are available at first instant only, NSFC=1, otherwise NSFC=0.

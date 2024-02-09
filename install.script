@@ -1,0 +1,312 @@
+#!/bin/bash
+
+# Definition of all parameter for Bolam and Moloch application:
+# domain, grid, parameters of execution,
+# but not parameters of postprocessing elaboration.
+
+# -------------------------
+
+# Please, follow all steps with attention!
+
+# -------------------------
+
+DIR_START=`pwd`
+DIR_SOURCES="${DIR_START}/sources" # Not change this pass
+
+DIR_GRIB_LIB="\/home\/oxana\/eccodes\/eccodes_gfortran" # Complete path to grib_api or eccodes libraries for coding/decoding of grib2 format
+
+# -------- Bolam ---------- 
+
+# Domain and grid parameters definition:
+
+NPOINTX=578; NPOINTY=418   # Horizontal grid dimensions
+NLEVATM=60                 # Atmospheric level number
+NLEVSOIL=13                # Number of levels under the surface (soil/sea levels)
+                           # Attention: NLEVSOIL must be in according with quantity of defined soil levels in prebolam.inp
+
+X0ROT=10.5; Y0ROT=43.5     # Geographical coordinates in deg. of the centre of rotation
+DX=0.075; DY=0.075         # Resolution (deg.) of horizontal grid in rotated system
+X1V=-20.2000; Y1V=-14.5000 # Coordinates (deg.) of south-west grid corner V-point (!) in rotated (!) system
+
+INPUT_DATA=GRIB2           # Input data type for preprocessing:
+                           # MHFB - Bolam mhf (may be written by Globo); GRIB2
+MHF_STD=2                  # for MHFB only: 1 - united file (all instants in the same file), 
+                           # 2 - separated files (one file for each instant)
+
+# Model execution parameters:
+
+NPROCX=16; NPROCY=8        # MPI application: processor number along X and Y direction (if MPI do not used, then NPROCX=1 and NPROCY=1)
+
+TIMESTEP=60.               # Integration time step (s)
+DIFFCOEFF=0.06             # Coefficient of second order diffusion (max=1.0) for temperature
+DIFFCOEFFV=0.06            # Coefficient of second order diffusion (max=1.0) for momentum
+DAMPCOEFF=0.085            # Coefficient of divergence damping (max=1.0)
+RUNTERM=72.                # Forecast duration (hour)
+DHDIAG=0.25                # Interval between two model diagnostics printouts (hour)
+DHBOUND=3.                 # Interval between two boundary conditions (hour)
+DHOUTPUT_MAIN=1.           # Interval between two writings of model main output (mhf) (hour), if negative, then no this output
+DMINOUTPUT_ADD=60.         # Interval between two writings of surface fields output (shf) (minute), if negative, then no this output
+RADIATION_TYPE=2           # Type of radiation parametrization: 0 - no radiation; 1 - only Geleyn rad.; 2 - Geleyn + ECMWF radiation
+LEVTOP=4                   # Number of levels from top without physics
+# Next 2 options are used for Globo only:
+DHOUTPUT_SOIL=-24.         # Interval (in hours) between two writings of surface, soil and snow cover model, if negative, then no this output 
+DHOUTPUT_ZOOM=-1.          # Interval (in hours) between two writings of model output (mhf_atm, mhf_soil) over cut domain, if negative, then no this output
+
+# Setting of parameters in input and include files for compilation model,
+# preprocessing and integration execution
+
+# Definition of preprocessing parameters in namelist file
+
+SAMPLE="${DIR_SOURCES}/bolam/prebolam_sample.inp"
+FILE_PREBOLAM="./bolam/run_premodel/prebolam.inp"
+
+sed -e "s/NPOINTX/${NPOINTX}/" -e "s/NPOINTY/${NPOINTY}/" -e "s/NLEVATM/${NLEVATM}/"\
+ -e "s/DX/${DX}/" -e "s/DY/${DY}/" -e "s/X0ROT/${X0ROT}/" -e "s/Y0ROT/${Y0ROT}/"\
+ -e "s/X1V/${X1V}/" -e "s/Y1V/${Y1V}/"\
+ -e "s/INPUT_DATA/${INPUT_DATA}/" -e "s/MHF_STD/${MHF_STD}/" $SAMPLE > $FILE_PREBOLAM
+
+# Definition of model grid dimensions in include file
+
+SAMPLE="${DIR_SOURCES}/bolam/dimensions_sample.inc"
+FILE_BOLAM_DIM="./bolam/dimensions.inc"
+
+sed -e "s/NPOINTX/${NPOINTX}/" -e "s/NPOINTY/${NPOINTY}/"\
+ -e "s/NLEVATM/${NLEVATM}/" -e "s/NLEVSOIL/${NLEVSOIL}/"\
+ -e "s/NPROCX/${NPROCX}/" -e "s/NPROCY/${NPROCY}/" $SAMPLE > $FILE_BOLAM_DIM
+
+# Definition of model intergartion parameters in namelist file
+
+SAMPLE="${DIR_SOURCES}/bolam/bolam_sample.inp"
+FILE_BOLAM="./bolam/run_model/bolam.inp"
+
+sed -e "s/TIMESTEP/${TIMESTEP}/" -e "s/DIFFCOEFF/${DIFFCOEFF}/" -e "s/DIFFCOEFFV/${DIFFCOEFFV}/" -e "s/DAMPCOEFF/${DAMPCOEFF}/"\
+ -e "s/RUNTERM/${RUNTERM}/" -e "s/DHDIAG/${DHDIAG}/" -e "s/DHBOUND/${DHBOUND}/"\
+ -e "s/DHOUTPUT_MAIN/${DHOUTPUT_MAIN}/" -e "s/DMINOUTPUT_ADD/${DMINOUTPUT_ADD}/"\
+ -e "s/RADIATION_TYPE/${RADIATION_TYPE}/" -e "s/LEVTOP/${LEVTOP}/"\
+ -e "s/DHOUTPUT_SOIL/${DHOUTPUT_SOIL}/" -e "s/DHOUTPUT_ZOOM/${DHOUTPUT_ZOOM}/" $SAMPLE > $FILE_BOLAM
+
+echo " "
+echo "Please, control all parameters of Bolam implementation in files:"
+echo "     ${FILE_PREBOLAM}"
+echo "     ${FILE_BOLAM_DIM}"
+echo "     ${FILE_BOLAM}"
+
+# Definition of some parameters of Bolam run for implementation script
+
+IRUNTERM_BOLAM=`echo $RUNTERM | cut -d "." -f 1`
+IDHBOUND_BOLAM=`echo $DHBOUND | cut -d "." -f 1`
+IDHOUTPUT_MAIN_BOLAM=`echo $DHOUTPUT_MAIN | cut -d "." -f 1`
+IDMINOUTPUT_ADD=`echo $DMINOUTPUT_ADD | cut -d "." -f 1`
+IDHOUTPUT_ADD_BOLAM=$(($IDMINOUTPUT_ADD/60))
+
+# -------- Moloch ---------- 
+
+# Domain and grid parameters definition:
+
+NPOINTX=1154; NPOINTY=1154 # Horizontal grid dimensions
+NLEVATM=60                 # Atmospheric level number
+NLEVSOIL=13                # Number of levels under the surface (soil/sea levels)
+                           # Attention: NLEVSOIL must be in according with quantity of defined soil levels in premoloch.inp
+
+X0ROT=365.; Y0ROT=00.0     # Geographical coordinates in deg. of the centre of rotation, , if this parameters are not valid, then rotation parameters of input data will be used
+DX=0.0113; DY=0.0114       # Resolution (deg.) of horizontal grid in rotated system
+X1V=-5.1000; Y1V=-8.1000   # Coordinates (deg.) of south-west grid corner V-point (!) in rotated (!) system
+
+INPUT_DATA=MHFB            # Input data type for preprocessing:
+                           # MHFB - Bolam mhf; MHFM - Moloch mhf; GRIB2
+MHF_STD=2                  # for MHFB or MHFM only: 1 - united file (all instants in the same file), 
+                           # 2 - separated files (one file for each instant)
+
+# Model execution parameters:
+
+NPROCX=12; NPROCY=16       # MPI application: processor number along X and Y direction (if MPI do not used, then NPROCX=1 and NPROCY=1)
+
+TIMESTEP=30.               # Integration time step (s)
+NSTEP_SOUND=6              # Number of steps (during one integration time step) for sound waves
+NSTEP_ADV=3                # Number of steps (during one integration time step) for advection
+RUNTERM=24.                # Forecast duration (hour)
+DHBOUND=1.                 # Interval between two boundary conditions (hour)
+DHOUTPUT_MAIN=3.           # Interval between two writings of model main output (mhf) (hour)
+INDEX_OUTPUT_RES=1         # Index of model main output resolution: 1 - full mhf resolution; 2 - half mhf resolution
+DHOUTPUT_MAIN_FULL_RES=-24 # For case INDEX_OUTPUT_RES=2: Interval between two writings of model output (mhf) in full horizontal resolution (hour)
+DMINOUTPUT_ADD=60.         # Interval between two writings of surface fields output (shf) (minute), if negative, then no this output
+DHDIAG=0.25                # Interval between two model diagnostics printouts (hour)
+RADIATION_TYPE=2           # Type of radiation parametrization: 0 - no radiation; 1 - only Geleyn rad.; 2 - Geleyn + ECMWF radiation
+
+# Setting of parameters in input and include files for compilation model,
+# preprocessing and integration execution
+
+# Definition of preprocessing parameters in namelist file
+#
+SAMPLE="${DIR_SOURCES}/moloch/premoloch_sample.inp"
+FILE_PREMOLOCH="./moloch/run_premodel/premoloch.inp"
+
+sed -e "s/NPOINTX/${NPOINTX}/" -e "s/NPOINTY/${NPOINTY}/" -e "s/NLEVATM/${NLEVATM}/"\
+ -e "s/DX/${DX}/" -e "s/DY/${DY}/" -e "s/X0ROT/${X0ROT}/" -e "s/Y0ROT/${Y0ROT}/"\
+ -e "s/X1V/${X1V}/" -e "s/Y1V/${Y1V}/"\
+ -e "s/INPUT_DATA/${INPUT_DATA}/" -e "s/MHF_STD/${MHF_STD}/" $SAMPLE > $FILE_PREMOLOCH
+
+# Definition of model grid dimensions in include file
+
+SAMPLE="${DIR_SOURCES}/moloch/dimensions_sample.inc"
+FILE_MOLOCH_DIM="./moloch/dimensions.inc"
+
+sed -e "s/NPOINTX/${NPOINTX}/" -e "s/NPOINTY/${NPOINTY}/"\
+ -e "s/NLEVATM/${NLEVATM}/" -e "s/NLEVSOIL/${NLEVSOIL}/"\
+ -e "s/NPROCX/${NPROCX}/" -e "s/NPROCY/${NPROCY}/" $SAMPLE > $FILE_MOLOCH_DIM
+
+# Definition of model intergartion parameters in namelist file
+
+SAMPLE="${DIR_SOURCES}/moloch/moloch_sample.inp"
+FILE_MOLOCH="./moloch/run_model/moloch.inp"
+
+sed -e "s/TIMESTEP/${TIMESTEP}/" -e "s/NSTEP_ADV/${NSTEP_ADV}/" -e "s/NSTEP_SOUND/${NSTEP_SOUND}/"\
+ -e "s/RADIATION_TYPE/${RADIATION_TYPE}/" -e "s/INDEX_OUTPUT_RES/${INDEX_OUTPUT_RES}/"\
+ -e "s/RUNTERM/${RUNTERM}/" -e "s/DHBOUND/${DHBOUND}/"\
+ -e "s/DHOUTPUT_MAIN/${DHOUTPUT_MAIN}/" -e "s/DHOUTPUT_MAIN_FULL_RES/${DHOUTPUT_MAIN_FULL_RES}/"\
+ -e "s/DMINOUTPUT_ADD/${DMINOUTPUT_ADD}/" -e "s/DHDIAG/${DHDIAG}/" $SAMPLE > $FILE_MOLOCH
+
+echo " "
+echo "Please, control all parameters of Moloch implementation in files:"
+echo "     ${FILE_PREMOLOCH}"
+echo "     ${FILE_MOLOCH_DIM}"
+echo "     ${FILE_MOLOCH}"
+
+# Definition of some parameters of Moloch run for implementation script
+
+IRUNTERM_MOLOCH=`echo $RUNTERM | cut -d "." -f 1`
+IDHBOUND_MOLOCH=`echo $DHBOUND | cut -d "." -f 1`
+IDHOUTPUT_MAIN_MOLOCH=`echo $DHOUTPUT_MAIN | cut -d "." -f 1`
+IDMINOUTPUT_ADD=`echo $DMINOUTPUT_ADD | cut -d "." -f 1`
+IDHOUTPUT_ADD_MOLOCH=$(($IDMINOUTPUT_ADD/60))
+IDHOUTPUT_MAIN_FULL_RES_MOLOCH=$DHOUTPUT_MAIN_FULL_RES
+
+# -------- Globo ---------- 
+
+# Domain and grid parameters definition:
+
+NPOINTX=1538; NPOINTY=1058 # Horizontal grid dimensions
+NLEVATM=60                 # Atmospheric level number
+NLEVSOIL=13                # Number of levels under the surface (soil/sea levels)
+                           # Attention: NLEVSOIL must be in according with quantity of defined soil levels in preglobo.inp
+
+
+# Model execution parameters:
+
+NPROCX=16; NPROCY=12       # MPI application: processor number along X and Y direction (if MPI do not used, then NPROCX=1 and NPROCY=1)
+
+TIMESTEP=120.              # Integration time step (s)
+DIFFCOEFF=0.20             # Coefficient of second order diffusion (max=1.0) for temperature
+DIFFCOEFFV=0.20            # Coefficient of second order diffusion (max=1.0) for momentum
+DAMPCOEFF=0.200            # Coefficient of divergence damping (max=1.0)
+RUNTERM=168.               # Forecast duration (hour)
+DHDIAG=3.                  # Interval between two model diagnostics printouts (hour)
+DHBOUND=0.                 # Interval between two boundary conditions (hour)
+DHOUTPUT_MAIN=12.          # Interval between two writings of model main output (mhf) (hour), if negative, then no this output
+DMINOUTPUT_ADD=-720.       # Interval between two writings of surface fields output (shf) (minute), if negative, then no this output
+RADIATION_TYPE=2           # Type of radiation parametrization: 0 - no radiation; 1 - only Geleyn rad.; 2 - Geleyn + ECMWF radiation
+LEVTOP=6                   # Number of levels from top without physics
+DHOUTPUT_SOIL=24.          # Interval (in hours) between two writings of surface, soil and snow cover model, if negative, then no this output 
+DHOUTPUT_ZOOM=-1.          # Interval (in hours) between two writings of model output (mhf_atm, mhf_soil) over cut domain, if negative, then no this output
+
+
+# Setting of parameters in input and include files for compilation model,
+# preprocessing and integration execution
+
+# Definition of preprocessing parameters in namelist file
+
+SAMPLE="${DIR_SOURCES}/globo/preglobo_sample.inp"
+FILE_PREGLOBO="./globo/run_premodel/preglobo.inp"
+
+sed -e "s/NPOINTX/${NPOINTX}/" -e "s/NPOINTY/${NPOINTY}/" -e "s/NLEVATM/${NLEVATM}/"  $SAMPLE > $FILE_PREGLOBO
+
+# Definition of model grid dimensions in include file
+
+SAMPLE="${DIR_SOURCES}/bolam/dimensions_sample.inc"
+FILE_GLOBO_DIM="./globo/dimensions.inc"
+
+sed -e "s/NPOINTX/${NPOINTX}/" -e "s/NPOINTY/${NPOINTY}/"\
+ -e "s/NLEVATM/${NLEVATM}/" -e "s/NLEVSOIL/${NLEVSOIL}/"\
+ -e "s/NPROCX/${NPROCX}/" -e "s/NPROCY/${NPROCY}/" $SAMPLE > $FILE_GLOBO_DIM
+
+# Definition of model intergartion parameters in namelist file
+
+SAMPLE="${DIR_SOURCES}/bolam/bolam_sample.inp"
+FILE_GLOBO="./globo/run_model/globo.inp"
+
+sed -e "s/TIMESTEP/${TIMESTEP}/" -e "s/DIFFCOEFF/${DIFFCOEFF}/" -e "s/DIFFCOEFFV/${DIFFCOEFFV}/" -e "s/DAMPCOEFF/${DAMPCOEFF}/"\
+ -e "s/RUNTERM/${RUNTERM}/" -e "s/DHDIAG/${DHDIAG}/" -e "s/DHBOUND/${DHBOUND}/"\
+ -e "s/DHOUTPUT_MAIN/${DHOUTPUT_MAIN}/" -e "s/DMINOUTPUT_ADD/${DMINOUTPUT_ADD}/"\
+ -e "s/RADIATION_TYPE/${RADIATION_TYPE}/" -e "s/LEVTOP/${LEVTOP}/"\
+ -e "s/DHOUTPUT_SOIL/${DHOUTPUT_SOIL}/" -e "s/DHOUTPUT_ZOOM/${DHOUTPUT_ZOOM}/" $SAMPLE > $FILE_GLOBO
+
+echo " "
+echo "Please, control all parameters of Globo implementation in files:"
+echo "     ${FILE_PREGLOBO}"
+echo "     ${FILE_GLOBO_DIM}"
+echo "     ${FILE_GLOBO}"
+
+# Definition of some parameters of Globo run for implementation script
+
+IRUNTERM_GLOBO=`echo $RUNTERM | cut -d "." -f 1`
+IDHOUTPUT_MAIN_GLOBO=`echo $DHOUTPUT_MAIN | cut -d "." -f 1`
+IDHOUTPUT_MAIN_ZOOM_GLOBO=`echo $DHOUTPUT_ZOOM | cut -d "." -f 1`
+IDMINOUTPUT_ADD=`echo $DMINOUTPUT_ADD | cut -d "." -f 1`
+IDHOUTPUT_ADD_GLOBO=$(($IDMINOUTPUT_ADD/60))
+
+# --------------------------------
+
+# Link of input file with of complete path to grib_api or eccodes libraries
+# for coding of grib2 format in postprocessing and convertion of shf to grib2
+
+SAMPLE="${DIR_SOURCES}/common/grib_sample.inp"
+FILE_INP="./grib_sample.inp"
+
+sed -e "s/DIR_GRIB_LIB/${DIR_GRIB_LIB}/" $SAMPLE > $FILE_INP
+
+echo " "
+echo "Please, control complete path to grib2 template in file:"
+echo "     ${FILE_INP}"
+
+echo " "
+rm -f ./bolam/run_postmodel/grib_sample.inp
+rm -f ./bolam/run_convert_shf_to_grib2/grib_sample.inp
+COM="ln -sf $FILE_INP ./bolam/run_postmodel"; echo $COM; $COM
+COM="ln -sf $FILE_INP ./bolam/run_convert_shf_to_grib2"; echo $COM; $COM
+echo " "
+rm -f ./moloch/run_postmodel/grib_sample.inp
+rm -f ./moloch/run_convert_shf_to_grib2/grib_sample.inp
+COM="ln -sf $FILE_INP ./moloch/run_postmodel"; echo $COM; $COM
+COM="ln -sf $FILE_INP ./moloch/run_convert_shf_to_grib2"; echo $COM; $COM
+echo " "
+rm -f ./globo/run_postmodel/grib_sample.inp
+rm -f ./globo/run_postmodel_zoom/grib_sample.inp
+rm -f ./globo/run_convert_shf_to_grib2/grib_sample.inp
+rm -f ./globo/run_convert_shf_const_to_grib2/grib_sample.inp
+COM="ln -sf $FILE_INP ./globo/run_postmodel"; echo $COM; $COM
+COM="ln -sf $FILE_INP ./globo/run_postmodel_zoom"; echo $COM; $COM
+COM="ln -sf $FILE_INP ./globo/run_convert_shf_to_grib2"; echo $COM; $COM
+COM="ln -sf $FILE_INP ./globo/run_convert_shf_const_to_grib2"; echo $COM; $COM
+
+# Definition of some parameters of models chain implementation in model_chain_launch.script
+
+SCRIPT_SAMPLE="./model_chain_launch_sample.script"
+SCRIPT="./model_chain_launch.script"
+
+sed -e "s/IRUNTERM_BOLAM/${IRUNTERM_BOLAM}/" -e "s/IDHBOUND_BOLAM/${IDHBOUND_BOLAM}/"\
+ -e "s/IDHOUTPUT_MAIN_BOLAM/${IDHOUTPUT_MAIN_BOLAM}/" -e "s/IDHOUTPUT_ADD_BOLAM/${IDHOUTPUT_ADD_BOLAM}/"\
+ -e "s/IRUNTERM_MOLOCH/${IRUNTERM_MOLOCH}/" -e "s/IDHBOUND_MOLOCH/${IDHBOUND_MOLOCH}/"\
+ -e "s/IDHOUTPUT_MAIN_MOLOCH/${IDHOUTPUT_MAIN_MOLOCH}/" -e "s/IDHOUTPUT_ADD_MOLOCH/${IDHOUTPUT_ADD_MOLOCH}/"\
+ -e "s/IDHOUTPUT_MAIN_FULL_RES_MOLOCH/${IDHOUTPUT_MAIN_FULL_RES_MOLOCH}/"\
+ -e "s/IRUNTERM_GLOBO/${IRUNTERM_GLOBO}/" -e "s/IDHOUTPUT_MAIN_GLOBO/${IDHOUTPUT_MAIN_GLOBO}/"\
+ -e "s/IDHOUTPUT_MAIN_ZOOM_GLOBO/${IDHOUTPUT_MAIN_ZOOM_GLOBO}/" -e "s/IDHOUTPUT_ADD_GLOBO/${IDHOUTPUT_ADD_GLOBO}/"\
+ $SCRIPT_SAMPLE > $SCRIPT
+
+chmod u+x $SCRIPT
+
+echo " "
+echo "Please, control all parameters of model implenentation in script:"
+echo "     ${SCRIPT}"
+echo " "
+echo "    You can compile all execucables coping Makefile_gfortan or Makefile_ifort"
+echo "    to Makefile, setup intended options and execute make command"

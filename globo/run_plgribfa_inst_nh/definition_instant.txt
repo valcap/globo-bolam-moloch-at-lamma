@@ -1,0 +1,40 @@
+# File contains indications to plot or jump read data field:
+# if 'y', then the current filed will be plotted, if 'n', then current filed will be jumped 
+#
+'n'   #  file 2 messsage 01 : orography
+'y'   #  file 2 messsage 02 : lsm
+'n'   #  file 3 messsage 01 : GPH 850
+'y'   #  file 3 messsage 02 : T 850
+'y'   #  file 3 messsage 03 : U 850
+'y'   #  file 3 messsage 04 : V 850
+'n'   #  file 3 messsage 05 : GPH 700
+'n'   #  file 3 messsage 06 : T 700
+'n'   #  file 3 messsage 07 : U 700
+'n'   #  file 3 messsage 08 : V 700
+'n'   #  file 3 messsage 09 : RH 700
+'y'   #  file 3 messsage 10 : GPH 500
+'y'   #  file 3 messsage 11 : T 500
+'n'   #  file 3 messsage 12 : U 500
+'n'   #  file 3 messsage 13 : V 500
+'n'   #  file 3 messsage 14 : GPH 250
+'n'   #  file 3 messsage 15 : T 250
+'y'   #  file 3 messsage 16 : U 250
+'y'   #  file 3 messsage 17 : V 250
+'y'   #  file 3 messsage 18 : GPH 50
+'n'   #  file 3 messsage 19 : T 50
+'n'   #  file 3 messsage 20 : U 50
+'n'   #  file 3 messsage 21 : V 50
+'n'   #  file 3 messsage 22 : TG 1
+'y'   #  file 3 messsage 23 : MSLP
+'y'   #  file 3 messsage 24 : Total precip.
+'n'   #  file 3 messsage 25 : Conv. precip.
+'y'   #  file 3 messsage 26 : Snow precip.
+'n'   #  file 3 messsage 27 : U 10 m
+'n'   #  file 3 messsage 28 : V 10 m
+'y'   #  file 3 messsage 29 : T 2 m
+'n'   #  file 3 messsage 30 : RH 2 m
+'y'   #  file 3 messsage 31 : Tsurf
+'y'   #  file 3 messsage 32 : Total cloud cover (%)
+'y'   #  file 3 messsage 33 : Water equiv. of accumulated snow depth (kg m-2)
+'n'   #  file 3 messsage 34 : Sea ice cover fraction
+'n'   #  file 3 messsage 35 : Downward SW Rad

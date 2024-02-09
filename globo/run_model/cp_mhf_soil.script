@@ -1,0 +1,29 @@
+#! /bin/bash
+
+#INIDATE="2021060100"
+#HRUN=24
+#DHOUTPUT_MHF=12
+#DIR_MHF="/home/meteo/meteo/globo/mhf"
+#DIR_MHF_SOIL="/home/meteo/meteo/globo/mhf_soil_copy"
+#MODEL_LOWER="globo"
+#DH_NEXT_FORECAST=24
+
+DAY0=`echo $INIDATE | cut -c 1-8`
+HOUR0=`echo $INIDATE | cut -c 9-10`
+
+HFC=$DH_NEXT_FORECAST
+while [ $HFC -le $HRUN ]; do
+  DATE_WORK=`date -u --date="${DAY0} $HOUR0 ${HFC}hour" +%Y%m%d%H`
+  AHFC=`printf '%03d\n' $HFC`
+  IFILE=$(($HFC/$DHOUTPUT_MHF)); IFILE=$(($IFILE+1))
+  AFILE=`printf '%03d\n' $IFILE`
+  FILE_NAME="${MODEL_LOWER}_soil_${INIDATE}_${AFILE}.mhf"
+  FILE_NAME_COPY="${MODEL_LOWER}_${DATE_WORK}_${AHFC}h_soil.mhf"
+  echo " "
+  if [ -s ${DIR_MHF}/${FILE_NAME} ]; then
+    COM="cp ${DIR_MHF}/${FILE_NAME} ${DIR_MHF_SOIL}/${FILE_NAME_COPY}"; echo $COM; $COM
+  else
+    echo "File ${DIR_MHF}/${FILE_NAME} not found"
+  fi
+  HFC=$(($HFC+$DH_NEXT_FORECAST))
+done

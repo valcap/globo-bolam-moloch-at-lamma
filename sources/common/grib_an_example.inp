@@ -1,0 +1,3 @@
+ &GRIB_SAMPLE
+GRIBSAMPLENAME = "/home/meteo/eccodes/eccodes_gfortran/share/eccodes/samples/regular_ll_sfc_grib2.tmpl"
+ &END

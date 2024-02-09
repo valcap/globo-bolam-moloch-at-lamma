@@ -1,0 +1,3979 @@
+!   Author  O.Drofa, CNR-ISAC, Bologna, Italy (o.drofa@isac.cnr.it)
+!
+!   This code uses the graphical library PLplot.
+!
+!   PLplot is free software; you can redistribute it and/or modify
+!   it under the terms of the GNU General Library Public License as
+!   published by the Free Software Foundation; either version 2 of the
+!   License, or (at your option) any later version.
+!
+!   PLplot is distributed in the hope that it will be useful,
+!   but WITHOUT ANY WARRANTY; without even the implied warranty of
+!   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+!   GNU Library General Public License for more details.
+!
+!   Plplot Version 5.15.0 (2023)
+!
+!------------------------------------------------------------------------------
+MODULE MOD_GRAPH_WORK
+
+USE PLPLOT
+USE MOD_GRAPH_PAR, ONLY: NX, NY
+IMPLICIT NONE
+
+REAL(KIND=PLFLT), DIMENSION(:), ALLOCATABLE :: PCOLOR, RPCOLOR, GPCOLOR, BPCOLOR
+LOGICAL, DIMENSION(:), ALLOCATABLE :: REVPCOLOR
+INTEGER, DIMENSION(:), ALLOCATABLE :: RED, GREEN, BLUE
+
+LOGICAL :: MAP_RECTANGLE=.TRUE.
+
+CHARACTER*9, DIMENSION(:), ALLOCATABLE :: ACONTOUR
+CHARACTER :: ADCONTOUR*9, AGEO*10
+REAL(KIND=PLFLT), DIMENSION(:,:), ALLOCATABLE :: FIELD
+REAL(KIND=PLFLT), DIMENSION(:), ALLOCATABLE :: CONTOUR_VAL, XLINE, YLINE
+REAL(KIND=PLFLT) :: XINI, XFIN, YINI, YFIN, XRZOOM, XLZOOM, YBZOOM, YTZOOM, &
+ DXSCALE, DYSCALE, LMARG, RMARG, BMARG, TMARG, YXRATION_FIELD, YXRATION_WIND, CHARSIZE, &
+ DX_GRAPH, DY_GRAPH, COLOR1, LEG_X, LEG_Y, ZDX, ZDY, VAL_MIN, VAL_MAX, &
+ RES_FACTOR
+REAL(KIND=PLFLT), DIMENSION(4) :: LEG_SQUARE_X, LEG_SQUARE_Y
+REAL(KIND=PLFLT), DIMENSION(10000) :: LINE_X, LINE_Y
+REAL(KIND=PLFLT), DIMENSION(10) :: XCOMMENT, YCOMMENT 
+INTEGER :: IINI, IFIN, JINI, JFIN, ICHARTYPE1, ICHARTYPE2, ILINEW1, ILINEW2, ILINEW3, ILINEW4,&
+ NRES_BASE=760, NRES, INDEX, NXPIXEL, NYPIXEL, IFL_FIELD_CONST=0, PLSETOPT_IND
+INTEGER, PARAMETER :: NLINE_MESH=40
+REAL(KIND=PLFLT), DIMENSION(NLINE_MESH) :: ALAT_MESH, ALON_MESH
+REAL(KIND=PLFLT), DIMENSION(6) :: TR=(/1._PLFLT,0._PLFLT,1._PLFLT,0._PLFLT,1._PLFLT,1._PLFLT/)
+! TR is 1D array defining a transformation between the I,J grid of the array 
+! and the world coordinates. The world coordinates of the array point 
+! A(I,J) are given by:
+! X = TR(1)*(I-1) + TR(2)*(J-1) + TR(3)
+! Y = TR(4)*(I-1) + TR(5)*(J-1) + TR(6)
+REAL(KIND=PLFLT), DIMENSION(:,:), ALLOCATABLE :: TR2DX, TR2DY ! For 2d coordinat trasformation
+REAL(KIND=PLFLT), DIMENSION(1) :: COAST_LINE=(/0.5_PLFLT/)
+
+CONTAINS
+
+  SUBROUTINE TRANSFORM (X_INP, Y_INP, X_OUT, Y_OUT)
+
+    REAL(KIND=PLFLT), INTENT(IN) :: X_INP, Y_INP
+    REAL(KIND=PLFLT), INTENT(OUT) :: X_OUT, Y_OUT
+
+    INTEGER :: I, J
+
+       I=MAX( MIN( (INT(X_INP)+IINI), NX), 1)
+       J=MAX( MIN( (INT(Y_INP)+JINI), NY), 1)
+       X_OUT=TR2DX(I,J)
+       Y_OUT=TR2DY(I,J)
+
+  END SUBROUTINE TRANSFORM
+
+
+END MODULE MOD_GRAPH_WORK
+!------------------------------------------------------------------------------
+MODULE MOD_GEO_LINES
+
+USE PLPLOT
+IMPLICIT NONE
+
+INTEGER, PARAMETER :: N_POINT_LINE0=5000000, N_TYPE_LINE=4
+INTEGER, DIMENSION(N_TYPE_LINE) :: IFL_LINE_WORK
+INTEGER, DIMENSION(N_TYPE_LINE) :: N_POINT_LINE
+
+TYPE GEO_LINE_SET
+  REAL(KIND=PLFLT), DIMENSION(2,N_POINT_LINE0) :: GEO_COORD, MAP_COORD
+  INTEGER,          DIMENSION(N_POINT_LINE0) :: IFL_POINT
+END TYPE GEO_LINE_SET
+
+TYPE (GEO_LINE_SET), DIMENSION(N_TYPE_LINE) :: GEO_LINE
+
+END MODULE MOD_GEO_LINES
+!------------------------------------------------------------------------------
+
+SUBROUTINE PLPLOT_MAP
+
+! PROCEDURE CREATES GRAPHIC MAP FOR DEFINED 2D FIELD USING
+! DETERMINATED GRAPHIC PARAMETERS, TITLE AND COMMENTS STRING
+! THIS PROCEDURE HAS BEEN DEVELOPED FOR PRODUCTS OF THE CNR-ISAC's 
+! NUMERICAL WEATHER PREDICTION MODELS 
+
+USE PLPLOT, PI=>PL_PI
+USE MOD_GRAPH_PAR, PI_1=>PI
+USE MOD_GRAPH_WORK
+USE MOD_GEO_LINES
+IMPLICIT NONE
+
+REAL(KIND=PLFLT) :: YXRATION0, LMARG0, RMARG0, BMARG0, TMARG0, ZRMARG, ZTMARG, HWINDOW, VWINDOW
+REAL(KIND=PLFLT) :: ZZZ, ZK, ZDCONT
+REAL(KIND=PLFLT), DIMENSION(1) :: CONTOUR_VAL_ADD
+REAL :: ZMAX, ZDLON, ZDLAT, H_LENGTH, V_LENGTH
+INTEGER :: ICOLOR, ICOLOR_WORK=11, NCOLOR, ICONTOUR, NCONTOUR, IFIELD, IFL_LEGEND, IFL_LABEL, IFL_CONTOUR, &
+ IFLEFORMAT, IFLNUMBER, IFL, IINSTANT, IPAGE, IPAGEINI, IPAGEFIN, &
+ I, J, NP, NNN, RED_WORK, GREEN_WORK, BLUE_WORK
+CHARACTER :: AFILE0*4, AINSTANT*4, ANPIXEL*9, A10*10, A3*3, A31*3, A7*7
+
+REAL(KIND=PLFLT), DIMENSION(1) :: CONT_LOC
+
+!----------------------------------------------------------------------------
+
+! Definition of plot type: map (IFL_MAP=1) or space cross-section (IFL_MAP=0)
+
+IF (PAGE(1)%NX_CROSS /= 0) IFL_MAP=0
+
+! For constant (invarioable in time) fields:
+ IF (PAGE(1)%IPALETTE(1)==3.OR.&! Orography
+PAGE(1)%PRESENT_TYPE(1)==6) & ! Pixel map (soil and vegetation typies)
+ IFL_FIELD_CONST=1
+
+! Attention: for space cross-section plot
+! plot geometry will be defined using NX of the 1-st defined graphic page parameters; 
+! so, it is recommended to use input data with the same fields dimenions,
+! because of impossible to defined differ plot's geometry for the unique graphical output.
+
+IF (IFL_MAP == 1) THEN
+
+! Determinated geographical coordinates for map grid points
+
+  IF (ANY(INT(ALON(:,:))==INT(VALMISS)).OR.ANY(INT(ALAT(:,:))==INT(VALMISS))) CALL GEO_GRID_CONVERT_1
+
+! Reading of geographical lines dataset
+
+  CALL GEO_LINE_DATASET
+  CALL GEO_LINE_DATASET_ITALY
+
+! Convert geographical lines coordinates into map grid coordinates
+
+  CALL GEO_LINE_CONVERT_1
+
+! Setting of graphical parameters for map
+
+  LMARG0=0.01_PLFLT ! Left edge of viewport
+  RMARG0=0.87_PLFLT ! Right edge of viewport
+  BMARG0=0.03_PLFLT ! Bottom edge of viewport
+  TMARG0=0.93_PLFLT ! Top edge of viewport
+  YXRATION0=1.00_PLFLT ! Ration of Y-axis to X-axis
+
+! No Date, Time and Forecast term Description for constant fields:
+
+  IF (IFL_FIELD_CONST == 1) THEN
+    LMARG0=0.01_PLFLT ! Left edge of viewport
+    RMARG0=0.87_PLFLT ! Right edge of viewport
+    BMARG0=0.03_PLFLT ! Bottom edge of viewport
+    TMARG0=0.96_PLFLT ! Top edge of viewport
+    !!!YXRATION0=0.92_PLFLT ! Ration of Y-axis to X-axis
+    YXRATION0=1.00_PLFLT ! Ration of Y-axis to X-axis
+    IF (PAGE(1)%PRESENT_TYPE(1)==6) THEN ! Pixel map (soil and vegetation typies) with legend on the plot bottom
+      LMARG0=0.01_PLFLT ! Left edge of viewport
+      RMARG0=0.99_PLFLT ! Right edge of viewport
+      BMARG0=0.20_PLFLT ! Bottom edge of viewport
+      TMARG0=0.95_PLFLT ! Top edge of viewport
+      !!!YXRATION0=1.31_PLFLT ! Ration of Y-axis to X-axis
+      YXRATION0=1.00_PLFLT ! Ration of Y-axis to X-axis
+    ENDIF
+  ENDIF
+
+ELSE
+
+! Setting of graphical parameters for cross-section
+
+  LMARG0=0.08_PLFLT ! Left edge of viewport
+  RMARG0=0.87_PLFLT ! Right edge of viewport
+  BMARG0=0.06_PLFLT ! Bottom edge of viewport
+  TMARG0=0.93_PLFLT ! Top edge of viewport
+  YXRATION0=1.00_PLFLT ! Ration of Y-axis to X-axis
+  NRES_BASE=850
+
+ENDIF
+
+! Meteograms map --->
+!LMARG0=0.01_PLFLT ! Left edge of viewport
+!RMARG0=0.99_PLFLT ! Right edge of viewport
+!BMARG0=0.02_PLFLT ! Bottom edge of viewport
+!TMARG0=0.99_PLFLT ! Top edge of viewport
+!YXRATION0=1.00_PLFLT ! Ration of Y-axis to X-axis
+!NRES_BASE=900
+! <---
+
+! Setting of graphical parameters
+
+CHARSIZE=1.7_PLFLT ! Font size in mm
+ICHARTYPE1=1 ! Font type (legend, comments)
+ICHARTYPE2=1 ! Font type (isoline labels)
+ILINEW1=0 ! Pen width for text and thin line
+ILINEW2=1 ! Pen width for gross line
+ILINEW3=2 ! Pen width for gross line
+ILINEW4=4 ! Pen width for very gross line
+DXSCALE=0.01_PLFLT ! DX scale
+XRZOOM=XZOOM_INI*1.0_PLFLT
+XLZOOM=XZOOM_FIN*1.0_PLFLT
+YBZOOM=YZOOM_INI*1.0_PLFLT
+YTZOOM=YZOOM_FIN*1.0_PLFLT
+
+IF (IFL_MAP ==1 ) THEN
+! ISTEREO: 1 - Use Stereographic projection, if 0 - No 
+! Stereographic geo. projection parameters: origin latitude and longitude, projection radius, extreem latitude
+  IF (ISTEREO==1) THEN ! Stereographic projection
+    MAP_RECTANGLE=.FALSE.
+    IF (INT(STEREOLAT0)==90) THEN ! North hemisphere
+      YTZOOM=1.0_PLFLT
+      YBZOOM=(((STEREOLATN-Y00)/DY+1.)/FLOAT(NY))*1._PLFLT
+    ELSE ! South hemisfere
+      YTZOOM=(((STEREOLATN-Y00)/DY+1.)/FLOAT(NY))*1._PLFLT
+      YBZOOM=0.0_PLFLT
+    ENDIF
+  ENDIF
+ENDIF
+
+IINI=(NX-1) * XRZOOM + 1
+IFIN=(NX-1) * XLZOOM + 1
+JINI=(NY-1) * YBZOOM + 1
+JFIN=(NY-1) * YTZOOM + 1
+XINI=IINI * 1._PLFLT
+XFIN=IFIN * 1._PLFLT
+YINI=JINI * 1._PLFLT
+YFIN=JFIN * 1._PLFLT
+
+IF (IFL_MAP==0) THEN
+  YINI=VERT_COORD(JINI) * 1._PLFLT
+  YFIN=VERT_COORD(JFIN) * 1._PLFLT
+ENDIF
+
+! Factor for change base resoultion (NRES_BASE*RES_FACTOR)
+
+!!!RES_FACTOR=MAX (1., (XFIN-XINI)/600.)
+RES_FACTOR=1.
+
+! Resetting of some graphic parameter for some dives
+
+! Set output file name:
+IF (IDEV_TYPE<=3) THEN
+  CHARSIZE=CHARSIZE*2.0_PLFLT
+  IF (IDEV_TYPE==1) THEN
+    ILINEW1=2 ! Pen width for text
+    ILINEW2=3 ! Pen width for line
+    ILINEW3=4 ! Pen width for line
+    ILINEW4=6 ! Pen width for gross line
+  ENDIF
+ENDIF
+
+IF (IDEV_TYPE>3) THEN ! For change of resolution
+  IF (RES_FACTOR > 1.) THEN
+    CHARSIZE=CHARSIZE*RES_FACTOR*0.7 ! Font size in mm
+    ILINEW1=NINT(FLOAT(ILINEW1)*RES_FACTOR*0.8) ! Pen width for text and thin line
+    ILINEW2=NINT(FLOAT(ILINEW2)*RES_FACTOR*0.8) ! Pen width for gross line
+    ILINEW3=NINT(FLOAT(ILINEW2)*RES_FACTOR*0.5) ! Pen width for gross line
+    ILINEW4=NINT(FLOAT(ILINEW4)*RES_FACTOR*0.) ! Pen width for very gross line
+  ENDIF
+  IF (IDEV_TYPE==6) CHARSIZE=CHARSIZE*2.00 ! Font size in mm
+ENDIF
+
+! Ration of Y-axis to X-axis and Margings
+
+IF (IFL_MAP == 1) THEN
+  YXRATION_FIELD=YXRATION0*((YFIN-YINI)*DY)/((XFIN-XINI)*DX)
+  IF (ISTEREO==1) YXRATION_FIELD=1._PLFLT
+ELSE ! Space cross-section
+! Calculation of lengh on horizontal and vertical axis in km
+  IF (PAGE(1)%LON_CROSS_FIN >= PAGE(1)%LON_CROSS_INI) THEN
+    ZDLON=PAGE(1)%LON_CROSS_FIN-PAGE(1)%LON_CROSS_INI
+  ELSE
+    ZDLON=PAGE(1)%LON_CROSS_INI+180.+180.-PAGE(1)%LON_CROSS_FIN
+  ENDIF
+  ZDLON=ZDLON*ABS(COS((PAGE(1)%LAT_CROSS_INI+PAGE(1)%LAT_CROSS_FIN)*0.5*PI/180.))
+  ZDLAT=PAGE(1)%LAT_CROSS_FIN-PAGE(1)%LAT_CROSS_INI
+  H_LENGTH=SQRT(ZDLON**2+ZDLAT**2)
+  H_LENGTH=H_LENGTH*PI/180.*6371.
+  H_LENGTH=H_LENGTH*(XZOOM_FIN-XZOOM_INI)
+  IF (VERT_COORD_TYPE == 100 ) THEN ! Pressure
+    V_LENGTH=EXP(YINI)-EXP(YFIN)
+    V_LENGTH=V_LENGTH/9.81/0.7*1.E-3
+    V_LENGTH=V_LENGTH*(YZOOM_FIN-YZOOM_INI)
+  ENDIF 
+  IF (VERT_COORD_TYPE == 102 ) THEN ! Altitude above mean sea level (m)
+    V_LENGTH=YFIN-YINI
+    V_LENGTH=V_LENGTH*1.E-3
+    V_LENGTH=V_LENGTH*(YZOOM_FIN-YZOOM_INI)
+  ENDIF
+  YXRATION_FIELD=YXRATION0*V_LENGTH*1.E2/H_LENGTH
+ENDIF
+
+LMARG=LMARG0
+RMARG=RMARG0
+BMARG=BMARG0/YXRATION_FIELD ! Bottom edge of viewport
+TMARG=1._PLFLT-(1._PLFLT-TMARG0)/YXRATION_FIELD ! Top edge of viewport
+
+DYSCALE=DXSCALE/YXRATION_FIELD ! DY scale
+
+! Setting of window geometry and resolution (in pixel)
+
+! Calculation of viewport (window) geometry to considerate requested filed
+! (graphic, plot) y/x ration and requested window margins:
+! note: window margins are defined as fraction of window (viewport) size,
+! not of field (graphic) size
+
+ZRMARG=1._PLFLT-RMARG
+ZTMARG=1._PLFLT-TMARG
+HWINDOW=NRES_BASE*1._PLFLT
+VWINDOW=YXRATION_FIELD*HWINDOW*(1.-LMARG-ZRMARG)/(1.-BMARG-ZTMARG)
+YXRATION_WIND=VWINDOW/HWINDOW
+
+!NYPIXEL=NINT(FLOAT(NRES_BASE)*RES_FACTOR)
+!NXPIXEL=INT(FLOAT(NYPIXEL)/YXRATION_WIND) ! Base resolution along y axis
+NXPIXEL=NINT(FLOAT(NRES_BASE)*RES_FACTOR)
+NYPIXEL=INT(FLOAT(NXPIXEL)*YXRATION_WIND) ! Base resolution along x axis
+WRITE (ANPIXEL,'(I4.4,A1,I4.4)') NXPIXEL,'x',NYPIXEL
+
+! Graphics start
+
+PLSETOPT_IND=PLSETOPT('portrait',' ') ! Set vertical ps image
+!PLSETOPT_IND=PLSETOPT('ori','4') ! Set vertical ps image
+IF (PLSETOPT_IND /= 0) THEN
+  PRINT *,"Error in plot geometry definition (plsetopt), stop"
+  STOP
+ENDIF
+
+CALL PLSCOLBG(255,255,255) ! Set background color (R,G,B)
+
+! Set devise type
+! Plot divise type IDEV_TYPE: psc=1, pscairo=2, pdfcairo=3, xwin=4, png=5, pngcairo=6, jpeg=7, gif=8'
+IF (IDEV_TYPE==1) CALL PLSDEV('psc') ! PostScript File (color)
+IF (IDEV_TYPE==2) CALL PLSDEV('pscairo') ! Cairo PS Driver
+IF (IDEV_TYPE==3) CALL PLSDEV('pdfcairo') ! Cairo PDF Driver
+IF (IDEV_TYPE==4) CALL PLSDEV('xwin') ! X-Window (Xlib)
+IF (IDEV_TYPE==5) CALL PLSDEV('png') ! PNG file
+IF (IDEV_TYPE==6) CALL PLSDEV('pngcairo') ! Cairo PNG Driver
+IF (IDEV_TYPE==7) CALL PLSDEV('jpeg') ! JPEG file
+IF (IDEV_TYPE==8) CALL PLSDEV('gif') ! GIF file
+
+! Open output family for monopage graphic devises
+IF (IDEV_TYPE>=4) CALL PLSFAM(1,1,1)
+
+! Setting of output file name
+
+WRITE (A10,'(I4.4,3I2.2)') PAGE(1)%IDATE0(1:4)
+I=PAGE(1)%IPERIOD(1)*24+PAGE(1)%IPERIOD(2)
+WRITE (A3,'(I3.3)') I
+
+IF (IDEV_TYPE<=2) CALL PLSFNAM('plplot_'//A10//'.ps')
+IF (IDEV_TYPE==3) CALL PLSFNAM('plplot_'//A10//'.pdf')
+IF (IDEV_TYPE==5.OR.IDEV_TYPE==6) CALL PLSFNAM('plplot_'//A10//'_'//A3//'_page_%n.png')
+IF (IDEV_TYPE==7) CALL PLSFNAM('plplot_'//A10//'_'//A3//'_page_%n.jpeg')
+IF (IDEV_TYPE==8) CALL PLSFNAM('plplot_'//A10//'_'//A3//'_page_%n.gif')
+
+! Setting of viewport geometry
+
+PLSETOPT_IND=PLSETOPT('geometry',ANPIXEL)
+!PLSETOPT_IND=PLSETOPT('drvopt', 'smoothlines=1')
+!PLSETOPT_IND=PLSETOPT('drvopt', '24bit,smoothlines=1')
+IF (PLSETOPT_IND /= 0) THEN
+  PRINT *,"Error in plot geometry definition (plsetopt), stop"
+  STOP
+ENDIF
+
+CALL PLINIT() ! Start plotting session
+
+CALL PLSCOL0(15,0,0,0) ! Set color with index 0 in map0 pallet (15 - backgrond)
+CALL PLSCOL0(7,70,70,70) ! Set color with index 0 in map0 pallet
+
+OPEN (11,FILE="file_name_control.txt")
+
+IINSTANT=0
+AFILE0=PAGE(1)%APAGE(1:4)
+
+IPAGEINI=1
+IPAGEFIN=NPAGE
+IPAGE=IPAGEINI
+NP=1
+PAGE_LOOP : DO WHILE (IPAGE<=IPAGEFIN)
+
+  IF (AFILE0==PAGE(IPAGE)%APAGE(1:4)) THEN
+    IINSTANT=IINSTANT+1
+    WRITE (AINSTANT,'(A1,I3.3)') '_',IINSTANT
+  ENDIF
+
+  IF (IPAGE==IPAGEINI) THEN
+    NP=0
+  ELSE
+    I=PAGE(IPAGE)%IPERIOD(1)*24+PAGE(IPAGE)%IPERIOD(2)
+    WRITE (A31,'(I3.3)') I
+    IF (A31/=A3) NP=0
+  ENDIF
+
+  NP=NP+1
+  I=PAGE(IPAGE)%IPERIOD(1)*24+PAGE(IPAGE)%IPERIOD(2)
+  WRITE (A3,'(I3.3)') I
+  WRITE (A7,'(A,I3.3)') 'page',NP
+  WRITE (11,'(I3.3,1X,I0)') I,NP
+
+  IF (IFL_MAP == 1) THEN
+    IF (PAGE(IPAGE)%PRESENT_TYPE(1)==6) THEN ! Color pixel map
+      IF (PAGE(IPAGE)%IPALETTE(1)==21.OR.PAGE(IPAGE)%IPALETTE(1)==22) THEN
+        LMARG=0.01_PLFLT ! Left edge of viewport
+        RMARG=0.99_PLFLT ! Right edge of viewport
+        BMARG=0.14_PLFLT ! Bottom edge of viewport
+        TMARG=0.96_PLFLT ! Top edge of viewport
+        YXRATION0=1.19_PLFLT ! Ration of Y-axis to X-axis
+      ELSE ! FAO soils, Vegetation GLC2000
+        LMARG=0.01_PLFLT ! Left edge of viewport
+        RMARG=0.99_PLFLT ! Right edge of viewport
+        BMARG=0.26_PLFLT ! Bottom edge of viewport
+        TMARG=0.96_PLFLT ! Top edge of viewport
+        YXRATION0=1.40_PLFLT ! Ration of Y-axis to X-axis
+      ENDIF
+    ENDIF
+  ENDIF
+
+  ALLOCATE(FIELD(NX,NY))
+  ALLOCATE(TR2DX(NX,NY))
+  ALLOCATE(TR2DY(NX,NY))
+
+IFIELD=1
+FIELD_LOOP: DO WHILE (IFIELD<=PAGE(IPAGE)%NFIELD)
+
+  NCONTOUR=PAGE(IPAGE)%NCONTOUR(IFIELD)
+  ALLOCATE(CONTOUR_VAL(NCONTOUR))
+  ALLOCATE(ACONTOUR(NCONTOUR))
+
+  IF (IFL_MAP==1) THEN
+    IF (ISTEREO==1) THEN
+
+! Trasmormation of coordinat into stereographical projection
+
+      ZZZ=PI/180._PLFLT
+      DO J=1,NY
+      DO I=1,NX
+        ZK=2.*STEREORAD/(1._PLFLT+SIN(STEREOLAT0*ZZZ)*SIN(ALAT(I,J)*ZZZ)+ &
+        COS(STEREOLAT0*ZZZ)*COS(ALAT(I,J)*ZZZ)*COS((ALON(I,J)-STEREOLON0)*ZZZ))
+        TR2DX(I,J)=ZK*COS(ALAT(I,J)*ZZZ)*SIN((ALON(I,J)-STEREOLON0)*ZZZ)
+        TR2DY(I,J)=ZK*(COS(STEREOLAT0*ZZZ)*SIN(ALAT(I,J)*ZZZ)- &
+        SIN(STEREOLAT0*ZZZ)*COS(ALAT(I,J)*ZZZ)*COS((ALON(I,J)-STEREOLON0)*ZZZ))
+      ENDDO
+      ENDDO
+      ZZZ=MAXVAL(TR2DX(IINI:IFIN,JINI:JFIN))
+      TR2DX(:,:)=(TR2DX(:,:)/ZZZ+1._PLFLT)*0.5_PLFLT
+      TR2DY(:,:)=(TR2DY(:,:)/ZZZ+1._PLFLT)*0.5_PLFLT
+      TR2DX(:,:)=(XFIN-XINI)*TR2DX(:,:)+XINI
+      TR2DY(:,:)=(YFIN-YINI)*TR2DY(:,:)+YINI
+  
+    ELSE
+  
+! Data coordinat grid using
+  
+      DO J=1,NY
+      DO I=1,NX
+        TR2DX(I,J)=I*1._PLFLT
+        TR2DY(I,J)=J*1._PLFLT
+      ENDDO
+      ENDDO
+
+    ENDIF
+
+  ELSE
+
+! Space cross-section
+  
+    DO J=1,NY
+    DO I=1,NX
+      TR2DX(I,J)=I*1._PLFLT
+      TR2DY(I,J)=VERT_COORD(J)*1._PLFLT
+    ENDDO
+    ENDDO
+
+  ENDIF
+ 
+  INDEX=PAGE(IPAGE)%DISCIPL(IFIELD)*100000+PAGE(IPAGE)%CATEG(IFIELD)*1000+PAGE(IPAGE)%INDEX(IFIELD)
+
+  FIELD(1:NX,1:NY)=PAGE(IPAGE)%FIELD(1:NX,1:NY,IFIELD)
+
+  CONTOUR_VAL(1:NCONTOUR)=PAGE(IPAGE)%CONTOUR_VAL(1:NCONTOUR,IFIELD)
+
+  IF (PAGE(IPAGE)%FIELD_TYPE(IFIELD)/='S'.AND.PAGE(IPAGE)%PRESENT_TYPE(IFIELD)>40)&
+  FIELD(1:NX,1:NY)=SQRT(PAGE(IPAGE)%FIELD(1:NX,1:NY,IFIELD)**2+PAGE(IPAGE)%FIELD(1:NX,1:NY,IFIELD+1)**2)
+
+  VAL_MIN=MINVAL(FIELD)
+  VAL_MAX=MAXVAL(FIELD)
+
+! Write strings for contours (isolines)
+  CALL SET_CONTOUR_LABEL(IPAGE,IFIELD)
+
+  IF (IFIELD==1) CALL PLBOP ! Start of new page
+
+  IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==1.OR.PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==11.OR.&
+(PAGE(IPAGE)%FIELD_TYPE(IFIELD)/='S'.AND.PAGE(IPAGE)%PRESENT_TYPE(IFIELD)>40)) THEN ! color filling
+! Set color palette (color map1)
+    NCOLOR=NCONTOUR+1
+    CALL SET_COLOR_PALETTE(NCOLOR, PAGE(IPAGE)%IPALETTE(IFIELD))
+  ENDIF
+
+  IF (IFL_MAP==1) THEN
+    IF (ISTEREO/=1) THEN
+      YXRATION_FIELD=1._PLFLT*((YFIN-YINI)*DY)/((XFIN-XINI)*DX)
+    ELSE
+      YXRATION_FIELD=1._PLFLT
+    ENDIF
+  ENDIF
+
+  CALL PLVPAS(LMARG,RMARG,BMARG,TMARG,YXRATION_FIELD) ! Set viewport parameters
+
+  CALL PLWIND(XINI,XFIN,YINI,YFIN) ! Set data limits in current viewport
+
+  DX_GRAPH=(XFIN-XINI)*DXSCALE
+  DY_GRAPH=(YFIN-YINI)*DYSCALE
+
+! ----------------------------------------------------------------------
+
+  IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==1.OR.PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==11.OR.&
+(PAGE(IPAGE)%FIELD_TYPE(IFIELD)/='S'.AND.PAGE(IPAGE)%PRESENT_TYPE(IFIELD)>40)) THEN ! color filling
+
+!   COLOR MAP AND COLOR LEGEND CREATION
+
+! For Orography color map only --->
+
+    IF (IFL_MAP==1) THEN
+      IF (PAGE(IPAGE)%IPALETTE(IFIELD)==3.AND.INT(LSM(1,1))/=INT(VALMISS)) THEN
+        DO J=1,NY
+        DO I=1,NX
+          IF (LSM(I,J)>=0.5) THEN ! Sea
+            FIELD(I,J)=MIN(FIELD(I,J), 0.)
+          ELSE ! Land
+            FIELD(I,J)=MAX(FIELD(I,J), 1.)
+          ENDIF
+        ENDDO
+        ENDDO
+      ENDIF
+    ENDIF
+
+! <---
+
+    IFL_LEGEND=1
+
+! No color legend for:
+! for case of orography on a space cross-section
+
+    IF (IFL_MAP/=1.AND.INDEX==200007) IFL_LEGEND=0
+
+    CALL CLIP(0) ! Clipping disable
+
+    CALL PLFONTLD(1)
+
+    CALL PLFONT(ICHARTYPE1) ! Set font type
+
+    ZDX=DX_GRAPH*3._PLFLT
+    ZDY=(YFIN-YINI)/FLOAT(NCOLOR)
+
+    CALL PLPSTY(0) ! Set type of color shading (filling)
+    CALL PLSCHR(CHARSIZE,1.0_PLFLT) ! Set font size (in mm)
+    CALL PLWIDTH(REAL(ILINEW1,PLFLT)) ! Set pen width
+
+    IF (IFL_MAP==1.OR.(IFL_MAP/=1.AND.INDEX/=200007)) THEN
+
+    LEG_SQUARE_X(1)=XFIN+ZDX*1.5_PLFLT
+    LEG_SQUARE_X(2)=XFIN+ZDX
+    LEG_SQUARE_X(3)=XFIN+ZDX*2.0_PLFLT
+    LEG_SQUARE_Y(1)=YINI
+    LEG_SQUARE_Y(2)=LEG_SQUARE_Y(1)+ZDY
+    LEG_SQUARE_Y(3)=LEG_SQUARE_Y(2)
+    ICOLOR=1
+    COLOR1=(ICOLOR-1._PLFLT)/((NCOLOR-1)*1._PLFLT)
+
+! Shading (filling) region between contour value
+
+    IF (VAL_MIN<CONTOUR_VAL(1)) &
+    CALL PLSHADE(FIELD(IINI:IFIN,JINI:JFIN),XINI,XFIN,YINI,YFIN,VAL_MIN,CONTOUR_VAL(1), &
+                 1,COLOR1*1._PLFLT,0._PLFLT,0,0._PLFLT,0,0._PLFLT,MAP_RECTANGLE,TRANSFORM)
+
+!   LEGEND
+    CALL PLCOL1(COLOR1)
+    IF (IFL_LEGEND==1) CALL PLFILL(LEG_SQUARE_X(1:3),LEG_SQUARE_Y(1:3)) ! Draw filled polygon
+
+    ENDIF
+
+    LEG_SQUARE_X(1)=XFIN+ZDX
+    LEG_SQUARE_X(2)=LEG_SQUARE_X(1)+ZDX
+    LEG_SQUARE_X(3)=LEG_SQUARE_X(2)
+    LEG_SQUARE_X(4)=LEG_SQUARE_X(1)
+    LEG_X=LEG_SQUARE_X(2)+ZDX*0.2_PLFLT
+
+    DO ICOLOR=2,NCOLOR-1
+      ICONTOUR=ICOLOR-1
+      COLOR1=(ICOLOR-1._PLFLT)/((NCOLOR-1)*1._PLFLT)
+
+! Shading (filling) region between contour value
+
+      CALL PLSHADE(FIELD(IINI:IFIN,JINI:JFIN),XINI,XFIN,YINI,YFIN,CONTOUR_VAL(ICONTOUR),CONTOUR_VAL(ICONTOUR+1), &
+                   1,COLOR1*1._PLFLT,0._PLFLT,0,0._PLFLT,0,0._PLFLT,MAP_RECTANGLE,TRANSFORM)
+      LEG_SQUARE_Y(1)=YINI+ZDY*(ICOLOR-1)
+      LEG_SQUARE_Y(2)=LEG_SQUARE_Y(1)
+      LEG_SQUARE_Y(3)=LEG_SQUARE_Y(1)+ZDY
+      LEG_SQUARE_Y(4)=LEG_SQUARE_Y(3)
+      LEG_Y=LEG_SQUARE_Y(1)
+! LEGEND
+      CALL PLCOL1(COLOR1)
+      IF (IFL_LEGEND==1) THEN
+        CALL PLFILL(LEG_SQUARE_X,LEG_SQUARE_Y) ! Draw filled polygon
+        CALL PLCOL0(15) ! Set color with using map0 pallet
+        CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,0.0_PLFLT,ACONTOUR(ICONTOUR)) ! Write text relative plot coordinates
+      ENDIF
+    ENDDO
+
+    LEG_SQUARE_X(1)=XFIN+ZDX
+    LEG_SQUARE_X(2)=XFIN+ZDX*2.0_PLFLT
+    LEG_SQUARE_X(3)=XFIN+ZDX*1.5_PLFLT
+    LEG_SQUARE_Y(1)=YINI+ZDY*(NCOLOR-1)
+    LEG_SQUARE_Y(2)=LEG_SQUARE_Y(1)
+    LEG_SQUARE_Y(3)=LEG_SQUARE_Y(1)+ZDY
+    LEG_Y=LEG_SQUARE_Y(1)
+    ICOLOR=NCOLOR
+    ICONTOUR=ICOLOR-1
+    COLOR1=(ICOLOR-1._PLFLT)/((NCOLOR-1)*1._PLFLT)
+
+! Shading (filling) region between contour value
+
+    IF (VAL_MAX>CONTOUR_VAL(ICONTOUR)) &
+    CALL PLSHADE(FIELD(IINI:IFIN,JINI:JFIN),XINI,XFIN,YINI,YFIN,CONTOUR_VAL(ICONTOUR),VAL_MAX, &
+                 1,COLOR1*1._PLFLT,0._PLFLT,0,0._PLFLT,0,0._PLFLT,MAP_RECTANGLE,TRANSFORM)
+
+! LEGEND
+    CALL PLCOL1(COLOR1)
+    IF (IFL_LEGEND==1) THEN
+      CALL PLFILL(LEG_SQUARE_X(1:3),LEG_SQUARE_Y(1:3)) ! Draw filled polygon
+      CALL PLCOL0(15) ! Set color with using map0 pallet
+      CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,0.0_PLFLT,ACONTOUR(ICONTOUR)) ! Write text relative plot coordinates
+    ENDIF
+
+    CALL CLIP(1) ! Clipping able
+ 
+  ENDIF ! color filling
+
+  IF (PAGE(IPAGE)%PRESENT_TYPE(1)==6) THEN ! Color pixel map
+    NCOLOR=NCONTOUR+1
+    CALL SET_COLOR_PALETTE_PIXEL(NCOLOR, IPAGE, IFIELD)
+    CALL COLOR_PIXEL_MAP(NCOLOR, 0, 0.)
+  ENDIF
+
+  IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==61) THEN ! One-coloured mask
+    NCOLOR=2
+    CALL SET_COLOR_PALETTE_PIXEL(NCOLOR, IPAGE, IFIELD)
+    CALL COLOR_PIXEL_MAP(NCOLOR, 1, PAGE(IPAGE)%CONTOUR_VAL(1,IFIELD))
+  ENDIF
+
+  IFL_CONTOUR=0
+  IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==2.OR.PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==7) IFL_CONTOUR=1
+  IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==1) THEN
+    IFL_CONTOUR=1
+    IF (PAGE(IPAGE)%NFIELD>1) THEN
+! Plot isolines if there is not isolines presentated field in the page
+      DO I=1,IFIELD-1
+        IF (PAGE(IPAGE)%PRESENT_TYPE(I)==2) IFL_CONTOUR=0
+      ENDDO
+      DO I=IFIELD+1,PAGE(IPAGE)%NFIELD
+        IF (PAGE(IPAGE)%PRESENT_TYPE(I)==2) IFL_CONTOUR=0
+      ENDDO
+    ENDIF
+  ENDIF
+
+  IF (IFL_CONTOUR==1) THEN
+
+! ISOLINES
+
+    CALL PLFONT(ICHARTYPE2) ! Set font type
+    IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==2) THEN ! Black bold isolines
+      CALL PLWIDTH(REAL(ILINEW2,PLFLT)) ! Set pen width
+      CALL PLSCHR(CHARSIZE*1.2_PLFLT,1.0_PLFLT) ! Set font size (in mm)
+    ELSEIF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==7) THEN ! Color bold isolines
+      CALL PLWIDTH(REAL(ILINEW3,PLFLT)) ! Set pen width
+      CALL PLSCHR(CHARSIZE*1.2_PLFLT,1.0_PLFLT) ! Set font size (in mm)
+    ELSE    
+      CALL PLWIDTH(REAL(ILINEW1,PLFLT)) ! Set pen width
+      CALL PLSCHR(CHARSIZE*1.2_PLFLT,1.0_PLFLT) ! Set font size (in mm)
+    ENDIF  
+
+! Black color for isolines
+    CALL PLCOL0(15) ! Set color with using map0 pallet
+
+! Definition of color for isolines
+    IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==7) THEN ! Color isolines
+      RED_WORK=INT(PAGE(IPAGE)%CONTOUR_VAL(28,IFIELD))
+      GREEN_WORK=INT(PAGE(IPAGE)%CONTOUR_VAL(29,IFIELD))
+      BLUE_WORK=INT(PAGE(IPAGE)%CONTOUR_VAL(30,IFIELD))
+      CALL PLSCOL0(ICOLOR_WORK,RED_WORK,GREEN_WORK,BLUE_WORK) ! Set color with index ICOLOR in map0 pallet
+      CALL PLCOL0(ICOLOR_WORK) ! Set color with using map0 pallet
+    ENDIF
+
+! Flag of contour label: 1 - yes, 0 - no :
+    IFL_LABEL=1 
+    IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==7) IFL_LABEL=0
+    IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==11) IFL_LABEL=0
+    IF (PAGE(IPAGE)%FIELD_TYPE(IFIELD)/='S'.AND.PAGE(IPAGE)%PRESENT_TYPE(IFIELD)>40) IFL_LABEL=0
+
+! Flags for format of contour labels :
+    IF (PAGE(IPAGE)%ILABFORMAT(IFIELD)<=4) THEN
+      IFLEFORMAT=15
+      ZMAX=MAX(ABS(CONTOUR_VAL(1)),ABS(CONTOUR_VAL(NCONTOUR)))
+      IFLNUMBER=INT(ALOG10(ZMAX))+1
+    ELSE
+      IFLEFORMAT=1
+      IFLNUMBER=3
+    ENDIF
+
+    CALL PL_SETCONTLABELFORMAT(IFLEFORMAT,IFLNUMBER) ! Set format of contour label
+    CALL PL_SETCONTLABELPARAM(0.010_PLFLT,0.8_PLFLT,0.3_PLFLT,IFL_LABEL)
+
+! Plots contour lines
+
+    CALL PLCONT(FIELD,IINI,IFIN,JINI,JFIN,CONTOUR_VAL,TR2DX,TR2DY) ! Contour plot
+
+    IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD) == 1.AND.PAGE(IPAGE)%IPALETTE(IFIELD) <= 2) THEN ! Color filling with isolines
+      IF (VAL_MIN<CONTOUR_VAL(1)) THEN
+        ZDCONT=CONTOUR_VAL(2)-CONTOUR_VAL(1)
+        CONTOUR_VAL_ADD(1)=CONTOUR_VAL(1)-ZDCONT
+        DO WHILE (.TRUE.)
+          CALL PLCONT(FIELD,IINI,IFIN,JINI,JFIN,CONTOUR_VAL_ADD,TR2DX,TR2DY) ! Contour plot
+          IF (CONTOUR_VAL_ADD(1) < VAL_MIN) EXIT
+          CONTOUR_VAL_ADD(1)=CONTOUR_VAL_ADD(1)-ZDCONT
+        ENDDO
+      ENDIF
+      IF (VAL_MAX>CONTOUR_VAL(NCONTOUR)) THEN
+        ZDCONT=CONTOUR_VAL(NCONTOUR)-CONTOUR_VAL(NCONTOUR-1)
+        CONTOUR_VAL_ADD(1)=CONTOUR_VAL(NCONTOUR)+ZDCONT
+        DO WHILE (.TRUE.)
+          CALL PLCONT(FIELD,IINI,IFIN,JINI,JFIN,CONTOUR_VAL_ADD,TR2DX,TR2DY) ! Contour plot
+          IF (CONTOUR_VAL_ADD(1) > VAL_MAX) EXIT
+          CONTOUR_VAL_ADD(1)=CONTOUR_VAL_ADD(1)+ZDCONT
+        ENDDO
+      ENDIF
+    ENDIF
+
+  ENDIF ! isolines
+
+! WRITE LOCAL MINIMUM AND MAXIMUM VALUE ON THE MAP
+
+  IFL=0
+  IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==2) IFL=1
+  IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==1) THEN
+! Plot isolines if there is not isolines presentated field in the page
+    IFL=1
+    IF (PAGE(IPAGE)%NFIELD>1) THEN
+      DO I=1,IFIELD-1
+        IF (PAGE(IPAGE)%PRESENT_TYPE(I)==2) IFL=0
+      ENDDO
+      DO I=IFIELD+1,PAGE(IPAGE)%NFIELD
+        IF (PAGE(IPAGE)%PRESENT_TYPE(I)==2) IFL=0
+      ENDDO
+    ENDIF
+  ENDIF
+  IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==11) IFL=0
+  IF (PAGE(IPAGE)%FIELD_TYPE(IFIELD)/='S'.AND.PAGE(IPAGE)%PRESENT_TYPE(IFIELD)>40) IFL=0
+
+  IF (IFL==1) THEN
+
+    IF (PAGE(IPAGE)%DISCIPL(IFIELD)==0.AND.PAGE(IPAGE)%CATEG(IFIELD)==3) THEN ! Category 3 (Mass) 
+      IF (PAGE(IPAGE)%INDEX(IFIELD)==6) THEN
+        IFL=3 ! Orography
+      ELSE
+        IFL=2 ! Pressure, Geopotential, etc.
+      ENDIF
+    ENDIF
+ 
+    CALL VAL_MIN_MAX_WRITE(IPAGE,IFIELD,IFL)
+
+!    IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==2.OR.PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==7) CALL PLSFONT(ICHARTYPE2,1,1)
+
+  ENDIF
+
+! VECTORIAL FIELD DRAW
+
+  IF (PAGE(IPAGE)%FIELD_TYPE(IFIELD)/='S') THEN
+    IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)/=4.OR.PAGE(IPAGE)%PRESENT_TYPE(IFIELD)/=5) THEN
+      CONTOUR_VAL(:)=0.
+      CONTOUR_VAL(1:2)=PAGE(IPAGE)%CONTOUR_VAL(1:2,IFIELD+1)
+    ENDIF
+    CALL VECTOR_DRAW(IPAGE,IFIELD)
+    IFIELD=IFIELD+1
+  ENDIF
+
+! GRAPCHIC PRESENTATION FOR DATA FIELD IN FORM OF SYMBOLS
+
+  IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==3) CALL SYMBOL_DRAW(IPAGE, IFIELD)
+
+! GRAPCHIC PRESENTATION FOR DATA FIELD IN FORM OF COLOR WRITTING OF VALUES IN THE DEFINED POINTS
+
+  IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==8) CALL POINTS_VALUE(IPAGE, IFIELD)
+
+! GRAPCHIC PRESENTATION: MASK COLOR FILLING FOR DETERMED DATA INTERVAL
+
+  IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==12) CALL COLOR_MASK(IPAGE, IFIELD)
+
+! ----------------------------------------------------------------------
+
+  IF (IFIELD==PAGE(IPAGE)%NFIELD) THEN ! One time in the current page
+
+    IF (IFL_MAP==1) THEN
+
+! DRAW COAST LINE
+
+      CALL COAST_LINE_DRAW
+
+! DRAW GEOGRAPHICAL LINES: RIVERS, INTERNATIONAL AND INTERNAL BOUNDARIES
+! USING THE EXTERNAL DATASET
+
+      IFL_LINE_WORK(1:4)=IFL_LINE(1:4)
+      CALL GEO_LINE_DRAW
+
+! DRAW GEOGRAPHICAL MESH
+
+      CALL GEO_MESH_DRAW
+
+    ENDIF
+
+! WRITE MAP COMMENTS
+
+    IF (PAGE(IPAGE)%PRESENT_TYPE(1)/=6) THEN ! No color pixel map
+      CALL COMMENT_WRITE(IPAGE)
+    ELSE ! Color pixel map
+      CALL GEO_LEGEND(IPAGE, NCOLOR, PAGE(IPAGE)%IPALETTE(IFIELD))
+    ENDIF
+
+! DRAW MAP BOX
+
+   IF (IFL_MAP==1) THEN
+
+      IF (ISTEREO==0) THEN
+        !CALL PLBOX('BCT',1._PLFLT,0,'BCT',1._PLFLT,0) ! Plot of axises
+        CALL PLBOX('BC',0._PLFLT,0,'BC',0._PLFLT,0) ! Plot of axises
+      ELSE
+        CALL PLWIDTH(REAL(ILINEW4,PLFLT)) ! Set pen width
+        CALL CLIP(0) ! Clipping disable
+        CONT_LOC(1)=STEREOLATN
+        CALL PLCONT(REAL(ALAT,KIND=PLFLT),1,NX,1,NY,CONT_LOC,TR2DX,TR2DY) ! Contour plot
+        CALL CLIP(1) ! Clipping able
+        CALL PLWIDTH(REAL(ILINEW1,PLFLT)) ! Set pen width
+      ENDIF
+
+   ELSE
+
+      CALL PLBOX('BC',0._PLFLT,0,'BC',0._PLFLT,0) ! Plot of axises
+
+   ENDIF
+
+! SEARCH OF MAP POINTS
+
+    CALL POINT_SEARCH(IPAGE,IFIELD)
+
+    IF (IFL_MAP==1) THEN
+
+! PLOT OF GEOGRAPHICAL POINTS
+
+      CALL GEO_POINT(IPAGE)
+
+! OPTIONAL PLOT OF CROSS-SECTION LINE ON THE MAP
+
+      CALL CROSS_SECTION_LINE
+
+    ENDIF
+
+!! Plot of domain grid
+!
+!    IF (IFL_MAP==1) THEN
+!
+!      RED_WORK=100
+!      GREEN_WORK=15
+!      BLUE_WORK=100
+!      CALL PLSCOL0(ICOLOR_WORK,RED_WORK,GREEN_WORK,BLUE_WORK) ! Set color with index ICOLOR in map0 pallet
+!      CALL PLCOL0(ICOLOR_WORK) ! Set color with using map0 pallet
+!      CALL PLWIDTH(REAL(ILINEW1,PLFLT)) ! Set pen width
+!
+!      ALLOCATE (XLINE(2))
+!      ALLOCATE (YLINE(2))
+!
+!      YLINE(1)=1._PLFLT
+!      YLINE(2)=NY*1._PLFLT
+!      DO I=1,NX,10
+!!      DO I=1,NX
+!        XLINE(1)=I*1._PLFLT
+!        XLINE(2)=XLINE(1)
+!        CALL PLLINE(XLINE(1:2),YLINE(1:2)) ! Plot a line
+!      ENDDO
+!
+!      XLINE(1)=1._PLFLT
+!      XLINE(2)=NX*1._PLFLT
+!      DO J=1,NY,10
+!!      DO J=1,NY
+!        YLINE(1)=J*1._PLFLT
+!        YLINE(2)=YLINE(1)
+!        CALL PLLINE(XLINE(1:2),YLINE(1:2)) ! Plot a line
+!      ENDDO
+!
+!      DEALLOCATE (XLINE)
+!      DEALLOCATE (YLINE)
+!
+!    ENDIF
+
+  ENDIF ! One time in the current page
+
+! Unset color palette (color map1)
+  CALL UNSET_COLOR_PALETTE
+
+  DEALLOCATE(CONTOUR_VAL)
+  DEALLOCATE(ACONTOUR)
+
+  IF (IFIELD==PAGE(IPAGE)%NFIELD) CALL PLEOP ! End of page
+
+  IFIELD=IFIELD+1  
+
+ENDDO FIELD_LOOP
+
+  DEALLOCATE(FIELD)
+  DEALLOCATE(TR2DX)
+  DEALLOCATE(TR2DY)
+
+  IPAGE=IPAGE+1
+
+ENDDO PAGE_LOOP
+
+!  End plotting session
+
+CALL PLEND()
+
+CLOSE (11)
+
+RETURN
+
+END SUBROUTINE PLPLOT_MAP
+
+!------------------------------------------------------------------------------
+
+SUBROUTINE CLIP(IFLAG)
+
+! PROCEDURE ACRIVATES AND DEACTIVATES THE CLIPING
+
+USE PLPLOT
+
+REAL(KIND=PLFLT) :: NXMIN, NXMAX, NYMIN, NYMAX, &
+  WXMIN, WXMAX, WYMIN, WYMAX, DWXMIN, DWXMAX, DWYMIN, DWYMAX
+REAL(KIND=PLFLT), SAVE :: SNXMIN, SNXMAX, SNYMIN, SNYMAX, &
+  SWXMIN, SWXMAX, SWYMIN, SWYMAX
+
+INTEGER :: IFLAG
+
+IF (IFLAG==0) THEN
+
+   CALL PLGVPD (NXMIN, NXMAX, NYMIN, NYMAX)
+   CALL PLGVPW (WXMIN, WXMAX, WYMIN, WYMAX)
+   SNXMIN = NXMIN
+   SNXMAX = NXMAX
+   SNYMIN = NYMIN
+   SNYMAX = NYMAX
+
+   SWXMIN = WXMIN
+   SWXMAX = WXMAX
+   SWYMIN = WYMIN
+   SWYMAX = WYMAX
+
+   DWXMIN = (WXMAX-WXMIN)/(NXMAX-NXMIN)*(NXMIN)
+   DWXMAX = (WXMAX-WXMIN)/(NXMAX-NXMIN)*(1.0_plflt-NXMAX)
+   DWYMIN = (WYMAX-WYMIN)/(NYMAX-NYMIN)*(NYMIN)
+   DWYMAX = (WYMAX-WYMIN)/(NYMAX-NYMIN)*(1.0_plflt-NYMAX)
+   WXMIN = SWXMIN - DWXMIN
+   WXMAX = SWXMAX + DWXMAX
+   WYMIN = SWYMIN - DWYMIN
+   WYMAX = SWYMAX + DWYMAX
+!   PRINT*,'Clipping disable', IFLAG
+   CALL PLVPOR(0.0_PLFLT, 1.0_PLFLT, 0.0_PLFLT, 1.0_PLFLT)
+   CALL PLWIND(WXMIN, WXMAX, WYMIN, WYMAX)
+
+ELSE
+
+!   PRINT*,'Clipping ebable', IFLAG
+   CALL PLVPOR(SNXMIN, SNXMAX, SNYMIN, SNYMAX)
+   CALL PLWIND(SWXMIN, SWXMAX, SWYMIN, SWYMAX)
+
+ENDIF
+
+END SUBROUTINE CLIP
+
+!------------------------------------------------------------------------------
+
+SUBROUTINE COLOR_PIXEL_MAP(NCOLOR, FL_MASK, VAL_MASK)
+
+! PROCEDURE PLOTS COLOR PIXEL MAP
+
+USE PLPLOT
+USE MOD_GRAPH_WORK
+IMPLICIT NONE
+
+INTEGER :: NCOLOR, FL_MASK, ICOLOR, I, J
+REAL :: VAL_MASK
+REAL(KIND=PLFLT) :: COLOR
+
+! Internal area
+
+ DO J=JINI+1,JFIN-1
+ DO I=IINI+1,IFIN-1
+   IF (FL_MASK /= 0.AND.INT(FIELD(I,J))/=INT(VAL_MASK)) CYCLE ! for mask
+   ICOLOR=INT(FIELD(I,J))
+   IF (FL_MASK /= 0) ICOLOR=1 ! for mask
+   COLOR=(ICOLOR-1._PLFLT)/((NCOLOR-1)*1._PLFLT)
+   CALL PLCOL1(COLOR) ! Set color with using map1 pallet
+   LEG_SQUARE_X(1)=0.25_PLFLT*(TR2DX(I-1,J+1)+TR2DX(I,J+1)+TR2DX(I,J)+TR2DX(I-1,J))
+   LEG_SQUARE_X(2)=0.25_PLFLT*(TR2DX(I,J+1)+TR2DX(I+1,J+1)+TR2DX(I+1,J)+TR2DX(I,J))
+   LEG_SQUARE_X(3)=0.25_PLFLT*(TR2DX(I,J)+TR2DX(I+1,J)+TR2DX(I+1,J-1)+TR2DX(I,J-1))
+   LEG_SQUARE_X(4)=0.25_PLFLT*(TR2DX(I-1,J)+TR2DX(I,J)+TR2DX(I,J-1)+TR2DX(I-1,J-1))
+   LEG_SQUARE_Y(1)=0.25_PLFLT*(TR2DY(I-1,J+1)+TR2DY(I,J+1)+TR2DY(I,J)+TR2DY(I-1,J))
+   LEG_SQUARE_Y(2)=0.25_PLFLT*(TR2DY(I,J+1)+TR2DY(I+1,J+1)+TR2DY(I+1,J)+TR2DY(I,J))
+   LEG_SQUARE_Y(3)=0.25_PLFLT*(TR2DY(I,J)+TR2DY(I+1,J)+TR2DY(I+1,J-1)+TR2DY(I,J-1))
+   LEG_SQUARE_Y(4)=0.25_PLFLT*(TR2DY(I-1,J)+TR2DY(I,J)+TR2DY(I,J-1)+TR2DY(I-1,J-1))
+   CALL PLFILL(LEG_SQUARE_X(1:4),LEG_SQUARE_Y(1:4)) ! Draw filled polygon
+ ENDDO
+ ENDDO
+
+!! Write type index (work option)
+!
+! CALL PLWIDTH(REAL(ILINEW1,PLFLT)) ! Set pen width
+! CALL PLFONT(ICHARTYPE1) ! Set font type
+! CALL PLSCHR(CHARSIZE*0.8,1.0_PLFLT) ! Set font size (in mm)
+! CALL PLCOL0(15) ! Set color with using map0 pallet
+! DO J=JINI+1,JFIN-1,30
+! DO I=IINI+1,IFIN-1,30
+!   WRITE (AGEO,'(I2)') INT(FIELD(I,J))
+!   LEG_X=TR2DX(I,J)
+!   LEG_Y=TR2DY(I,J)
+!   CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,0.0_PLFLT,TRIM(AGEO)) ! Write text relative plot coordinates
+! ENDDO
+! ENDDO
+
+! Bottom marging
+
+ J=1
+ DO I=IINI+1,IFIN-1
+   IF (FL_MASK /= 0.AND.INT(FIELD(I,J))/=INT(VAL_MASK)) CYCLE ! for mask
+   ICOLOR=INT(FIELD(I,J))
+   IF (FL_MASK /= 0) ICOLOR=1 ! for mask
+   COLOR=(ICOLOR-1._PLFLT)/((NCOLOR-1)*1._PLFLT)
+   CALL PLCOL1(COLOR) ! Set color with using map1 pallet
+   LEG_SQUARE_X(1)=0.25_PLFLT*(TR2DX(I-1,J+1)+TR2DX(I,J+1)+TR2DX(I,J)+TR2DX(I-1,J))
+   LEG_SQUARE_X(2)=0.25_PLFLT*(TR2DX(I,J+1)+TR2DX(I+1,J+1)+TR2DX(I+1,J)+TR2DX(I,J))
+   LEG_SQUARE_X(3)=0.50_PLFLT*(TR2DX(I,J)+TR2DX(I+1,J))
+   LEG_SQUARE_X(4)=0.50_PLFLT*(TR2DX(I-1,J)+TR2DX(I,J))
+   LEG_SQUARE_Y(1)=0.25_PLFLT*(TR2DY(I-1,J+1)+TR2DY(I,J+1)+TR2DY(I,J)+TR2DY(I-1,J))
+   LEG_SQUARE_Y(2)=0.25_PLFLT*(TR2DY(I,J+1)+TR2DY(I+1,J+1)+TR2DY(I+1,J)+TR2DY(I,J))
+   LEG_SQUARE_Y(3)=0.50_PLFLT*(TR2DY(I,J)+TR2DY(I+1,J))
+   LEG_SQUARE_Y(4)=0.50_PLFLT*(TR2DY(I-1,J)+TR2DY(I,J))
+   CALL PLFILL(LEG_SQUARE_X(1:4),LEG_SQUARE_Y(1:4)) ! Draw filled polygon
+ ENDDO
+
+! Top marging
+
+ J=JFIN
+ DO I=IINI+1,IFIN-1
+   IF (FL_MASK /= 0.AND.INT(FIELD(I,J))/=INT(VAL_MASK)) CYCLE ! for mask
+   ICOLOR=INT(FIELD(I,J))
+   IF (FL_MASK /= 0) ICOLOR=1 ! for mask
+   COLOR=(ICOLOR-1._PLFLT)/((NCOLOR-1)*1._PLFLT)
+   CALL PLCOL1(COLOR) ! Set color with using map1 pallet
+   LEG_SQUARE_X(1)=0.50_PLFLT*(TR2DX(I,J)+TR2DX(I-1,J))
+   LEG_SQUARE_X(2)=0.50_PLFLT*(TR2DX(I+1,J)+TR2DX(I,J))
+   LEG_SQUARE_X(3)=0.25_PLFLT*(TR2DX(I,J)+TR2DX(I+1,J)+TR2DX(I+1,J-1)+TR2DX(I,J-1))
+   LEG_SQUARE_X(4)=0.25_PLFLT*(TR2DX(I-1,J)+TR2DX(I,J)+TR2DX(I,J-1)+TR2DX(I-1,J-1))
+   LEG_SQUARE_Y(1)=0.50_PLFLT*(TR2DY(I,J)+TR2DY(I-1,J))
+   LEG_SQUARE_Y(2)=0.50_PLFLT*(TR2DY(I+1,J)+TR2DY(I,J))
+   LEG_SQUARE_Y(3)=0.25_PLFLT*(TR2DY(I,J)+TR2DY(I+1,J)+TR2DY(I+1,J-1)+TR2DY(I,J-1))
+   LEG_SQUARE_Y(4)=0.25_PLFLT*(TR2DY(I-1,J)+TR2DY(I,J)+TR2DY(I,J-1)+TR2DY(I-1,J-1))
+   CALL PLFILL(LEG_SQUARE_X(1:4),LEG_SQUARE_Y(1:4)) ! Draw filled polygon
+ ENDDO
+
+! Left marging
+
+ I=1
+ DO J=JINI+1,JFIN-1
+   IF (FL_MASK /= 0.AND.INT(FIELD(I,J))/=INT(VAL_MASK)) CYCLE ! for mask
+   ICOLOR=INT(FIELD(I,J))
+   IF (FL_MASK /= 0) ICOLOR=1 ! for mask
+   COLOR=(ICOLOR-1._PLFLT)/((NCOLOR-1)*1._PLFLT)
+   CALL PLCOL1(COLOR) ! Set color with using map1 pallet
+   LEG_SQUARE_X(1)=0.50_PLFLT*(TR2DX(I,J+1)+TR2DX(I,J))
+   LEG_SQUARE_X(2)=0.25_PLFLT*(TR2DX(I,J+1)+TR2DX(I+1,J+1)+TR2DX(I+1,J)+TR2DX(I,J))
+   LEG_SQUARE_X(3)=0.25_PLFLT*(TR2DX(I,J)+TR2DX(I+1,J)+TR2DX(I+1,J-1)+TR2DX(I,J-1))
+   LEG_SQUARE_X(4)=0.50_PLFLT*(TR2DX(I,J)+TR2DX(I,J-1))
+   LEG_SQUARE_Y(1)=0.50_PLFLT*(TR2DY(I,J+1)+TR2DY(I,J))
+   LEG_SQUARE_Y(2)=0.25_PLFLT*(TR2DY(I,J+1)+TR2DY(I+1,J+1)+TR2DY(I+1,J)+TR2DY(I,J))
+   LEG_SQUARE_Y(3)=0.25_PLFLT*(TR2DY(I,J)+TR2DY(I+1,J)+TR2DY(I+1,J-1)+TR2DY(I,J-1))
+   LEG_SQUARE_Y(4)=0.50_PLFLT*(TR2DY(I,J)+TR2DY(I,J-1))
+   CALL PLFILL(LEG_SQUARE_X(1:4),LEG_SQUARE_Y(1:4)) ! Draw filled polygon
+ ENDDO
+
+! Right marging
+
+ I=IFIN
+ DO J=JINI+1,JFIN-1
+   IF (FL_MASK /= 0.AND.INT(FIELD(I,J))/=INT(VAL_MASK)) CYCLE ! for mask
+   ICOLOR=INT(FIELD(I,J))
+   IF (FL_MASK /= 0) ICOLOR=1 ! for mask
+   COLOR=(ICOLOR-1._PLFLT)/((NCOLOR-1)*1._PLFLT)
+   CALL PLCOL1(COLOR) ! Set color with using map1 pallet
+   LEG_SQUARE_X(1)=0.25_PLFLT*(TR2DX(I-1,J+1)+TR2DX(I,J+1)+TR2DX(I,J)+TR2DX(I-1,J))
+   LEG_SQUARE_X(2)=0.50_PLFLT*(TR2DX(I,J+1)+TR2DX(I,J))
+   LEG_SQUARE_X(3)=0.50_PLFLT*(TR2DX(I,J)+TR2DX(I,J-1))
+   LEG_SQUARE_X(4)=0.25_PLFLT*(TR2DX(I-1,J)+TR2DX(I,J)+TR2DX(I,J-1)+TR2DX(I-1,J-1))
+   LEG_SQUARE_Y(1)=0.25_PLFLT*(TR2DY(I-1,J+1)+TR2DY(I,J+1)+TR2DY(I,J)+TR2DY(I-1,J))
+   LEG_SQUARE_Y(2)=0.50_PLFLT*(TR2DY(I,J+1)+TR2DY(I,J))
+   LEG_SQUARE_Y(3)=0.50_PLFLT*(TR2DY(I,J)+TR2DY(I,J-1))
+   LEG_SQUARE_Y(4)=0.25_PLFLT*(TR2DY(I-1,J)+TR2DY(I,J)+TR2DY(I,J-1)+TR2DY(I-1,J-1))
+   CALL PLFILL(LEG_SQUARE_X(1:4),LEG_SQUARE_Y(1:4)) ! Draw filled polygon
+ ENDDO
+
+! Left Bottom corner
+
+ I=1
+ DO J=1,1
+   IF (FL_MASK /= 0.AND.INT(FIELD(I,J))/=INT(VAL_MASK)) CYCLE ! for mask
+   ICOLOR=INT(FIELD(I,J))
+   IF (FL_MASK /= 0) ICOLOR=1 ! for mask
+   COLOR=(ICOLOR-1._PLFLT)/((NCOLOR-1)*1._PLFLT)
+   CALL PLCOL1(COLOR) ! Set color with using map1 pallet
+   LEG_SQUARE_X(1)=0.50_PLFLT*(TR2DX(I,J+1)+TR2DX(I,J))
+   LEG_SQUARE_X(2)=0.25_PLFLT*(TR2DX(I,J+1)+TR2DX(I+1,J+1)+TR2DX(I+1,J)+TR2DX(I,J))
+   LEG_SQUARE_X(3)=0.50_PLFLT*(TR2DX(I,J)+TR2DX(I+1,J))
+   LEG_SQUARE_X(4)=TR2DX(I,J)
+   LEG_SQUARE_Y(1)=0.50_PLFLT*(TR2DY(I,J+1)+TR2DY(I,J))
+   LEG_SQUARE_Y(2)=0.25_PLFLT*(TR2DY(I,J+1)+TR2DY(I+1,J+1)+TR2DY(I+1,J)+TR2DY(I,J))
+   LEG_SQUARE_Y(3)=0.50_PLFLT*(TR2DY(I,J)+TR2DY(I+1,J))
+   LEG_SQUARE_Y(4)=TR2DY(I,J)
+   CALL PLFILL(LEG_SQUARE_X(1:4),LEG_SQUARE_Y(1:4)) ! Draw filled polygon
+ ENDDO
+
+! Left Top corner
+
+ I=1
+ DO J=JFIN,JFIN
+   IF (FL_MASK /= 0.AND.INT(FIELD(I,J))/=INT(VAL_MASK)) CYCLE ! for mask
+   ICOLOR=INT(FIELD(I,J))
+   IF (FL_MASK /= 0) ICOLOR=1 ! for mask
+   COLOR=(ICOLOR-1._PLFLT)/((NCOLOR-1)*1._PLFLT)
+   CALL PLCOL1(COLOR) ! Set color with using map1 pallet
+   LEG_SQUARE_X(1)=TR2DX(I,J)
+   LEG_SQUARE_X(2)=0.50_PLFLT*(TR2DX(I+1,J)+TR2DX(I,J))
+   LEG_SQUARE_X(3)=0.25_PLFLT*(TR2DX(I,J)+TR2DX(I+1,J)+TR2DX(I+1,J-1)+TR2DX(I,J-1))
+   LEG_SQUARE_X(4)=0.50_PLFLT*(TR2DX(I,J)+TR2DX(I,J-1))
+   LEG_SQUARE_Y(1)=TR2DY(I,J)
+   LEG_SQUARE_Y(2)=0.50_PLFLT*(TR2DY(I+1,J)+TR2DY(I,J))
+   LEG_SQUARE_Y(3)=0.25_PLFLT*(TR2DY(I,J)+TR2DY(I+1,J)+TR2DY(I+1,J-1)+TR2DY(I,J-1))
+   LEG_SQUARE_Y(4)=0.50_PLFLT*(TR2DY(I,J)+TR2DY(I,J-1))
+   CALL PLFILL(LEG_SQUARE_X(1:4),LEG_SQUARE_Y(1:4)) ! Draw filled polygon
+ ENDDO
+
+! Right Top corner
+
+ I=IFIN
+ DO J=JFIN,JFIN
+   IF (FL_MASK /= 0.AND.INT(FIELD(I,J))/=INT(VAL_MASK)) CYCLE ! for mask
+   ICOLOR=INT(FIELD(I,J))
+   IF (FL_MASK /= 0) ICOLOR=1 ! for mask
+   COLOR=(ICOLOR-1._PLFLT)/((NCOLOR-1)*1._PLFLT)
+   CALL PLCOL1(COLOR) ! Set color with using map1 pallet
+   LEG_SQUARE_X(1)=0.50_PLFLT*(TR2DX(I,J)+TR2DX(I-1,J))
+   LEG_SQUARE_X(2)=TR2DX(I,J)
+   LEG_SQUARE_X(3)=0.50_PLFLT*(TR2DX(I,J)+TR2DX(I,J-1))
+   LEG_SQUARE_X(4)=0.25_PLFLT*(TR2DX(I-1,J)+TR2DX(I,J)+TR2DX(I,J-1)+TR2DX(I-1,J-1))
+   LEG_SQUARE_Y(1)=0.50_PLFLT*(TR2DY(I,J)+TR2DY(I-1,J))
+   LEG_SQUARE_Y(2)=TR2DY(I,J)
+   LEG_SQUARE_Y(3)=0.50_PLFLT*(TR2DY(I,J)+TR2DY(I,J-1))
+   LEG_SQUARE_Y(4)=0.25_PLFLT*(TR2DY(I-1,J)+TR2DY(I,J)+TR2DY(I,J-1)+TR2DY(I-1,J-1))
+   CALL PLFILL(LEG_SQUARE_X(1:4),LEG_SQUARE_Y(1:4)) ! Draw filled polygon
+ ENDDO
+
+! Right Bottom corner
+
+ I=IFIN
+ DO J=1,1
+   IF (FL_MASK /= 0.AND.INT(FIELD(I,J))/=INT(VAL_MASK)) CYCLE ! for mask
+   ICOLOR=INT(FIELD(I,J))
+   IF (FL_MASK /= 0) ICOLOR=1 ! for mask
+   COLOR=(ICOLOR-1._PLFLT)/((NCOLOR-1)*1._PLFLT)
+   CALL PLCOL1(COLOR) ! Set color with using map1 pallet
+   LEG_SQUARE_X(1)=0.25_PLFLT*(TR2DX(I-1,J+1)+TR2DX(I,J+1)+TR2DX(I,J)+TR2DX(I-1,J))
+   LEG_SQUARE_X(2)=0.50_PLFLT*(TR2DX(I,J+1)+TR2DX(I,J))
+   LEG_SQUARE_X(3)=TR2DX(I,J)
+   LEG_SQUARE_X(4)=0.50_PLFLT*(TR2DX(I-1,J)+TR2DX(I,J))
+   LEG_SQUARE_Y(1)=0.25_PLFLT*(TR2DY(I-1,J+1)+TR2DY(I,J+1)+TR2DY(I,J)+TR2DY(I-1,J))
+   LEG_SQUARE_Y(2)=0.50_PLFLT*(TR2DY(I,J+1)+TR2DY(I,J))
+   LEG_SQUARE_Y(3)=TR2DY(I,J)
+   LEG_SQUARE_Y(4)=0.50_PLFLT*(TR2DY(I-1,J)+TR2DY(I,J))
+   CALL PLFILL(LEG_SQUARE_X(1:4),LEG_SQUARE_Y(1:4)) ! Draw filled polygon
+ ENDDO
+
+RETURN
+END SUBROUTINE COLOR_PIXEL_MAP
+
+!------------------------------------------------------------------------------
+
+SUBROUTINE VAL_MIN_MAX_WRITE(IPAGE,IFIELD,IFLAG)
+
+! PROCEDURE DEFINES ANS WRITES ON THE MAP LOCAL MINUMUM AND MAXIMUM VALUES
+
+USE PLPLOT
+USE MOD_GRAPH_PAR, ONLY : NX, NY, PAGE
+USE MOD_GRAPH_WORK
+IMPLICIT NONE
+
+INTEGER :: IPAGE, IFIELD, IFLAG, NXP, NYP, IX, IY, IXMAX, IYMAX, IXMIN, IYMIN
+INTEGER, DIMENSION(2) :: IMIN, IMAX
+REAL(KIND=PLFLT) :: ZMAX, ZMIN, ZX, ZY
+CHARACTER :: ALABEL*9
+
+IF (IFLAG==0) GOTO 200
+
+CALL PLWIDTH(REAL(ILINEW3,PLFLT)) ! Set pen width
+CALL PLFONT(ICHARTYPE2) ! Set font type
+CALL PLSCHR(CHARSIZE,1.0_PLFLT) ! Set font size (in mm)
+
+NXP=(IFIN-IINI)/10
+NYP=(JFIN-JINI)/10
+
+DO IY=JINI+NYP,JFIN-NYP
+DO IX=IINI+NXP,IFIN-NXP
+
+  ZMAX=MAXVAL(FIELD(IX-NXP:IX+NXP,IY-NYP:IY+NYP))
+  IMAX=MAXLOC(FIELD(IX-NXP:IX+NXP,IY-NYP:IY+NYP))
+  IXMAX=IMAX(1)-1+IX-NXP
+  IYMAX=IMAX(2)-1+IY-NYP
+  ZMIN=MINVAL(FIELD(IX-NXP:IX+NXP,IY-NYP:IY+NYP))
+  IMIN=MINLOC(FIELD(IX-NXP:IX+NXP,IY-NYP:IY+NYP))
+  IXMIN=IMIN(1)-1+IX-NXP
+  IYMIN=IMIN(2)-1+IY-NYP
+
+  IF ((IX==IXMAX.AND.IY==IYMAX).OR.(IX==IXMIN.AND.IY==IYMIN)) THEN
+
+    IF (IFLAG/=2) THEN
+
+      GOTO (101,102,103,104,105,106,107,108,109,110) PAGE(IPAGE)%ILABFORMAT(IFIELD)
+101   WRITE (ALABEL,1001) FIELD(IX,IY)
+      GOTO 100
+102   WRITE (ALABEL,1002) FIELD(IX,IY)
+      GOTO 100
+103   WRITE (ALABEL,1003) FIELD(IX,IY)
+      GOTO 100
+104   WRITE (ALABEL,1004) FIELD(IX,IY)
+      GOTO 100
+105   WRITE (ALABEL,1005) FIELD(IX,IY)
+      GOTO 100
+106   WRITE (ALABEL,1006) FIELD(IX,IY)
+      GOTO 100
+107   WRITE (ALABEL,1007) FIELD(IX,IY)
+      GOTO 100
+108   WRITE (ALABEL,1008) FIELD(IX,IY)
+      GOTO 100
+109   GOTO 100
+110   WRITE (ALABEL,1010) NINT(FIELD(IX,IY))
+100   CONTINUE
+
+    ELSE
+
+      IF (IX==IXMAX.AND.IY==IYMAX) THEN
+        WRITE (ALABEL,'(A1)') 'H'
+      ELSE
+        WRITE (ALABEL,'(A1)') 'L'
+      ENDIF 
+
+    ENDIF
+
+    ZX=TR2DX(IX,IY)
+    ZY=TR2DY(IX,IY)
+    IF (IFLAG/=3) THEN
+      CALL PLPTEX(ZX,ZY,0._PLFLT,0._PLFLT,0.5_PLFLT,ALABEL) ! Write text relative plot coordinates
+    ELSE
+      IF (FIELD(IX,IY)>0._PLFLT) CALL PLPTEX(ZX,ZY,0._PLFLT,0._PLFLT,0.5_PLFLT,ALABEL) ! Write text relative plot coordinates
+    ENDIF
+
+  ENDIF
+
+ENDDO
+ENDDO
+
+200 CONTINUE
+
+1001 FORMAT (F9.0)
+1002 FORMAT (F9.1)
+1003 FORMAT (F9.2)
+1004 FORMAT (F9.3)
+1005 FORMAT (E9.0)
+1006 FORMAT (E9.1)
+1007 FORMAT (E9.2)
+1008 FORMAT (E9.3)
+1010 FORMAT (I0)
+
+RETURN
+END SUBROUTINE VAL_MIN_MAX_WRITE
+
+!------------------------------------------------------------------------------
+
+SUBROUTINE COAST_LINE_DRAW
+
+! PROCEDURE DRAWS COAST LINE: IF LSM (LAND-SEA MASK) IS READ, THEN IT IS
+! USED AS A COAST LINE, OTHERWISE EXTERNAL DATSET ABOUT COAS LINE IS USED
+
+USE PLPLOT
+USE MOD_GRAPH_PAR, ONLY : NX, NY, LSM, IFLAG_GEO, IFL_LINE
+USE MOD_GRAPH_WORK
+USE MOD_GEO_LINES
+IMPLICIT NONE
+
+INTEGER :: ILINE_TYPE, IFL_LABEL, I, III
+
+!CALL PLWIDTH(REAL(ILINEW4,PLFLT)) ! Set pen width
+CALL PLWIDTH(REAL(ILINEW3,PLFLT)) ! Set pen width
+CALL PLCOL0(7) ! Set color with using map0 pallet
+IFL_LABEL=0 
+  
+IF (IFLAG_GEO==1) THEN 
+
+! LSM DEFINED
+
+  FIELD(:,:)=LSM(:,:)
+  CALL PL_SETCONTLABELPARAM(0.005_PLFLT,0.8_PLFLT,0.3_PLFLT,IFL_LABEL)
+  CALL PLCONT(FIELD,IINI,IFIN,JINI,JFIN,COAST_LINE,TR2DX,TR2DY) ! Contour plot
+
+ELSE
+
+! Using of external free dataset (see SUBROUTINE GEO_LINE_DATASET)
+
+   ILINE_TYPE=1 ! Coast line
+   IF (IFL_LINE(ILINE_TYPE)==1) THEN
+     DO I=1,N_POINT_LINE(ILINE_TYPE)
+       IF ((I>1.AND.GEO_LINE(ILINE_TYPE)%IFL_POINT(I)==0).OR.I==N_POINT_LINE(ILINE_TYPE)) THEN
+         CALL PLLINE(LINE_X(1:III),LINE_Y(1:III)) ! Draw a line
+       ENDIF
+       IF (GEO_LINE(ILINE_TYPE)%IFL_POINT(I)==0) III=0
+       III=III+1
+       LINE_X(III)=GEO_LINE(ILINE_TYPE)%MAP_COORD(2,I)
+       LINE_Y(III)=GEO_LINE(ILINE_TYPE)%MAP_COORD(1,I)
+     ENDDO
+  ELSE
+     PRINT *,'ATTENTION: Coast line dataset is not read!'
+  ENDIF
+ENDIF
+
+RETURN
+END SUBROUTINE COAST_LINE_DRAW
+
+!------------------------------------------------------------------------------
+
+SUBROUTINE GEO_LINE_DRAW
+
+! PROCEDURE DRAWS GEOGRAPHICAL LINES: RIVERS, INTERNATIONAL AND 
+! INTERNAL BOUNDARIES USING THE EXTERNAL FREE DATASET 
+! (see SUBROUTINE GEO_LINE_DATASET)
+
+USE PLPLOT
+USE MOD_GRAPH_WORK
+USE MOD_GEO_LINES
+IMPLICIT NONE
+
+INTEGER :: ILINE_TYPE, ICOL, I, III
+REAL :: XMAX, XMIN_LINE, XMAX_LINE
+
+CALL PLWIDTH(REAL(ILINEW1,PLFLT)) ! Set pen width
+
+DO ILINE_TYPE=1,N_TYPE_LINE
+  XMAX=MAXVAL(GEO_LINE(ILINE_TYPE)%MAP_COORD(2,1:N_POINT_LINE(ILINE_TYPE)))
+  IF (IFL_LINE_WORK(ILINE_TYPE)==1) THEN
+    ICOL=7 ! Defined (at the start of program) gray color
+    !IF (ILINE_TYPE==2) ICOL=1 ! States boundaries (red)
+    !IF (ILINE_TYPE==3) ICOL=9 ! Rivers (blue)
+    !IF (ILINE_TYPE==4) ICOL=13 ! Administrative boundaries (crimson)
+    CALL PLCOL0(ICOL) ! Set color with using map0 pallet
+    DO I=1,N_POINT_LINE(ILINE_TYPE)
+       IF ((I>1.AND.GEO_LINE(ILINE_TYPE)%IFL_POINT(I)==0).OR.I==N_POINT_LINE(ILINE_TYPE)) THEN
+! Elimination of cases of global area when a lines starts in an map longitude margin and finishes in a oposit margin
+         XMIN_LINE=MINVAL(LINE_X(1:III))
+         XMAX_LINE=MAXVAL(LINE_X(1:III))
+         IF (XMAX_LINE-XMIN_LINE < XMAX*0.9) THEN 
+           CALL PLLINE(LINE_X(1:III),LINE_Y(1:III)) ! Draw a line
+         ENDIF
+       ENDIF
+       IF (GEO_LINE(ILINE_TYPE)%IFL_POINT(I)==0) III=0
+       III=III+1
+       LINE_X(III)=GEO_LINE(ILINE_TYPE)%MAP_COORD(2,I)
+       LINE_Y(III)=GEO_LINE(ILINE_TYPE)%MAP_COORD(1,I)
+     ENDDO
+  ENDIF
+ENDDO 
+
+RETURN
+END SUBROUTINE GEO_LINE_DRAW
+
+!------------------------------------------------------------------------------
+
+SUBROUTINE GEO_MESH_DRAW
+
+! PROCEDURE DRAWS GEOGRAPHICAL MESH
+
+USE PLPLOT
+USE MOD_GRAPH_PAR, ONLY : NX, NY, X0, Y0, DX, DY, X00, Y00, ALAT, ALON, ISTEREO, STEREOLAT0, STEREOLATN
+USE MOD_GRAPH_WORK
+IMPLICIT NONE
+
+REAL :: ALATMIN, ALATMAX, ALONMIN, ALONMAX, DLAT, DLON, ZLATINI, ZLONINI, ZMAXLAT, ZMAXLON, &
+ ZMAX, ZMIN, ZLAT0, ZLAT1, ZLON1, ZLAT2, ZLON, YMAP, XMAP
+INTEGER :: NLINE, IFL_LABEL, IFLEFORMAT, IFLNUMBER, I, II, NLINE_MESH_LON, NLINE_MESH_LAT,&
+ J, JJ, J1, J2, IMIN
+REAL (KIND=PLFLT) :: X1_LINE, X2_LINE, Y1_LINE, Y2_LINE
+
+! ISOLINE LIST DEFINITION
+
+ALATMIN=MINVAL(ALAT)
+ALATMAX=MAXVAL(ALAT)
+ALONMIN=MINVAL(ALON)
+ALONMAX=MAXVAL(ALON)
+NLINE=5
+DLAT=(ALATMAX-ALATMIN)/FLOAT(NLINE)/YXRATION_FIELD
+DLON=(ALONMAX-ALONMIN)/FLOAT(NLINE) 
+
+IF (DLAT<=0.5) THEN
+  DLAT=NINT(DLAT*10.)*0.1
+  ZLATINI=NINT(ALATMIN*10.)*0.1
+ELSEIF (DLAT<5.) THEN
+  DLAT=FLOAT(NINT(DLAT))
+  ZLATINI=(INT(ALATMIN/DLAT))*DLAT
+ELSEIF (DLAT<10.) THEN
+  DLAT=5.
+  ZLATINI=(INT(ALATMIN/DLAT))*DLAT
+ELSE
+  DLAT=10.
+  ZLATINI=(INT(ALATMIN/DLAT))*DLAT
+ENDIF
+
+IF (DLON<=0.5) THEN
+  DLON=NINT(DLON*10.)*0.1
+  ZLONINI=NINT(ALONMIN*10.)*0.1
+ELSEIF (DLON<5.) THEN
+  DLON=FLOAT(NINT(DLON))
+  ZLONINI=(INT(ALONMIN/DLON))*DLON
+ELSEIF (DLON<10.) THEN
+  DLON=5.
+  ZLONINI=(INT(ALONMIN/DLON))*DLON
+ELSE
+  DLON=10.
+  IF (ISTEREO==1) DLON=20.
+  ZLONINI=(INT(ALONMIN/DLON))*DLON
+ENDIF
+
+! FORCING:
+!  DLAT=
+!  DLON=
+!  ZLATINI=
+!  ZLONINI=
+
+DO I=1,NLINE_MESH
+  ALAT_MESH(I)=ZLATINI+DLAT*FLOAT(I-1)
+  ALON_MESH(I)=ZLONINI+DLON*FLOAT(I-1)
+ENDDO
+
+DO I=1,NLINE_MESH
+  IF (ALON_MESH(I)>ALONMAX) EXIT
+ENDDO
+NLINE_MESH_LON=I
+IF (ALON_MESH(1) == ALON_MESH(NLINE_MESH_LON)-360.) NLINE_MESH_LON=NLINE_MESH_LON-1
+DO I=1,NLINE_MESH
+  IF (ALAT_MESH(I)>ALATMAX) EXIT
+ENDDO
+NLINE_MESH_LAT=I
+
+! DRAW ISOLINE
+
+CALL PLSTYL( (/500/), (/1000/) )
+CALL PLWIDTH(REAL(ILINEW1,PLFLT)) ! Set pen width
+CALL PLCOL0(15) ! Set color with using map0 pallet
+CALL PLFONT(ICHARTYPE2) ! Set font type
+CALL PLSCHR(CHARSIZE*0.8_PLFLT,1.0_PLFLT) ! Set font size (in mm)
+
+IF ((ABS(X0)>=0.01.OR.ABS(Y0)>=0.01).OR.ISTEREO==1) THEN
+
+! Rotated coordinates
+
+! Flag of contour label: 1 - yes, 0 - no :
+  IFL_LABEL=0 
+
+! Flags for format of contour labels :
+  IFLEFORMAT=15
+  ZMAXLAT=MAXVAL(ABS(ALAT_MESH(:)))
+  ZMAXLON=MAXVAL(ABS(ALON_MESH(:)))
+  ZMAX=MAX(ZMAXLAT,ZMAXLON)
+  IFLNUMBER=INT(ALOG10(ZMAX))+1
+
+  CALL PL_SETCONTLABELFORMAT(IFLEFORMAT,IFLNUMBER) ! Set format of contour label
+  CALL PL_SETCONTLABELPARAM(0.005_PLFLT,0.8_PLFLT,0.3_PLFLT,IFL_LABEL)
+
+  FIELD(:,:)=ALAT(:,:)
+  CALL PLCONT(FIELD,IINI,IFIN,JINI,JFIN,ALAT_MESH(1:NLINE_MESH_LAT),TR2DX,TR2DY) ! Contour plot
+
+  IF (ISTEREO==0) THEN
+
+    IF (ALATMAX <= 89..AND.ALATMIN >= -89.) THEN
+
+! The pole not included
+
+      FIELD(:,:)=ALON(:,:)
+      CALL PLCONT(FIELD,IINI,IFIN,JINI,JFIN,ALON_MESH(1:NLINE_MESH_LON),TR2DX,TR2DY) ! Contour plot
+
+    ELSE
+
+! The pole included
+
+      IF (ALATMAX > 0.) THEN ! North pole
+        ZLAT1=ALAT_MESH(NLINE_MESH_LAT-1)
+        ZLAT2=ALAT_MESH(1)
+      ELSE ! South pole
+        ZLAT1=ALAT_MESH(2)
+        ZLAT2=ALAT_MESH(NLINE_MESH_LAT)
+      ENDIF
+      ZLON=-170.
+      DO WHILE (ZLON <= 180.)
+        CALL CONVERT_GEOCOORD(ZLON,ZLAT1,XMAP,YMAP)
+        X1_LINE=XMAP*1._PLFLT
+        Y1_LINE=YMAP*1._PLFLT
+        CALL CONVERT_GEOCOORD(ZLON,ZLAT2,XMAP,YMAP)
+        X2_LINE=XMAP*1._PLFLT
+        Y2_LINE=YMAP*1._PLFLT
+        CALL PLJOIN(X1_LINE,Y1_LINE,X2_LINE,Y2_LINE) ! Draw line between 2 points
+        ZLON=ZLON+DLON
+      ENDDO
+
+    ENDIF
+
+  ELSE
+
+! Stereographic projection
+
+    IF (STEREOLAT0 >= 0.) THEN
+      ZLAT0=STEREOLAT0-DLAT
+    ELSE
+      ZLAT0=STEREOLAT0+DLAT
+    ENDIF
+    ZMIN=1.E19
+    DO J=JINI,JFIN
+      IF (ABS(ALAT(IINI,J)-STEREOLATN) < ZMIN) THEN
+        J1=J
+        ZMIN=ABS(ALAT(IINI,J)-STEREOLATN)
+      ENDIF
+    ENDDO
+    ZMIN=1.E19
+    DO J=JINI,JFIN
+      IF (ABS(ALAT(IINI,J)-ZLAT0) < ZMIN) THEN
+        J2=J
+        ZMIN=ABS(ALAT(IINI,J)-ZLAT0)
+      ENDIF
+    ENDDO
+    DO II=1,NLINE_MESH_LON
+      ZMIN=1.E19
+      DO I=IINI,IFIN
+        IF (ABS(ALON(I,JINI)-ALON_MESH(II)) < ZMIN) THEN
+          ZMIN=ABS(ALON(I,JINI)-ALON_MESH(II))
+          IMIN=I
+        ENDIF
+      ENDDO
+      I=IMIN
+      CALL PLJOIN(TR2DX(I,J1),TR2DY(I,J1),TR2DX(I,J2),TR2DY(I,J2)) ! Draw line between 2 points
+    ENDDO
+
+  ENDIF
+
+ELSE
+
+! Non rotated coordinates
+
+  DO I=1,NLINE_MESH_LAT
+    LEG_Y=(ALAT_MESH(I)-Y00)/DY+1._PLFLT
+    CALL PLJOIN(XINI,LEG_Y,XFIN,LEG_Y) ! Draw line between 2 points 
+  ENDDO
+  DO I=1,NLINE_MESH_LON
+    LEG_X=(ALON_MESH(I)-X00)/DX+1._PLFLT
+    IF (X00>=0..AND.ALON_MESH(I)<0.) LEG_X=(ALON_MESH(I)+360.-X00)/DX+1._PLFLT
+    CALL PLJOIN(LEG_X,YINI,LEG_X,YFIN) ! Draw line between 2 points 
+  ENDDO
+  CALL CLIP(0) ! Clipping disable
+  DO I=1,NLINE_MESH_LAT
+    AGEO="          "
+    LEG_Y=(ALAT_MESH(I)-Y00)/DY+1._PLFLT
+    IF (LEG_Y>=YINI.AND.LEG_Y<=YFIN) THEN
+      IF (DLAT<0.1) THEN
+        WRITE (AGEO,'(F6.2)') ALAT_MESH(I)
+      ELSEIF (DLAT<1.) THEN
+        WRITE (AGEO,'(F5.1)') ALAT_MESH(I)
+      ELSE
+        WRITE (AGEO,'(I3)') INT(ALAT_MESH(I))
+      ENDIF
+      CALL PLPTEX(XINI,LEG_Y,0._PLFLT,0._PLFLT,1.0_PLFLT,AGEO) ! Write text relative plot coordinates
+      CALL PLPTEX(XFIN,LEG_Y,0._PLFLT,0._PLFLT,0.0_PLFLT,AGEO) ! Write text relative plot coordinates
+    ENDIF
+  ENDDO
+  DO I=1,NLINE_MESH_LON
+    AGEO="          "
+    LEG_X=(ALON_MESH(I)-X00)/DX+1._PLFLT
+    IF (X00>=0..AND.ALON_MESH(I)<0.) LEG_X=(ALON_MESH(I)+360.-X00)/DX+1._PLFLT
+    IF (LEG_X>=XINI.AND.LEG_X<=XFIN) THEN
+      IF (DLON<0.1) THEN
+        WRITE (AGEO,'(F7.2)') ALON_MESH(I)
+      ELSEIF (DLON<1.) THEN
+        WRITE (AGEO,'(F6.1)') ALON_MESH(I)
+      ELSE
+        WRITE (AGEO,'(I4)') INT(ALON_MESH(I))
+      ENDIF
+      CALL PLPTEX(LEG_X,YINI-DY_GRAPH,0._PLFLT,0._PLFLT,0.5_PLFLT,AGEO) ! Write text relative plot coordinates
+      CALL PLPTEX(LEG_X,YFIN+DY_GRAPH,0._PLFLT,0._PLFLT,0.5_PLFLT,AGEO) ! Write text relative plot coordinates
+    ENDIF
+  ENDDO
+  CALL CLIP(1) ! Clipping able
+
+ENDIF
+
+CALL PLSTYL( (/INTEGER ::/), (/INTEGER ::/) )
+
+RETURN
+END SUBROUTINE GEO_MESH_DRAW
+
+!------------------------------------------------------------------------------
+
+SUBROUTINE COMMENT_WRITE(IPAGE)
+
+! PROCEDURE WRITES MAP COMMENTS:
+! 1) Map Title
+! 2) Forecast initial date and instant
+! 3) Forecast term and Forecast date and instant
+! 4) Interval value between isolines
+! 5) Comment about data source
+
+USE PLPLOT
+USE MOD_GRAPH_PAR, ONLY : PAGE, X0, Y0, IFL_MAP, ISTEREO, VERT_COORD_TYPE, VERT_COORD
+USE MOD_GRAPH_WORK
+IMPLICIT NONE
+
+INTEGER :: IPAGE, FLAG, NTICSY=20, NTICSX=15, J, I
+CHARACTER :: WEEK_DAY*3, ALABEL*10, AAXISY*30
+REAL :: HOUR_TOT, DY, Y1, Y2, DLON, DLAT, ZLONINI, ZLATINI, ZDLON0, ZDLAT0, ZLON, ZLAT
+
+IF (IFL_MAP==1.AND.((ABS(X0)>=0.01.OR.ABS(Y0)>=0.01).OR.ISTEREO==1)) THEN
+  FLAG=1
+ELSE
+  FLAG=0
+ENDIF
+
+! PREPARATION COMMENT INCLUDING DATA ABOUT DATE AND INSTANT
+
+CALL DEF_WEEK_DAY(PAGE(IPAGE)%IDATE0(6), WEEK_DAY)
+WRITE (PAGE(IPAGE)%ACOMMENT(2),'(A14,A3,A2,I2.2,A1,I2.2,A1,I4.4,A2,I2.2,A1,I2.2,A4)') &
+'Initial time  ',WEEK_DAY,', ',PAGE(IPAGE)%IDATE0(3),'/',&
+PAGE(IPAGE)%IDATE0(2),'/',PAGE(IPAGE)%IDATE0(1),'  ',&
+PAGE(IPAGE)%IDATE0(4),':',PAGE(IPAGE)%IDATE0(5),' UTC'
+
+CALL DEF_WEEK_DAY(PAGE(IPAGE)%IDATEC(6), WEEK_DAY)
+HOUR_TOT=FLOAT(PAGE(IPAGE)%IPERIOD(1))*24.+FLOAT(PAGE(IPAGE)%IPERIOD(2))+ &
+FLOAT(PAGE(IPAGE)%IPERIOD(3))/60.
+IF (HOUR_TOT-INT(HOUR_TOT)<0.1) THEN
+  WRITE (PAGE(IPAGE)%ACOMMENT(3),&
+  '(A11,I4,A5,I3.3,A3,I2.2,A4,A7,A3,A2,I2.2,A1,I2.2,A1,I4.4,A1,I2.2,A1,I2.2,A4)') &
+  'Forecast  +',INT(HOUR_TOT),' h  (',PAGE(IPAGE)%IPERIOD(1),' d ',&
+  PAGE(IPAGE)%IPERIOD(2),' h) ',&
+  ' valid ',WEEK_DAY,', ',PAGE(IPAGE)%IDATEC(3),'/',PAGE(IPAGE)%IDATEC(2),'/',&
+  PAGE(IPAGE)%IDATEC(1),' ',PAGE(IPAGE)%IDATEC(4),':',&
+  PAGE(IPAGE)%IDATEC(5),' UTC'
+ELSE
+  WRITE (PAGE(IPAGE)%ACOMMENT(3),&
+  '(A11,F5.1,A5,I3.3,A3,I2.2,A3,I2.2,A5,A7,A3,A2,I2.2,A1,I2.2,A1,I4.4,A1,I2.2,A1,I2.2,A4)') &
+  'Forecast  +',HOUR_TOT,' h  (',PAGE(IPAGE)%IPERIOD(1),' d ',&
+  PAGE(IPAGE)%IPERIOD(2),' h ',PAGE(IPAGE)%IPERIOD(3),'min) ',&
+  ' valid ',WEEK_DAY,', ',PAGE(IPAGE)%IDATEC(3),'/',PAGE(IPAGE)%IDATEC(2),'/',&
+  PAGE(IPAGE)%IDATEC(1),' ',PAGE(IPAGE)%IDATEC(4),':',&
+  PAGE(IPAGE)%IDATEC(5),' UTC'
+ENDIF
+
+WRITE (PAGE(IPAGE)%ACOMMENT(4),'(A17,A9)') 'Contour interval ',ADCONTOUR
+
+PRINT *,PAGE(IPAGE)%ACOMMENT(1)
+IF (IFL_FIELD_CONST==0) PRINT *,PAGE(IPAGE)%ACOMMENT(3)
+
+! WRITING OF COMMENTS AROUND THE MAP
+
+CALL CLIP(0) ! Clipping disable
+
+CALL PLWIDTH(REAL(ILINEW1,PLFLT)) ! Set pen width
+CALL PLFONT(ICHARTYPE1) ! Set font type
+CALL PLSCHR(CHARSIZE*1.1,1.0_PLFLT) ! Set font size (in mm)
+CALL PLCOL0(15) ! Set color with using map0 pallet
+
+ZDY=DY_GRAPH*2.0_PLFLT
+
+LEG_X=XINI
+IF (FLAG==1) THEN
+  LEG_Y=YINI-ZDY*0.60
+ELSE
+  LEG_Y=YINI-ZDY*1.10
+ENDIF
+IF (IFL_MAP==0) THEN
+  LEG_Y=YINI-ZDY*2.5
+  LEG_X=XINI-ZDX*2.5
+ENDIF
+CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,0.0_PLFLT,PAGE(IPAGE)%ACOMMENT(5)) ! Write text relative plot coordinates
+
+LEG_X=XINI
+LEG_Y=YFIN
+
+!!!LEG_Y=LEG_Y+ZDY
+!!!CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,0.0_PLFLT,PAGE(IPAGE)%ACOMMENT(4)) ! Write text relative plot coordinates
+
+  IF (FLAG==1) THEN
+    LEG_Y=YFIN+ZDY*0.60
+  ELSE
+    LEG_Y=YFIN+ZDY
+  ENDIF
+  IF (IFL_FIELD_CONST == 1) LEG_Y=YFIN+ZDY*1.5
+
+! Work ---> 
+!LEG_Y=YFIN+ZDY*2.2
+!CALL PLSCHR(CHARSIZE*1.0_PLFLT,1.3_PLFLT) ! Set font size (in mm)
+!CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,0.0_PLFLT,PAGE(IPAGE)%ACOMMENT(1)) ! Write text relative plot coordinates
+!LEG_Y=YFIN+ZDY
+!CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,0.0_PLFLT,'monthly average of analysis') ! Write text relative plot coordinates
+!!CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,0.0_PLFLT,'3 month average of analysis') ! Write text relative plot coordinates
+!<---
+
+! Work ---> 
+IF (IFL_FIELD_CONST == 0) THEN
+
+  CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,0.0_PLFLT,PAGE(IPAGE)%ACOMMENT(3)) ! Write text relative plot coordinates
+
+  LEG_Y=LEG_Y+ZDY
+
+  CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,0.0_PLFLT,PAGE(IPAGE)%ACOMMENT(2)) ! Write text relative plot coordinates
+
+  LEG_Y=LEG_Y+ZDY
+
+ENDIF
+
+CALL PLSCHR(CHARSIZE*1.0_PLFLT,1.3_PLFLT) ! Set font size (in mm)
+CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,0.0_PLFLT,PAGE(IPAGE)%ACOMMENT(1)) ! Write text relative plot coordinates ! Comm. for Meteograms map
+!<---
+
+IF (IFL_MAP == 0) THEN ! Space cross-section
+
+! Labels on the vertical axis
+
+  CALL PLSCHR(CHARSIZE*1.0,0.9_PLFLT) ! Set font size (in mm)
+  CALL PLWIDTH(REAL(ILINEW1,PLFLT)) ! Set pen width
+
+  LEG_X=XINI-ZDX*0.5
+
+  IF (VERT_COORD_TYPE==100) THEN ! Pessure
+    DY=5000.
+    Y1=100000.
+    DO J=1,NTICSY
+      Y2=Y1-DY*FLOAT(J-1)
+      IF (Y2 < EXP(TR2DY(1,JFIN)-0.1)) EXIT
+      LEG_Y=ALOG(Y2)
+      WRITE (ALABEL,'(I4)') INT(Y2*1.E-2)
+      CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,1.0_PLFLT,ALABEL) ! Write text relative plot coordinates
+      CALL PLJOIN(XINI,LEG_Y,LEG_X+ZDX*0.25,LEG_Y) ! Draw line between 2 points 
+    ENDDO
+    WRITE (AAXISY,'(A)') "Pressure (hPa)"
+  ENDIF
+
+  IF (VERT_COORD_TYPE==102) THEN ! Altitude above mean sea level (m)
+    DY=1000.
+    Y1=1000.
+    DO J=1,NTICSY
+      Y2=Y1+DY*FLOAT(J-1)
+      IF (Y2 > TR2DY(1,JFIN)) EXIT
+      LEG_Y=Y2
+      WRITE (ALABEL,'(I2)') INT(Y2*1.E-3)
+      CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,1.0_PLFLT,ALABEL) ! Write text relative plot coordinates
+      CALL PLJOIN(XINI,LEG_Y,LEG_X+ZDX*0.25,LEG_Y) ! Draw line between 2 points 
+    ENDDO
+    WRITE (AAXISY,'(A)') "Altitude (km)"
+  ENDIF
+
+  CALL PLSCHR(CHARSIZE*1.0,1.0_PLFLT) ! Set font size (in mm)
+  LEG_X=XINI-ZDX*2.5
+  LEG_Y=(YINI+YFIN)*0.5
+  CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,ZDY,0.5_PLFLT,AAXISY) ! Write text relative plot coordinates
+
+! Labels on the horizontal axis
+
+  CALL PLSCHR(CHARSIZE*1.0,0.8_PLFLT) ! Set font size (in mm)
+  CALL PLWIDTH(REAL(ILINEW1,PLFLT)) ! Set pen width
+
+  DLON=(PAGE(IPAGE)%LON_CROSS_FIN-PAGE(IPAGE)%LON_CROSS_INI)/FLOAT(NTICSX)
+  DLAT=(PAGE(IPAGE)%LAT_CROSS_FIN-PAGE(IPAGE)%LAT_CROSS_INI)/FLOAT(NTICSX)
+
+  IF (ABS(DLON)<=0.5) THEN
+    DLON=NINT(DLON*10.)*0.1
+    ZLONINI=NINT(PAGE(IPAGE)%LON_CROSS_INI*10.)*0.1
+    IF (ABS(DLON) < 0.1) THEN
+      DLON=SIGN(0.1,DLON)
+    ENDIF
+  ELSEIF (ABS(DLON)<5.) THEN
+    DLON=FLOAT(NINT(DLON))
+    ZLONINI=(INT(PAGE(IPAGE)%LON_CROSS_INI/DLON))*DLON
+  ELSEIF (ABS(DLON)<10.) THEN
+    DLON=SIGN(5.,DLON)
+    ZLONINI=(INT(PAGE(IPAGE)%LON_CROSS_INI/DLON))*PAGE(IPAGE)%LON_CROSS_INI
+  ELSE
+    DLON=SIGN(10.,DLON)
+    ZLONINI=(INT(PAGE(IPAGE)%LON_CROSS_INI/DLON))*PAGE(IPAGE)%LON_CROSS_INI
+  ENDIF
+
+  IF (ABS(DLAT)<=0.5) THEN
+    DLAT=NINT(DLAT*10.)*0.1
+    ZLATINI=NINT(PAGE(IPAGE)%LAT_CROSS_INI*10.)*0.1
+    IF (ABS(DLAT) < 0.1) THEN
+      DLAT=SIGN(0.1,DLAT)
+    ENDIF
+  ELSEIF (ABS(DLAT)<5.) THEN
+    DLAT=FLOAT(NINT(DLAT))
+    ZLATINI=(INT(PAGE(IPAGE)%LAT_CROSS_INI/DLAT))*DLAT
+  ELSEIF (ABS(DLAT)<10.) THEN
+    DLAT=SIGN(5.,DLAT)
+    ZLATINI=(INT(PAGE(IPAGE)%LAT_CROSS_INI/DLAT))*PAGE(IPAGE)%LAT_CROSS_INI
+  ELSE
+    DLAT=SIGN(10.,DLAT)
+    ZLATINI=(INT(PAGE(IPAGE)%LAT_CROSS_INI/DLAT))*PAGE(IPAGE)%LAT_CROSS_INI
+  ENDIF
+
+  ZDLON0=(PAGE(IPAGE)%LON_CROSS_FIN-PAGE(IPAGE)%LON_CROSS_INI)/FLOAT(PAGE(IPAGE)%NX_CROSS)
+  ZDLAT0=(PAGE(IPAGE)%LAT_CROSS_FIN-PAGE(IPAGE)%LAT_CROSS_INI)/FLOAT(PAGE(IPAGE)%NX_CROSS)
+
+  LEG_Y=YINI-ZDY*0.5
+  DO I=1,NTICSX*2 ! *2 to come up to PAGE(IPAGE)%LON_CROSS_FIN
+    ZLON=ZLONINI+DLON*FLOAT(I-1)
+    LEG_X=(ZLON-PAGE(IPAGE)%LON_CROSS_INI)/ZDLON0+1.
+    IF (ABS(DLON)>=1.) THEN
+      IF (ZLON>=0.) THEN
+        IF (ZLON <= 180.) THEN 
+          WRITE (ALABEL,'(I3,A)') ABS(INT(ZLON)),'°E'
+        ELSE
+          WRITE (ALABEL,'(I3,A)') ABS(INT(ZLON-180.)),'°E'
+        ENDIF
+      ELSE
+        IF (ZLON >= -180.) THEN
+          WRITE (ALABEL,'(I3,A)') ABS(INT(ZLON)),'°W'
+        ELSE
+          WRITE (ALABEL,'(I3,A)') ABS(INT(ZLON+180.)),'°W'
+        ENDIF
+      ENDIF
+    ELSE
+      IF (ZLON>=0.) THEN
+        IF (ZLON <= 180.) THEN
+          WRITE (ALABEL,'(F5.1,A)') ABS(ZLON),'°E'
+        ELSE
+          WRITE (ALABEL,'(F5.1,A)') ABS(ZLON-180.),'°E'
+        ENDIF
+      ELSE
+        IF (ZLON >= -180.) THEN
+          WRITE (ALABEL,'(F5.1,A)') ABS(ZLON),'°W'
+        ELSE
+          WRITE (ALABEL,'(F5.1,A)') ABS(ZLON+180.),'°W'
+        ENDIF
+      ENDIF
+    ENDIF
+    IF (LEG_X>=XINI.AND.LEG_X<=XFIN) THEN
+       CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,0.5_PLFLT,ALABEL) ! Write text relative plot coordinates
+      CALL PLJOIN(LEG_X,YINI,LEG_X,YINI-ZDY*0.25) ! Draw line between 2 points 
+    ENDIF
+  ENDDO
+
+  LEG_Y=YINI-ZDY*1.25
+  DO I=1,NTICSX*2  ! *2 to come up to PAGE(IPAGE)%LAT_CROSS_FIN
+    ZLAT=ZLATINI+DLAT*FLOAT(I-1)
+    LEG_X=(ZLAT-PAGE(IPAGE)%LAT_CROSS_INI)/ZDLAT0+1.
+    IF (ABS(DLAT)>=1.) THEN
+      IF (ZLAT>=0.) THEN
+        WRITE (ALABEL,'(I2,A)') ABS(INT(ZLAT)),'°N'
+      ELSE
+        WRITE (ALABEL,'(I2,A)') ABS(INT(ZLAT)),'°S'
+      ENDIF
+    ELSE
+      IF (ZLAT>=0.) THEN
+        WRITE (ALABEL,'(F4.1,A)') ABS(ZLAT),'°N'
+      ELSE
+        WRITE (ALABEL,'(F4.1,A)') ABS(ZLAT),'°S'
+      ENDIF
+    ENDIF
+    IF (LEG_X>=XINI.AND.LEG_X<=XFIN) THEN
+       CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,0.5_PLFLT,ALABEL) ! Write text relative plot coordinates
+      CALL PLJOIN(LEG_X,YINI,LEG_X,YINI-ZDY*1.00) ! Draw line between 2 points 
+    ENDIF
+  ENDDO
+
+ENDIF ! Axises for space cross-section
+
+CALL CLIP(1) ! Clipping able
+
+RETURN
+END SUBROUTINE COMMENT_WRITE
+
+!------------------------------------------------------------------------------
+SUBROUTINE DEF_WEEK_DAY(IDAY,ADAY)
+IMPLICIT NONE
+
+INTEGER :: IDAY
+CHARACTER :: ADAY*3
+
+ADAY='???'
+GOTO (101,102,103,104,105,106,107) IDAY
+101 ADAY='Mon'
+    GOTO 10
+102 ADAY='Tue'
+    GOTO 10
+103 ADAY='Wed'
+    GOTO 10
+104 ADAY='Thu'
+    GOTO 10
+105 ADAY='Fri'
+    GOTO 10
+106 ADAY='Sat'
+    GOTO 10
+107 ADAY='Sun'
+
+10 RETURN
+
+END SUBROUTINE DEF_WEEK_DAY
+
+!------------------------------------------------------------------------------
+
+SUBROUTINE VECTOR_DRAW(IPAGE,IFIELD)
+
+! PROCEDURE CREATES VECTORIAL FIELDS
+
+USE PLPLOT
+USE MOD_GRAPH_PAR, ONLY : PAGE, PI_1=>PI, NX, NY, ISTEREO, STEREOLATN, STEREOLAT0, ALON, ALAT, IFL_MAP, &
+ VERT_COORD_TYPE, VERT_COORD
+USE MOD_GRAPH_WORK
+IMPLICIT NONE
+
+INTEGER :: IPAGE, IFIELD, NARROW=20, NJUMPX, NJUMPY, NXA, NYA, IX, IY, IXA, IYA,&
+ INTERVAL, I, II
+REAL(KIND=PLFLT) :: SCALING, SCALING_ARR, SCALING_SYN, &
+ WSPEED, WSPEED_MIN, SCALU, SCALV, ARROW_WID, WSPEED_ARR, ZZZ,&
+ XSTART, YSTART, SYMBOL_SCAL=0.3, SYMBOL_DIST=0.15, &
+ ARROW_SCAL=0.40 ! size of arrow-head symbol relatively arrow length 
+REAL, DIMENSION(NX,NY) :: U_USED, V_USED
+REAL(KIND=PLFLT), DIMENSION(:,:), ALLOCATABLE :: U, V, XG, YG
+REAL(KIND=PLFLT), DIMENSION(4) :: XX, YY
+REAL(KIND=PLFLT), DIMENSION(7) :: ARROW_X=(/-0.5_plflt, 0.2_plflt, 0.1_plflt, 0.5_plflt, 0.1_plflt, 0.2_plflt, -0.5_plflt/), &
+                                  ARROW_Y=(/0.0_plflt, 0.0_plflt, 0.07_plflt, 0.0_plflt, -0.07_plflt, 0.0_plflt, 0.0_plflt/)
+LOGICAL :: FILL=.TRUE. ! Closed arrow
+!LOGICAL :: FILL=.FALSE. ! Open arrow
+REAL(KIND=PLFLT), DIMENSION(10) :: POLYG_X, POLYG_Y
+REAL :: ZU, ZV, ZU1, ZV1, ZU2, ZV2, ZU3, ZV3, ZROT1, ZROT2, ZROT3, ZROT4,&
+ ALPHA, ALPHA1, ALPHA2, WMOD, ZFAC, ZSIGN, ZFAC_AXIS
+INTEGER, PARAMETER :: INT_WMOD=40
+REAL, DIMENSION(INT_WMOD) :: WMOD_STD
+
+IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==5.OR.PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==51) THEN
+  IF (ISTEREO==0) THEN
+    NARROW=40
+  ELSE
+    NARROW=25
+  ENDIF 
+ENDIF 
+
+! DETERMINATION OF VECTOR COMPONENT FOR DIFFERENT PROJECTION
+
+IF (IFL_MAP==1) THEN ! Map plot
+
+  IF (ISTEREO==0) THEN
+  
+! GRAPHICAL PROJECTION COINCEDS WITH DATA GRID PROJECTION
+    U_USED(:,:)=PAGE(IPAGE)%FIELD(:,:,IFIELD)
+    V_USED(:,:)=PAGE(IPAGE)%FIELD(:,:,IFIELD+1)
+  
+  ELSE
+  
+! GRAPHICAL PROJECTION IS STEREOGRAPHIC
+! "Rotation" of wind for stereographic projection
+  
+    ZZZ=PI_1/180._PLFLT
+    DO IY=1,NY
+    DO IX=1,NX
+      ZSIGN=SIGN( 1., STEREOLAT0 ) ! 1. in North Hemisphere, and -1. in South Hemisphere
+      ZU1=PAGE(IPAGE)%FIELD(IX,IY,IFIELD)
+      ZV1=PAGE(IPAGE)%FIELD(IX,IY,IFIELD+1)
+      ZV1=ZV1*ZSIGN ! minus in South Hemisfere
+      ZROT1=COS(ALON(IX,IY)*ZZZ)
+      ZROT2=-SIN(ALON(IX,IY)*ZZZ)
+      ZROT3=SIN(ALON(IX,IY)*ZZZ)
+      ZROT4=COS(ALON(IX,IY)*ZZZ)
+      ZROT3=ZROT3*ZSIGN ! minus in South Hemisphere
+      ZROT4=ZROT4*ZSIGN ! minus in South Hemisphere
+      ZU2=ZU1*ZROT1+ZV1*ZROT2
+      ZV2=ZU1*ZROT3+ZV1*ZROT4
+      U_USED(IX,IY)=ZU2
+      V_USED(IX,IY)=ZV2
+    ENDDO
+    ENDDO
+  
+  ENDIF
+
+ELSE ! Space cross-section plot
+
+  U_USED(:,:)=PAGE(IPAGE)%FIELD(:,:,IFIELD)
+  V_USED(:,:)=PAGE(IPAGE)%FIELD(:,:,IFIELD+1)
+
+  IF (VERT_COORD_TYPE==100) THEN ! Pressure
+
+    DO IY=1,NY
+      V_USED(:,IY)=-PAGE(IPAGE)%FIELD(:,IY,IFIELD+1)
+    ENDDO
+    
+  ENDIF
+
+ENDIF
+
+! DETERMINATION OF INTERVAL BETWEEN TWO ARROWS
+
+IF (IFL_MAP==1) THEN ! Map plot
+  ZFAC_AXIS=1.
+  IF (ISTEREO==0) THEN
+    NJUMPX=MAX(INT(FLOAT(IFIN-IINI)/FLOAT(NARROW)*YXRATION_FIELD),1)
+    NJUMPY=MAX(INT(FLOAT(JFIN-JINI)/FLOAT(NARROW)),1)
+    ZFAC=1.
+  ELSE
+    NJUMPX=MAX(INT(FLOAT(IFIN-IINI)/FLOAT(NARROW*6)*YXRATION_FIELD),1)
+    NJUMPY=MAX(INT(FLOAT(JFIN-JINI)/FLOAT(NARROW/1)),1)
+    ZFAC=360./(90.-ABS(STEREOLATN))
+    ARROW_SCAL=0.30_PLFLT ! see below
+  ENDIF
+ELSE ! Space cross-section
+  NJUMPX=MAX(INT(FLOAT(IFIN-IINI)*2./FLOAT(NARROW)*YXRATION_FIELD),1)
+  NJUMPY=MAX(INT(FLOAT(JFIN-JINI)*2./FLOAT(NARROW)),1)
+  ZFAC=1.
+  ZFAC_AXIS=ABS(YFIN-YINI)/ABS(XFIN-XINI)
+!!!  ARROW_SCAL=ARROW_SCAL*15._PLFLT/ZFAC_AXIS ! 15 - for standard proportion
+ENDIF
+
+! DEFINITION WIND COMPONENT FIELDS
+
+NXA=INT(FLOAT(IFIN-IINI)/FLOAT(NJUMPX))+1
+NYA=INT(FLOAT(JFIN-JINI)/FLOAT(NJUMPY))+1
+ALLOCATE(U(NXA,NYA))
+ALLOCATE(V(NXA,NYA))
+ALLOCATE(XG(NXA,NYA))
+ALLOCATE(YG(NXA,NYA))
+
+IYA=0
+DO IY=JINI,JFIN,NJUMPY
+  IYA=IYA+1
+  IXA=0
+  DO IX=IINI,IFIN,NJUMPX
+    IXA=IXA+1
+    U(IXA,IYA)=U_USED(IX,IY)
+    V(IXA,IYA)=V_USED(IX,IY)
+    XG(IXA,IYA)=IX
+    YG(IXA,IYA)=IY
+  ENDDO
+ENDDO
+NXA=IXA
+NYA=IYA
+
+CALL PLWIDTH(REAL(ILINEW1,PLFLT)) ! Set pen width
+CALL PLFONT(ICHARTYPE2) ! Set font type
+CALL PLSCHR(CHARSIZE,1.0_PLFLT) ! Set font size (in mm)
+CALL PLCOL0(15) ! Set color with using map0 pallet
+
+! Standart vector fild
+
+!CALL PLSVECT(ARROW_X,ARROW_Y,FILL)
+!SCALING=0.0_PLFLT
+!CALL PLVECT(U(1:NXA,1:NYA),V(1:NXA,1:NYA),SCALING,XG(1:NXA,1:NYA),YG(1:NXA,1:NYA))
+
+CALL PLCOL0(15) ! Set color with using map0 pallet
+CALL PLWIDTH(REAL(ILINEW3,PLFLT)) ! Set pen width
+
+SCALING_SYN=SQRT(FLOAT(NJUMPX)**2+FLOAT(NJUMPY)**2)*0.6_PLFLT ! Synop simbol
+SCALING_ARR=SQRT(FLOAT(NJUMPX)**2+FLOAT(NJUMPY)**2)*0.20_PLFLT ! Arrow
+ARROW_WID=0.5_PLFLT ! Arrow wideness
+ARROW_WID=ARROW_WID/ZFAC
+
+IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==5.OR.PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==51) THEN
+  
+! Vectorial field presentation with arrows
+  
+  IF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==5) THEN
+    II=IFIELD
+  ELSE 
+    II=IFIELD+1
+  ENDIF
+
+  WSPEED_MIN=PAGE(IPAGE)%CONTOUR_VAL(1,II)*1.0_PLFLT
+
+  SCALU=0.8*FLOAT(NJUMPX)/(PAGE(IPAGE)%CONTOUR_VAL(2,II)*1.0_PLFLT)
+  SCALV=0.8*FLOAT(NJUMPY)/(PAGE(IPAGE)%CONTOUR_VAL(2,II)*1.0_PLFLT)
+  WSPEED_ARR=PAGE(IPAGE)%CONTOUR_VAL(2,II)*1.0_PLFLT ! wind speed of referent aroow length
+!  ARROW_SCAL=ARROW_SCAL/MIN((MAX(WSPEED_ARR*0.1_PLFLT, 1._PLFLT)), 10._PLFLT) ! poisk
+  ARROW_SCAL=ARROW_SCAL/MIN((MAX(WSPEED_ARR*0.07_PLFLT, 1._PLFLT)), 10._PLFLT) ! poisk
+  
+  IF (ISTEREO==1) SCALU=SCALV
+  
+  IF (IFL_MAP==0) THEN
+    II=IFIELD+1
+    SCALV=0.8*FLOAT(NJUMPY)/(PAGE(IPAGE)%CONTOUR_VAL(2,II)*1.0_PLFLT)
+    WSPEED_ARR=WSPEED_ARR/2.
+  ENDIF
+  
+  DO IY=JINI,JFIN,NJUMPY
+  IF (ISTEREO==1) THEN
+    NJUMPX=MAX(INT(FLOAT(IFIN-IINI)/FLOAT(NARROW*4)*YXRATION_FIELD),1)
+    ZZZ=1.+(ABS(ALAT(1,IY))/ABS(STEREOLATN)*0.3)**3.
+    NJUMPX=INT(FLOAT(NJUMPX)*ZZZ)
+  ENDIF
+  DO IX=IINI,IFIN,NJUMPX
+    ZU=PAGE(IPAGE)%FIELD(IX,IY,IFIELD)
+    ZV=PAGE(IPAGE)%FIELD(IX,IY,IFIELD+1)
+    WSPEED=SQRT(ZU**2+(ZV/ZFAC_AXIS)**2)
+    IF (WSPEED>WSPEED_MIN) THEN
+      ZU=U_USED(IX,IY)
+      ZV=V_USED(IX,IY)
+    ! Arrow
+      ZZZ=0.7_PLFLT
+      IF (WSPEED<WSPEED_MIN*2._PLFLT) ZZZ=0.7_PLFLT*(WSPEED_MIN*2._PLFLT)/WSPEED
+      ZU=ZU*SCALU
+      ZV=ZV*SCALV
+      ZU=ZU*ZFAC
+    ! Initial point :
+      XX(1)=TR2DX(IX,IY)
+      YY(1)=TR2DY(IX,IY)
+    ! Extreme point
+      XX(2)=XX(1)+ZU*ZZZ
+      YY(2)=YY(1)+ZV*ZZZ
+    ! Point inside of arrow pike (of triangle)
+      XX(3)=XX(1)+ZU*ZZZ*0.95
+      YY(3)=YY(1)+ZV*ZZZ*0.95
+      !CALL PLWIDTH(REAL(ILINEW3,PLFLT)) ! Set pen width
+      CALL PLWIDTH(REAL(ILINEW2,PLFLT)) ! Set pen width
+    !!!  CALL PLJOIN(XX(1),YY(1),XX(2),YY(2)) ! Draw line between 2 points 
+      CALL PLJOIN(XX(1),YY(1),XX(3),YY(3)) ! Draw line between 2 points 
+      WMOD=SQRT((ZU/ZFAC*ZFAC_AXIS)**2+(ZV)**2)
+      IF (ZU>=0.) THEN
+        ALPHA=ASIN(ZV/WMOD)
+      ELSE
+        ALPHA=PI_1-ASIN(ZV/WMOD)
+      ENDIF
+      ALPHA1=ALPHA+PI_1*0.1
+      ALPHA2=ALPHA-PI_1*0.1
+      ZZZ=(WSPEED_ARR*ZFAC_AXIS*ARROW_SCAL)/WMOD
+      POLYG_X(1)=XX(2)
+      POLYG_Y(1)=YY(2)
+      ZU1=ZZZ*WMOD*COS(ALPHA1)
+      ZV1=ZZZ*WMOD*SIN(ALPHA1)
+      ZU1=ZU1*ZFAC/ZFAC_AXIS
+      ZU2=ZZZ*WMOD*COS(ALPHA2)
+      ZV2=ZZZ*WMOD*SIN(ALPHA2)
+      ZU2=ZU2*ZFAC/ZFAC_AXIS
+      ZU3=ZZZ*WMOD*0.5*COS(ALPHA)
+      ZV3=ZZZ*WMOD*0.5*SIN(ALPHA)
+      ZU3=ZU3*ZFAC/ZFAC_AXIS
+      POLYG_X(2)=POLYG_X(1)-ZU1
+      POLYG_Y(2)=POLYG_Y(1)-ZV1
+      POLYG_X(3)=POLYG_X(1)-ZU3
+      POLYG_Y(3)=POLYG_Y(1)-ZV3
+      POLYG_X(4)=POLYG_X(1)-ZU2
+      POLYG_Y(4)=POLYG_Y(1)-ZV2
+      POLYG_X(5)=POLYG_X(1)
+      POLYG_Y(5)=POLYG_Y(1)
+      CALL PLWIDTH(0._PLFLT) ! Set pen width
+      CALL PLFILL(POLYG_X(1:5),POLYG_Y(1:5)) ! Draw filled polygon
+    ENDIF ! WSPEED>WSPEED_MIN
+  ENDDO
+  ENDDO
+
+ELSEIF (PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==4.OR.PAGE(IPAGE)%PRESENT_TYPE(IFIELD)==41) THEN
+
+! Vectorial field presentation with wind barb
+
+  SCALU=0.7*FLOAT(NJUMPX)
+  SCALV=0.7*FLOAT(NJUMPY)
+  IF (ISTEREO==1) SCALU=SCALV
+  
+  WMOD_STD(1)=0.5
+  WMOD_STD(2)=2.
+  DO I=3,INT_WMOD,2
+    WMOD_STD(I)=WMOD_STD(I-1)+2.
+    WMOD_STD(I+1)=WMOD_STD(I-1)+5.
+  ENDDO
+  
+  IF (ISTEREO==1) NJUMPY=NJUMPY*2
+  DO IY=JINI,JFIN,NJUMPY
+  IF (ISTEREO==1) THEN
+    NJUMPX=MAX(INT(FLOAT(IFIN-IINI)/FLOAT(NARROW*6)*YXRATION_FIELD),1)
+    ZZZ=1.+(ABS(ALAT(1,IY))/ABS(STEREOLATN)*0.3)**3.
+    NJUMPX=INT(FLOAT(NJUMPX)*ZZZ)
+    NJUMPX=NJUMPX*2
+  ENDIF
+  DO IX=IINI,IFIN,NJUMPX
+    ZU=PAGE(IPAGE)%FIELD(IX,IY,IFIELD)
+    ZV=PAGE(IPAGE)%FIELD(IX,IY,IFIELD+1)
+    WSPEED=SQRT(ZU**2+ZV**2)
+    IF (WSPEED>WMOD_STD(1)) THEN
+    ZU=U_USED(IX,IY)
+    ZV=V_USED(IX,IY)
+    ZU=ZU*SCALU/WSPEED
+    ZV=ZV*SCALV/WSPEED
+    ZU=ZU*ZFAC
+  ! Initial point :
+    XX(1)=TR2DX(IX,IY)
+    YY(1)=TR2DY(IX,IY)
+  ! Extreme point
+    XX(2)=XX(1)-ZU
+    YY(2)=YY(1)-ZV
+    CALL PLWIDTH(REAL(ILINEW1,PLFLT)) ! Set pen width
+    CALL PLJOIN(XX(1),YY(1),XX(2),YY(2)) ! Draw line between 2 points 
+    WMOD=SQRT((ZU/ZFAC)**2+ZV**2)
+    IF (ZU>=0.) THEN
+      ALPHA=ASIN(ZV/WMOD)
+    ELSE
+      ALPHA=PI_1-ASIN(ZV/WMOD)
+    ENDIF
+    ALPHA1=ALPHA+PI_1*0.5
+    ALPHA2=ALPHA+PI_1*0.64
+    XSTART=XX(2)
+    YSTART=YY(2)
+    DO INTERVAL=1,INT_WMOD
+      IF (WSPEED<=WMOD_STD(INTERVAL)) EXIT
+    ENDDO
+    INTERVAL=INTERVAL-1
+    IF (INTERVAL>=2) THEN
+      IF (INTERVAL>=11) THEN
+      ! Wind speed >= 24 m/s: Plot flags
+        CALL PLWIDTH(0._PLFLT) ! Set pen width
+        II=INTERVAL
+        DO I=11,INTERVAL,10
+          POLYG_X(1)=XSTART+ZU*FLOAT(I/10-1)*SYMBOL_DIST
+          POLYG_Y(1)=YSTART+ZV*FLOAT(I/10-1)*SYMBOL_DIST
+          POLYG_X(3)=XSTART+ZU*FLOAT(I/10)*SYMBOL_DIST
+          POLYG_Y(3)=YSTART+ZV*FLOAT(I/10)*SYMBOL_DIST
+          ZU2=SYMBOL_SCAL*WMOD*COS(ALPHA2)
+          ZV2=SYMBOL_SCAL*WMOD*SIN(ALPHA2)
+          ZU2=ZU2*ZFAC
+          POLYG_X(2)=POLYG_X(3)+ZU2
+          POLYG_Y(2)=POLYG_Y(3)+ZV2
+          POLYG_X(4)=POLYG_X(1)
+          POLYG_Y(4)=POLYG_Y(1)
+          CALL PLFILL(POLYG_X(1:4),POLYG_Y(1:4)) ! Draw filled polygon
+          II=II-10
+        ENDDO
+        XSTART=POLYG_X(3)+ZU*SYMBOL_DIST
+        YSTART=POLYG_Y(3)+ZV*SYMBOL_DIST
+        INTERVAL=II
+        CALL PLWIDTH(REAL(ILINEW1,PLFLT)) ! Set pen width
+      ENDIF
+      ! Plot tics
+      DO I=2,INTERVAL,2
+        XX(1)=XSTART+ZU*FLOAT(I/2-1)*SYMBOL_DIST
+        YY(1)=YSTART+ZV*FLOAT(I/2-1)*SYMBOL_DIST
+        IF (I==INTERVAL.AND.INTERVAL/2*2==INTERVAL) THEN
+          ZU2=SYMBOL_SCAL*0.6*WMOD*COS(ALPHA2)
+          ZV2=SYMBOL_SCAL*0.6*WMOD*SIN(ALPHA2)
+        ELSE
+          ZU2=SYMBOL_SCAL*WMOD*COS(ALPHA2)
+          ZV2=SYMBOL_SCAL*WMOD*SIN(ALPHA2)
+        ENDIF
+        ZU2=ZU2*ZFAC
+        XX(2)=XX(1)+ZU2
+        YY(2)=YY(1)+ZV2
+        CALL PLJOIN(XX(1),YY(1),XX(2),YY(2)) ! Draw line between 2 points 
+      ENDDO
+    ENDIF
+    ENDIF ! WSPEED>WMOD_STD(1)
+  ENDDO
+  ENDDO
+
+ENDIF ! Symbol type for vectors
+
+DEALLOCATE(U)
+DEALLOCATE(V)
+DEALLOCATE(XG)
+DEALLOCATE(YG)
+
+RETURN
+END SUBROUTINE VECTOR_DRAW
+
+!------------------------------------------------------------------------------
+
+SUBROUTINE SYMBOL_DRAW(IPAGE, IFIELD)
+
+! PROCEDURE CREATS GRAPCHIC PRESENTATION FOR DATA FIELD IN FORM
+! OF SYMBOLS, USING PARSMETERS MEMORIZED IN CONTOUR_VAL VECTOR
+
+USE PLPLOT
+USE MOD_GRAPH_PAR, ONLY : PAGE
+USE MOD_GRAPH_WORK
+IMPLICIT NONE
+
+INTEGER :: IPAGE, IFIELD, ISYMBOL, RED_LOC, GREEN_LOC, BLUE_LOC, ICOLOR, NSYMBOL=50,&
+ NJUMPX, NJUMPY, IX, IY
+REAL :: THRESHOLD_MIN, THRESHOLD_MAX
+REAL(KIND=PLFLT) :: SCALE_CHAR
+
+  ICOLOR=PAGE(IPAGE)%IPALETTE(IFIELD)
+  RED_LOC=INT(PAGE(IPAGE)%CONTOUR_VAL(5,IFIELD))
+  GREEN_LOC=INT(PAGE(IPAGE)%CONTOUR_VAL(6,IFIELD))
+  BLUE_LOC=INT(PAGE(IPAGE)%CONTOUR_VAL(7,IFIELD))
+  ISYMBOL=INT(PAGE(IPAGE)%CONTOUR_VAL(3,IFIELD))
+  SCALE_CHAR=PAGE(IPAGE)%CONTOUR_VAL(4,IFIELD)*1.0_PLFLT
+  THRESHOLD_MIN=PAGE(IPAGE)%CONTOUR_VAL(1,IFIELD)
+  THRESHOLD_MAX=PAGE(IPAGE)%CONTOUR_VAL(2,IFIELD)
+
+  CALL PLSCOL0(ICOLOR,RED_LOC,GREEN_LOC,BLUE_LOC) ! Set color with index ICOLOR in map0 pallet
+  CALL PLCOL0(ICOLOR) ! Set color with using map0 pallet
+
+  CALL PLSSYM(CHARSIZE,SCALE_CHAR) ! Set symbol size (in mm)
+
+! DETERMINATION OF INTERVAL BETWEEN TWO SYMBOLS
+
+  NJUMPX=MAX(INT(FLOAT(IFIN-IINI)/NSYMBOL*YXRATION_FIELD),1)
+  NJUMPY=MAX(INT(FLOAT(JFIN-JINI)/NSYMBOL),1)
+
+  DO IY=JINI,JFIN,NJUMPY
+  DO IX=IINI,IFIN,NJUMPX
+    IF (PAGE(IPAGE)%FIELD(IX,IY,IFIELD)>=THRESHOLD_MIN.AND.PAGE(IPAGE)%FIELD(IX,IY,IFIELD)<=THRESHOLD_MAX) THEN
+      CALL PLSYM((/TR2DX(IX,IY)/),(/TR2DY(IX,IY)/),ISYMBOL) ! Plot a symbol
+    ENDIF
+  ENDDO
+  ENDDO
+
+RETURN
+END SUBROUTINE SYMBOL_DRAW
+
+!------------------------------------------------------------------------------
+
+SUBROUTINE COLOR_MASK(IPAGE, IFIELD)
+
+! PROCEDURE FILLS BY DETERMED COLOR THE DATA FIELD INTERVAL,
+! USING PARSMETERS MEMORIZED IN CONTOUR_VAL VECTOR
+
+USE PLPLOT
+USE MOD_GRAPH_PAR, ONLY : PAGE
+USE MOD_GRAPH_WORK
+IMPLICIT NONE
+
+INTEGER :: IPAGE, IFIELD
+
+INTEGER, PARAMETER :: NCOLOR_LOC=2, NPCOLOR_LOC=2
+REAL(KIND=PLFLT), DIMENSION(NPCOLOR_LOC) :: PCOLOR_LOC, RPCOLOR_LOC, GPCOLOR_LOC, BPCOLOR_LOC
+LOGICAL, DIMENSION(NPCOLOR_LOC-1) :: REVPCOLOR_LOC
+REAL(KIND=PLFLT) :: THRESHOLD_UP, THRESHOLD_DOWN, RED_LOC, GREEN_LOC, BLUE_LOC, COLOR_LOC=0.0_PLFLT
+
+  THRESHOLD_DOWN=PAGE(IPAGE)%CONTOUR_VAL(1,IFIELD)
+  THRESHOLD_UP=PAGE(IPAGE)%CONTOUR_VAL(2,IFIELD)
+
+  RED_LOC=PAGE(IPAGE)%CONTOUR_VAL(3,IFIELD)*1._PLFLT
+  GREEN_LOC=PAGE(IPAGE)%CONTOUR_VAL(4,IFIELD)*1._PLFLT
+  BLUE_LOC=PAGE(IPAGE)%CONTOUR_VAL(5,IFIELD)*1._PLFLT
+
+  CALL PLSCMAP1N(NCOLOR_LOC) ! Set number of colors in color map1
+  PCOLOR_LOC(1)=0._PLFLT
+  PCOLOR_LOC(2)=1._PLFLT
+  RPCOLOR_LOC(:)=RED_LOC
+  GPCOLOR_LOC(:)=GREEN_LOC
+  BPCOLOR_LOC(:)=BLUE_LOC
+  REVPCOLOR_LOC(:)=.FALSE.
+
+!  CALL PLSCMAP1L(.TRUE., PCOLOR_LOC, RPCOLOR_LOC, GPCOLOR_LOC, BPCOLOR_LOC, REVPCOLOR_LOC) ! Set color map1 using a pice-wise linear relationship
+  CALL PLSCMAP1L(.TRUE., PCOLOR_LOC, RPCOLOR_LOC, GPCOLOR_LOC, BPCOLOR_LOC) ! Set color map1 using a pice-wise linear relationship
+
+! Shading (filling) region between contour value
+
+  CALL PLSHADE(FIELD(IINI:IFIN,JINI:JFIN),XINI,XFIN,YINI,YFIN,THRESHOLD_DOWN,THRESHOLD_UP, &
+ 1,COLOR_LOC,0._PLFLT,0,0._PLFLT,0,0._PLFLT,MAP_RECTANGLE,TRANSFORM)
+
+RETURN
+END SUBROUTINE COLOR_MASK
+
+!------------------------------------------------------------------------------
+
+SUBROUTINE POINTS_VALUE(IPAGE, IFIELD)
+! Read geographical points coordinates and Plot field value (with defined rounding-off) at this points
+
+USE PLPLOT
+USE MOD_GRAPH_PAR, ONLY : PAGE, LSM
+USE MOD_GRAPH_WORK, ONLY : XINI, XFIN, YINI, YFIN, CHARSIZE, ICHARTYPE1, ILINEW3
+IMPLICIT NONE
+
+INTEGER :: IPAGE, IFIELD
+REAL, DIMENSION(:), ALLOCATABLE :: XGEO, YGEO, XMAP, YMAP, XGEO1, YGEO1
+REAL(KIND=PLFLT), DIMENSION(:), ALLOCATABLE :: XMAP1, YMAP1
+INTEGER, DIMENSION(:), ALLOCATABLE :: II1, JJ1
+CHARACTER(LEN=15), DIMENSION(:), ALLOCATABLE :: AGEO, AGEO1
+CHARACTER :: ALINE*50
+INTEGER :: IERR_OPEN, NPOINT, NVALID, I, ICOLOR=11, RED, GREEN, BLUE, IX, IY
+REAL :: ROUNDOFF, VALUE_ROUND, ZZZ
+REAL(KIND=PLFLT) :: SCALE_CHAR=1.3_PLFLT 
+CHARACTER (LEN=10) :: ATEXT
+INTEGER :: IFAMILY=3, ISTYLE=2, IWEIGHT=1 ! Character style: script oblique bold
+  
+OPEN (10,FILE='points_definited.txt',STATUS='OLD', IOSTAT=IERR_OPEN)
+
+IF (IERR_OPEN /= 0) RETURN
+
+DO NPOINT=1,100000
+  READ (10,*,END=20) ALINE
+ENDDO
+20 NPOINT=NPOINT-1
+
+ALLOCATE(XGEO(NPOINT))
+ALLOCATE(YGEO(NPOINT))
+ALLOCATE(XMAP(NPOINT))
+ALLOCATE(YMAP(NPOINT))
+ALLOCATE(XMAP1(NPOINT))
+ALLOCATE(YMAP1(NPOINT))
+ALLOCATE(AGEO(NPOINT))
+ALLOCATE(XGEO1(NPOINT))
+ALLOCATE(YGEO1(NPOINT))
+ALLOCATE(AGEO1(NPOINT))
+ALLOCATE(II1(NPOINT))
+ALLOCATE(JJ1(NPOINT))
+
+REWIND (10)
+DO I=1,NPOINT
+  READ (10,*) AGEO(I), YGEO(I), XGEO(I)
+  ZZZ=XGEO(I)
+  IF (ZZZ>180.) ZZZ=ZZZ-360.
+  CALL CONVERT_GEOCOORD(ZZZ,YGEO(I),XMAP(I),YMAP(I))
+ENDDO
+CLOSE(10)
+
+NVALID=0
+DO I=1,NPOINT
+  IF (XMAP(I) < XINI .OR. XMAP(I) > XFIN) CYCLE
+  IF (YMAP(I) < YINI .OR. YMAP(I) > YFIN) CYCLE
+  NVALID=NVALID+1
+  XMAP1(NVALID)=XMAP(I)*1._PLFLT
+  YMAP1(NVALID)=YMAP(I)*1._PLFLT
+  XGEO1(NVALID)=XGEO(I)
+  YGEO1(NVALID)=YGEO(I)
+  AGEO1(NVALID)=AGEO(I)
+  II1(NVALID)=NINT(XMAP1(NVALID))
+  JJ1(NVALID)=NINT(YMAP1(NVALID))
+ENDDO
+
+ROUNDOFF=PAGE(IPAGE)%CONTOUR_VAL(1,IFIELD)
+
+RED=INT(PAGE(IPAGE)%CONTOUR_VAL(2,IFIELD))
+GREEN=INT(PAGE(IPAGE)%CONTOUR_VAL(3,IFIELD))
+BLUE=INT(PAGE(IPAGE)%CONTOUR_VAL(4,IFIELD))
+
+! Color set
+
+CALL PLSCOL0(ICOLOR,RED,GREEN,BLUE) ! Set color with index ICOLOR in map0 pallet
+CALL PLCOL0(ICOLOR) ! Set color with using map0 pallet
+
+! Character parameters
+
+CALL PLSFONT(IFAMILY, ISTYLE, IWEIGHT) ! Set character type
+CALL PLSCHR(CHARSIZE*1.0_PLFLT,SCALE_CHAR) ! Set font size (in mm)
+
+! Plotting of roundoff values of field at defined points
+
+DO I=1,NVALID
+  IX=II1(I)
+  IY=JJ1(I)
+  VALUE_ROUND=FLOAT(NINT(PAGE(IPAGE)%FIELD(IX,IY,IFIELD)/ROUNDOFF))*ROUNDOFF
+  GOTO (101,102,103,104,105,106,107,108,109,110) PAGE(IPAGE)%ILABFORMAT(IFIELD)
+101   WRITE (ATEXT,1001) VALUE_ROUND
+      GOTO 100
+102   WRITE (ATEXT,1002) VALUE_ROUND
+      GOTO 100
+103   WRITE (ATEXT,1003) VALUE_ROUND
+      GOTO 100
+104   WRITE (ATEXT,1004) VALUE_ROUND
+      GOTO 100
+105   WRITE (ATEXT,1005) VALUE_ROUND
+      GOTO 100
+106   WRITE (ATEXT,1006) VALUE_ROUND
+      GOTO 100
+107   WRITE (ATEXT,1007) VALUE_ROUND
+      GOTO 100
+108   WRITE (ATEXT,1008) VALUE_ROUND
+      GOTO 100
+109   GOTO 100
+110   WRITE (ATEXT,1010) NINT(VALUE_ROUND)
+100   CONTINUE
+  CALL PLPTEX(XMAP1(I),YMAP1(I),0._PLFLT,0._PLFLT,0.5_PLFLT,TRIM(ATEXT)) ! Write text relative plot coordinates
+!print *,'--------',I,LSM(IX,IY)
+ENDDO
+
+DEALLOCATE(XGEO)
+DEALLOCATE(YGEO)
+DEALLOCATE(XMAP)
+DEALLOCATE(YMAP)
+DEALLOCATE(XMAP1)
+DEALLOCATE(YMAP1)
+DEALLOCATE(AGEO)
+DEALLOCATE(AGEO1)
+
+1001 FORMAT (F9.0)
+1002 FORMAT (F9.1)
+1003 FORMAT (F9.2)
+1004 FORMAT (F9.3)
+1005 FORMAT (E9.0)
+1006 FORMAT (E9.1)
+1007 FORMAT (E9.2)
+1008 FORMAT (E9.3)
+1010 FORMAT (I0)
+
+RETURN
+END SUBROUTINE POINTS_VALUE
+!------------------------------------------------------------------------------
+
+SUBROUTINE SET_CONTOUR_LABEL(IPAGE,IFIELD)
+! PROCEDURE WRITES STRINGS WITH CONTOUR (ISOLINE) LABEL VALUES
+! USING DEFINED FORMAT TYPE
+
+USE MOD_GRAPH_PAR
+USE MOD_GRAPH_WORK
+
+GOTO (101,102,103,104,105,106,107,108,109,110) PAGE(IPAGE)%ILABFORMAT(IFIELD)
+101 DO ICONTOUR=1,PAGE(IPAGE)%NCONTOUR(IFIELD)
+      WRITE (ACONTOUR(ICONTOUR),1001) PAGE(IPAGE)%CONTOUR_VAL(ICONTOUR,IFIELD)
+    ENDDO
+    WRITE (ADCONTOUR,1001) (PAGE(IPAGE)%CONTOUR_VAL(2,IFIELD)-PAGE(IPAGE)%CONTOUR_VAL(1,IFIELD))
+    GOTO 100
+102 DO ICONTOUR=1,PAGE(IPAGE)%NCONTOUR(IFIELD)
+      WRITE (ACONTOUR(ICONTOUR),1002) PAGE(IPAGE)%CONTOUR_VAL(ICONTOUR,IFIELD)
+    ENDDO
+    WRITE (ADCONTOUR,1002) (PAGE(IPAGE)%CONTOUR_VAL(2,IFIELD)-PAGE(IPAGE)%CONTOUR_VAL(1,IFIELD))
+    GOTO 100
+103 DO ICONTOUR=1,PAGE(IPAGE)%NCONTOUR(IFIELD)
+      WRITE (ACONTOUR(ICONTOUR),1003) PAGE(IPAGE)%CONTOUR_VAL(ICONTOUR,IFIELD)
+    ENDDO
+    WRITE (ADCONTOUR,1003) (PAGE(IPAGE)%CONTOUR_VAL(2,IFIELD)-PAGE(IPAGE)%CONTOUR_VAL(1,IFIELD))
+    GOTO 100
+104 DO ICONTOUR=1,PAGE(IPAGE)%NCONTOUR(IFIELD)
+      WRITE (ACONTOUR(ICONTOUR),1004) PAGE(IPAGE)%CONTOUR_VAL(ICONTOUR,IFIELD)
+    ENDDO
+    WRITE (ADCONTOUR,1004) (PAGE(IPAGE)%CONTOUR_VAL(2,IFIELD)-PAGE(IPAGE)%CONTOUR_VAL(1,IFIELD))
+    GOTO 100
+105 DO ICONTOUR=1,PAGE(IPAGE)%NCONTOUR(IFIELD)
+      WRITE (ACONTOUR(ICONTOUR),1005) PAGE(IPAGE)%CONTOUR_VAL(ICONTOUR,IFIELD)
+    ENDDO
+    WRITE (ADCONTOUR,1005) (PAGE(IPAGE)%CONTOUR_VAL(2,IFIELD)-PAGE(IPAGE)%CONTOUR_VAL(1,IFIELD))
+    GOTO 100
+106 DO ICONTOUR=1,PAGE(IPAGE)%NCONTOUR(IFIELD)
+      WRITE (ACONTOUR(ICONTOUR),1006) PAGE(IPAGE)%CONTOUR_VAL(ICONTOUR,IFIELD)
+    ENDDO
+    WRITE (ADCONTOUR,1006) (PAGE(IPAGE)%CONTOUR_VAL(2,IFIELD)-PAGE(IPAGE)%CONTOUR_VAL(1,IFIELD))
+    GOTO 100
+107 DO ICONTOUR=1,PAGE(IPAGE)%NCONTOUR(IFIELD)
+      WRITE (ACONTOUR(ICONTOUR),1007) PAGE(IPAGE)%CONTOUR_VAL(ICONTOUR,IFIELD)
+    ENDDO
+    WRITE (ADCONTOUR,1007) (PAGE(IPAGE)%CONTOUR_VAL(2,IFIELD)-PAGE(IPAGE)%CONTOUR_VAL(1,IFIELD))
+    GOTO 100
+108 DO ICONTOUR=1,PAGE(IPAGE)%NCONTOUR(IFIELD)
+      WRITE (ACONTOUR(ICONTOUR),1008) PAGE(IPAGE)%CONTOUR_VAL(ICONTOUR,IFIELD)
+    ENDDO
+    WRITE (ADCONTOUR,1008) (PAGE(IPAGE)%CONTOUR_VAL(2,IFIELD)-PAGE(IPAGE)%CONTOUR_VAL(1,IFIELD))
+    GOTO 100
+109 GOTO 100
+110 DO ICONTOUR=1,PAGE(IPAGE)%NCONTOUR(IFIELD)
+      WRITE (ACONTOUR(ICONTOUR),1010) NINT(PAGE(IPAGE)%CONTOUR_VAL(ICONTOUR,IFIELD))
+    ENDDO
+    WRITE (ADCONTOUR,1010) NINT((PAGE(IPAGE)%CONTOUR_VAL(2,IFIELD)-PAGE(IPAGE)%CONTOUR_VAL(1,IFIELD)))
+
+100 CONTINUE
+1001 FORMAT (F9.0)
+1002 FORMAT (F9.1)
+1003 FORMAT (F9.2)
+1004 FORMAT (F9.3)
+1005 FORMAT (E9.0)
+1006 FORMAT (E9.1)
+1007 FORMAT (E9.2)
+1008 FORMAT (E9.3)
+1010 FORMAT (I0)
+
+RETURN
+END
+!------------------------------------------------------------------------------
+SUBROUTINE SET_COLOR_PALETTE(NCOLOR,IPALETTE)
+! PROCEDURE SETS COLOR MAP1 (COLOR PALETTE) USING SELECTED COLOR NUMBER AND
+! PALETTE TYPE:
+! 1 - Rainbow, 2 - Inverted Rainbow, 3 - Orography,
+! 4 - Physical values, 5 - Cloud cover, 
+! 6 - Satellite radiance, 7 - Satellite bright temperature,
+! 11 - White-black, 12 - Black-wite, 13 - DPC-1-term, 14 - DPC-2-precip,
+! 15 - DPC-3-hum, 16 - DPC-4-Ht0
+
+USE PLPLOT
+USE MOD_GRAPH_WORK
+
+CALL PLSCMAP1N(NCOLOR) ! Set number of colors in color map1
+
+GOTO (101,102,103,104,105,106,107,100,100,100,111,112,113,114,115,116) IPALETTE
+
+101 NPCOLOR=10
+    GOTO 100
+102 NPCOLOR=10
+    GOTO 100
+103 NPCOLOR=7
+    GOTO 100
+104 NPCOLOR=9
+    GOTO 100
+105 NPCOLOR=3
+    GOTO 100
+!106 NPCOLOR=2
+106 NPCOLOR=5
+    GOTO 100
+107 NPCOLOR=10
+    GOTO 100
+111 NPCOLOR=2
+    GOTO 100
+112 NPCOLOR=2
+    GOTO 100
+113 NPCOLOR=14
+    GOTO 100
+114 NPCOLOR=12
+    GOTO 100
+115 NPCOLOR=6
+    GOTO 100
+116 NPCOLOR=6
+    GOTO 100
+
+100 CONTINUE
+
+ALLOCATE(PCOLOR(NPCOLOR))
+ALLOCATE(RPCOLOR(NPCOLOR))
+ALLOCATE(GPCOLOR(NPCOLOR))
+ALLOCATE(BPCOLOR(NPCOLOR))
+ALLOCATE(REVPCOLOR(NPCOLOR))
+
+GOTO (201,202,203,204,205,206,207,200,200,200,211,212,213,214,215,216) IPALETTE
+
+201 PCOLOR(1)=0.00_PLFLT
+    PCOLOR(2)=0.15_PLFLT
+    PCOLOR(3)=0.25_PLFLT
+    PCOLOR(4)=0.35_PLFLT
+    PCOLOR(5)=0.45_PLFLT
+    PCOLOR(6)=0.55_PLFLT
+    PCOLOR(7)=0.60_PLFLT
+    PCOLOR(8)=0.65_PLFLT
+    PCOLOR(9)=0.90_PLFLT
+    PCOLOR(10)=1.00_PLFLT
+    RPCOLOR(1)=0.94_PLFLT
+    GPCOLOR(1)=0.77_PLFLT
+    BPCOLOR(1)=0.83_PLFLT
+    RPCOLOR(2)=0.60_PLFLT
+    GPCOLOR(2)=0.00_PLFLT
+    BPCOLOR(2)=0.50_PLFLT
+    RPCOLOR(3)=0.80_PLFLT
+    GPCOLOR(3)=0.00_PLFLT
+    BPCOLOR(3)=0.00_PLFLT
+    RPCOLOR(4)=0.90_PLFLT
+    GPCOLOR(4)=0.50_PLFLT
+    BPCOLOR(4)=0.00_PLFLT
+    RPCOLOR(5)=1.00_PLFLT
+    GPCOLOR(5)=1.00_PLFLT
+    BPCOLOR(5)=0.00_PLFLT
+    RPCOLOR(6)=0.00_PLFLT
+    GPCOLOR(6)=0.70_PLFLT
+    BPCOLOR(6)=0.00_PLFLT
+    RPCOLOR(7)=0.00_PLFLT
+    GPCOLOR(7)=0.90_PLFLT
+    BPCOLOR(7)=1.00_PLFLT
+    RPCOLOR(8)=0.20_PLFLT
+    GPCOLOR(8)=0.60_PLFLT
+    BPCOLOR(8)=0.50_PLFLT
+    RPCOLOR(9)=0.30_PLFLT
+    GPCOLOR(9)=0.00_PLFLT
+    BPCOLOR(9)=0.70_PLFLT
+    RPCOLOR(10)=0.70_PLFLT
+    GPCOLOR(10)=0.50_PLFLT
+    BPCOLOR(10)=1.00_PLFLT
+    REVPCOLOR(:)=.FALSE.
+    REVPCOLOR(2)=.TRUE.
+    GOTO 200
+202 PCOLOR(1)=0.00_PLFLT
+    PCOLOR(2)=0.10_PLFLT
+    PCOLOR(3)=0.35_PLFLT
+    PCOLOR(4)=0.40_PLFLT
+    PCOLOR(5)=0.45_PLFLT
+    PCOLOR(6)=0.55_PLFLT
+    PCOLOR(7)=0.65_PLFLT
+    PCOLOR(8)=0.75_PLFLT
+    PCOLOR(9)=0.85_PLFLT
+    PCOLOR(10)=1.00_PLFLT
+    RPCOLOR(1)=0.70_PLFLT
+    GPCOLOR(1)=0.50_PLFLT
+    BPCOLOR(1)=1.00_PLFLT
+    RPCOLOR(2)=0.30_PLFLT
+    GPCOLOR(2)=0.00_PLFLT
+    BPCOLOR(2)=0.70_PLFLT
+    RPCOLOR(3)=0.20_PLFLT
+    GPCOLOR(3)=0.60_PLFLT
+    BPCOLOR(3)=0.50_PLFLT
+    RPCOLOR(4)=0.00_PLFLT
+    GPCOLOR(4)=0.90_PLFLT
+    BPCOLOR(4)=1.00_PLFLT
+    RPCOLOR(5)=0.00_PLFLT
+    GPCOLOR(5)=0.70_PLFLT
+    BPCOLOR(5)=0.00_PLFLT
+    RPCOLOR(6)=1.00_PLFLT
+    GPCOLOR(6)=1.00_PLFLT
+    BPCOLOR(6)=0.00_PLFLT
+    RPCOLOR(7)=0.90_PLFLT
+    GPCOLOR(7)=0.50_PLFLT
+    BPCOLOR(7)=0.00_PLFLT
+    RPCOLOR(8)=0.80_PLFLT
+    GPCOLOR(8)=0.00_PLFLT
+    BPCOLOR(8)=0.00_PLFLT
+    RPCOLOR(9)=0.60_PLFLT
+    GPCOLOR(9)=0.00_PLFLT
+    BPCOLOR(9)=0.50_PLFLT
+    RPCOLOR(10)=0.94_PLFLT
+    GPCOLOR(10)=0.77_PLFLT
+    BPCOLOR(10)=0.83_PLFLT
+    REVPCOLOR(:)=.FALSE.
+    REVPCOLOR(8)=.TRUE.
+    GOTO 200
+203 PCOLOR(1)=0.00_PLFLT
+    PCOLOR(2)=2.0_PLFLT/FLOAT(NCOLOR)
+    PCOLOR(3)=PCOLOR(2)
+    PCOLOR(4)=0.25_PLFLT
+    PCOLOR(5)=0.50_PLFLT
+    PCOLOR(6)=0.75_PLFLT
+    PCOLOR(7)=1.00_PLFLT
+    RPCOLOR(1)=0.30_PLFLT
+    GPCOLOR(1)=0.60_PLFLT
+    BPCOLOR(1)=1.00_PLFLT
+    RPCOLOR(2)=RPCOLOR(1)
+    GPCOLOR(2)=GPCOLOR(1)
+    BPCOLOR(2)=BPCOLOR(1)
+    RPCOLOR(3)=0.18_PLFLT
+    GPCOLOR(3)=0.60_PLFLT
+    BPCOLOR(3)=0.20_PLFLT
+    RPCOLOR(4)=0.40_PLFLT
+    GPCOLOR(4)=1.00_PLFLT
+    BPCOLOR(4)=0.00_PLFLT
+    RPCOLOR(5)=1.00_PLFLT
+    GPCOLOR(5)=1.00_PLFLT
+    BPCOLOR(5)=0.00_PLFLT
+    RPCOLOR(6)=0.80_PLFLT
+    GPCOLOR(6)=0.60_PLFLT
+    BPCOLOR(6)=0.00_PLFLT
+    RPCOLOR(7)=0.60_PLFLT
+    GPCOLOR(7)=0.20_PLFLT
+    BPCOLOR(7)=0.20_PLFLT
+    REVPCOLOR(:)=.FALSE.
+    GOTO 200
+204 PCOLOR(1)=0.00_PLFLT
+    PCOLOR(2)=0.01_PLFLT
+    PCOLOR(3)=0.15_PLFLT
+    PCOLOR(4)=0.25_PLFLT
+    PCOLOR(5)=0.35_PLFLT
+    PCOLOR(6)=0.50_PLFLT
+    PCOLOR(7)=0.65_PLFLT
+    PCOLOR(8)=0.75_PLFLT
+    PCOLOR(9)=1.00_PLFLT
+    RPCOLOR(1)=1.00_PLFLT
+    GPCOLOR(1)=1.00_PLFLT
+    BPCOLOR(1)=1.00_PLFLT
+    RPCOLOR(2)=0.50_PLFLT
+    GPCOLOR(2)=1.00_PLFLT
+    BPCOLOR(2)=1.00_PLFLT
+    RPCOLOR(3)=0.30_PLFLT
+    GPCOLOR(3)=0.85_PLFLT
+    BPCOLOR(3)=0.70_PLFLT
+    RPCOLOR(4)=0.00_PLFLT
+    GPCOLOR(4)=0.80_PLFLT
+    BPCOLOR(4)=0.00_PLFLT
+    RPCOLOR(5)=1.00_PLFLT
+    GPCOLOR(5)=1.00_PLFLT
+    BPCOLOR(5)=0.00_PLFLT
+    RPCOLOR(6)=0.90_PLFLT
+    GPCOLOR(6)=0.50_PLFLT
+    BPCOLOR(6)=0.00_PLFLT
+    RPCOLOR(7)=0.80_PLFLT
+    GPCOLOR(7)=0.00_PLFLT
+    BPCOLOR(7)=0.00_PLFLT
+    RPCOLOR(8)=1.00_PLFLT
+    GPCOLOR(8)=0.10_PLFLT
+    BPCOLOR(8)=0.60_PLFLT
+    RPCOLOR(9)=0.20_PLFLT
+    GPCOLOR(9)=0.00_PLFLT
+    BPCOLOR(9)=0.60_PLFLT
+    REVPCOLOR(:)=.FALSE.
+    REVPCOLOR(7)=.TRUE.
+    GOTO 200
+205 PCOLOR(1)=0.00_PLFLT
+    PCOLOR(2)=0.90_PLFLT
+    PCOLOR(3)=1.00_PLFLT
+    RPCOLOR(1)=0.07_PLFLT
+    GPCOLOR(1)=0.40_PLFLT
+    BPCOLOR(1)=0.80_PLFLT
+    RPCOLOR(2)=0.90_PLFLT
+    GPCOLOR(2)=0.95_PLFLT
+    BPCOLOR(2)=1.00_PLFLT
+    !RPCOLOR(2)=0.95_PLFLT
+    !GPCOLOR(2)=0.90_PLFLT
+    !BPCOLOR(2)=1.00_PLFLT
+    RPCOLOR(3)=1.00_PLFLT
+    GPCOLOR(3)=1.00_PLFLT
+    BPCOLOR(3)=1.00_PLFLT
+    REVPCOLOR(:)=.FALSE.
+    GOTO 200
+206 PCOLOR(1)=0.00_PLFLT
+!    PCOLOR(2)=1.00_PLFLT
+    PCOLOR(2)=0.20_PLFLT
+    PCOLOR(3)=0.40_PLFLT
+    PCOLOR(4)=0.60_PLFLT
+    PCOLOR(5)=1.00_PLFLT
+!    RPCOLOR(1)=0.95_PLFLT
+!    GPCOLOR(1)=0.95_PLFLT
+!    BPCOLOR(1)=1.00_PLFLT
+!    RPCOLOR(2)=0.10_PLFLT
+!    GPCOLOR(2)=0.10_PLFLT
+!    BPCOLOR(2)=0.30_PLFLT
+    RPCOLOR(1)=0.95_PLFLT
+    GPCOLOR(1)=0.95_PLFLT
+    BPCOLOR(1)=1.00_PLFLT
+    RPCOLOR(2)=0.85_PLFLT
+    GPCOLOR(2)=0.85_PLFLT
+    BPCOLOR(2)=0.98_PLFLT
+    RPCOLOR(3)=0.75_PLFLT
+    GPCOLOR(3)=0.75_PLFLT
+    BPCOLOR(3)=0.90_PLFLT
+    RPCOLOR(4)=0.60_PLFLT
+    GPCOLOR(4)=0.60_PLFLT
+    BPCOLOR(4)=0.85_PLFLT
+    RPCOLOR(5)=0.10_PLFLT
+    GPCOLOR(5)=0.10_PLFLT
+    BPCOLOR(5)=0.30_PLFLT
+    REVPCOLOR(:)=.FALSE.
+    GOTO 200
+207 PCOLOR(1)=0.00_PLFLT
+    PCOLOR(2)=0.12_PLFLT
+    PCOLOR(3)=0.25_PLFLT
+    PCOLOR(4)=0.26_PLFLT
+    PCOLOR(5)=0.35_PLFLT
+    PCOLOR(6)=0.50_PLFLT
+    PCOLOR(7)=0.55_PLFLT
+    PCOLOR(8)=0.55_PLFLT
+    PCOLOR(9)=0.88_PLFLT
+    PCOLOR(10)=1.00_PLFLT
+    RPCOLOR(1)=0.20_PLFLT ! violet
+    GPCOLOR(1)=0.00_PLFLT
+    BPCOLOR(1)=0.60_PLFLT
+    RPCOLOR(2)=0.00_PLFLT ! blue
+    GPCOLOR(2)=0.00_PLFLT
+    BPCOLOR(2)=1.00_PLFLT
+    RPCOLOR(3)=0.50_PLFLT ! azure
+    GPCOLOR(3)=1.00_PLFLT
+    BPCOLOR(3)=1.00_PLFLT
+    RPCOLOR(4)=1.00_PLFLT ! rose
+    GPCOLOR(4)=0.90_PLFLT
+    BPCOLOR(4)=1.00_PLFLT
+    RPCOLOR(5)=0.80_PLFLT ! crimson
+    GPCOLOR(5)=0.00_PLFLT
+    BPCOLOR(5)=0.20_PLFLT
+    RPCOLOR(6)=1.00_PLFLT ! orange
+    GPCOLOR(6)=0.65_PLFLT
+    BPCOLOR(6)=0.00_PLFLT
+    RPCOLOR(7)=1.00_PLFLT ! yellow
+    GPCOLOR(7)=1.00_PLFLT
+    BPCOLOR(7)=0.00_PLFLT
+    RPCOLOR(8)=1.00_PLFLT ! white
+    GPCOLOR(8)=1.00_PLFLT
+    BPCOLOR(8)=1.00_PLFLT
+    RPCOLOR(9)=0.00_PLFLT ! black
+    GPCOLOR(9)=0.00_PLFLT
+    BPCOLOR(9)=0.00_PLFLT
+    RPCOLOR(10)=0.00_PLFLT ! green
+    GPCOLOR(10)=1.00_PLFLT
+    BPCOLOR(10)=0.00_PLFLT
+    REVPCOLOR(:)=.FALSE.
+    REVPCOLOR(5)=.TRUE.
+    GOTO 200
+211 PCOLOR(1)=0.00_PLFLT
+    PCOLOR(2)=1.00_PLFLT
+    RPCOLOR(1)=1.00_PLFLT
+    GPCOLOR(1)=1.00_PLFLT
+    BPCOLOR(1)=1.00_PLFLT
+    RPCOLOR(2)=0.15_PLFLT
+    GPCOLOR(2)=0.15_PLFLT
+    BPCOLOR(2)=0.15_PLFLT
+    REVPCOLOR(:)=.FALSE.
+    GOTO 200
+212 PCOLOR(1)=0.00_PLFLT
+    PCOLOR(2)=1.00_PLFLT
+    RPCOLOR(1)=0.15_PLFLT
+    GPCOLOR(1)=0.15_PLFLT
+    BPCOLOR(1)=0.15_PLFLT
+    RPCOLOR(2)=1.00_PLFLT
+    GPCOLOR(2)=1.00_PLFLT
+    BPCOLOR(2)=1.00_PLFLT
+    REVPCOLOR(:)=.FALSE.
+    GOTO 200
+213 PCOLOR(1)=0.00_PLFLT ! light green  
+    PCOLOR(2)=0.05_PLFLT ! yellow   
+    PCOLOR(3)=0.16_PLFLT ! red dark   
+    PCOLOR(4)=0.24_PLFLT ! dark red    
+    PCOLOR(5)=0.34_PLFLT ! creemson  
+    PCOLOR(6)=0.39_PLFLT ! violet   
+    PCOLOR(7)=0.53_PLFLT ! azure   
+    PCOLOR(8)=0.60_PLFLT ! dark green
+    PCOLOR(9)=0.64_PLFLT ! light green
+    PCOLOR(10)=0.68_PLFLT ! yellow
+    PCOLOR(11)=0.79_PLFLT ! red
+    PCOLOR(12)=0.87_PLFLT ! dark red
+    PCOLOR(13)=0.97_PLFLT ! creemson
+    PCOLOR(14)=1.00_PLFLT ! violet
+    RPCOLOR(1)=0.50_PLFLT
+    GPCOLOR(1)=0.80_PLFLT
+    BPCOLOR(1)=0.00_PLFLT
+    RPCOLOR(2)=1.00_PLFLT
+    GPCOLOR(2)=1.00_PLFLT
+    BPCOLOR(2)=0.00_PLFLT
+    RPCOLOR(3)=1.00_PLFLT
+    GPCOLOR(3)=0.00_PLFLT
+    BPCOLOR(3)=0.00_PLFLT
+    RPCOLOR(4)=0.40_PLFLT
+    GPCOLOR(4)=0.00_PLFLT
+    BPCOLOR(4)=0.00_PLFLT
+    RPCOLOR(5)=1.00_PLFLT
+    GPCOLOR(5)=0.00_PLFLT
+    BPCOLOR(5)=1.00_PLFLT
+    RPCOLOR(6)=0.45_PLFLT
+    GPCOLOR(6)=0.00_PLFLT
+    BPCOLOR(6)=1.00_PLFLT
+    RPCOLOR(7)=0.00_PLFLT
+    GPCOLOR(7)=1.00_PLFLT
+    BPCOLOR(7)=1.00_PLFLT
+    RPCOLOR(8)=0.00_PLFLT
+    GPCOLOR(8)=0.70_PLFLT
+    BPCOLOR(8)=0.00_PLFLT
+    RPCOLOR(9)=RPCOLOR(1)
+    GPCOLOR(9)=GPCOLOR(1)
+    BPCOLOR(9)=BPCOLOR(1)
+    RPCOLOR(10)=RPCOLOR(2)
+    GPCOLOR(10)=GPCOLOR(2)
+    BPCOLOR(10)=BPCOLOR(2)
+    RPCOLOR(11)=RPCOLOR(3)
+    GPCOLOR(11)=GPCOLOR(3)
+    BPCOLOR(11)=BPCOLOR(3)
+    RPCOLOR(12)=RPCOLOR(4)
+    GPCOLOR(12)=GPCOLOR(4)
+    BPCOLOR(12)=BPCOLOR(4)
+    RPCOLOR(13)=RPCOLOR(5)
+    GPCOLOR(13)=GPCOLOR(5)
+    BPCOLOR(13)=BPCOLOR(5)
+    RPCOLOR(14)=0.75_PLFLT
+    GPCOLOR(14)=0.00_PLFLT
+    BPCOLOR(14)=1.00_PLFLT
+    REVPCOLOR(:)=.FALSE.
+    REVPCOLOR(4)=.TRUE.
+    REVPCOLOR(12)=REVPCOLOR(4)
+    GOTO 200
+214 PCOLOR(1)=0.00_PLFLT ! white
+    PCOLOR(2)=0.10_PLFLT ! azzur
+    PCOLOR(3)=0.20_PLFLT ! sea green
+    PCOLOR(4)=0.28_PLFLT ! dark azur
+    PCOLOR(5)=0.38_PLFLT ! dark green
+    PCOLOR(6)=0.46_PLFLT ! dark blue
+    PCOLOR(7)=0.56_PLFLT ! light violet
+    PCOLOR(8)=0.64_PLFLT ! cremson
+    PCOLOR(9)=0.74_PLFLT ! orange
+    PCOLOR(10)=0.82_PLFLT ! yellow
+    PCOLOR(11)=0.90_PLFLT ! red
+    PCOLOR(12)=1.00_PLFLT ! dark red
+    RPCOLOR(1)=1.00_PLFLT
+    GPCOLOR(1)=1.00_PLFLT
+    BPCOLOR(1)=1.00_PLFLT
+    RPCOLOR(2)=0.50_PLFLT
+    GPCOLOR(2)=1.00_PLFLT
+    BPCOLOR(2)=1.00_PLFLT
+    RPCOLOR(3)=0.40_PLFLT
+    GPCOLOR(3)=0.60_PLFLT
+    BPCOLOR(3)=0.50_PLFLT
+    RPCOLOR(4)=0.00_PLFLT
+    GPCOLOR(4)=0.50_PLFLT
+    BPCOLOR(4)=0.80_PLFLT
+    RPCOLOR(5)=0.60_PLFLT
+    GPCOLOR(5)=0.80_PLFLT
+    BPCOLOR(5)=0.00_PLFLT
+    RPCOLOR(6)=0.00_PLFLT
+    GPCOLOR(6)=0.00_PLFLT
+    BPCOLOR(6)=0.80_PLFLT
+    RPCOLOR(7)=0.80_PLFLT
+    GPCOLOR(7)=0.00_PLFLT
+    BPCOLOR(7)=1.00_PLFLT
+    RPCOLOR(8)=1.00_PLFLT
+    GPCOLOR(8)=0.10_PLFLT
+    BPCOLOR(8)=0.60_PLFLT
+    RPCOLOR(9)=0.90_PLFLT
+    GPCOLOR(9)=0.50_PLFLT
+    BPCOLOR(9)=0.00_PLFLT
+    RPCOLOR(10)=1.00_PLFLT
+    GPCOLOR(10)=1.00_PLFLT
+    BPCOLOR(10)=0.00_PLFLT
+    RPCOLOR(11)=1.00_PLFLT
+    GPCOLOR(11)=0.00_PLFLT
+    BPCOLOR(11)=0.00_PLFLT
+    RPCOLOR(12)=0.70_PLFLT
+    GPCOLOR(12)=0.00_PLFLT
+    BPCOLOR(12)=0.00_PLFLT
+    REVPCOLOR(:)=.FALSE.
+    REVPCOLOR(8)=.TRUE.
+    GOTO 200
+215 PCOLOR(1)=0.00_PLFLT ! red
+    PCOLOR(2)=0.20_PLFLT ! orange
+    PCOLOR(3)=0.40_PLFLT ! yellow
+    PCOLOR(4)=0.60_PLFLT ! green
+    PCOLOR(5)=0.80_PLFLT ! azzur
+    PCOLOR(6)=1.00_PLFLT ! dark blue
+    RPCOLOR(1)=1.00_PLFLT
+    GPCOLOR(1)=0.00_PLFLT
+    BPCOLOR(1)=0.00_PLFLT
+    RPCOLOR(2)=1.00_PLFLT
+    GPCOLOR(2)=0.70_PLFLT
+    BPCOLOR(2)=0.00_PLFLT
+    RPCOLOR(3)=1.00_PLFLT
+    GPCOLOR(3)=1.00_PLFLT
+    BPCOLOR(3)=0.00_PLFLT
+    RPCOLOR(4)=0.00_PLFLT
+    GPCOLOR(4)=1.00_PLFLT
+    BPCOLOR(4)=0.00_PLFLT
+    RPCOLOR(5)=0.50_PLFLT
+    GPCOLOR(5)=1.00_PLFLT
+    BPCOLOR(5)=1.00_PLFLT
+    RPCOLOR(6)=0.00_PLFLT
+    GPCOLOR(6)=0.00_PLFLT
+    BPCOLOR(6)=0.90_PLFLT
+    REVPCOLOR(:)=.FALSE.
+    GOTO 200
+216 PCOLOR(1)=0.00_PLFLT ! violet
+    PCOLOR(2)=0.25_PLFLT ! azzur
+    PCOLOR(3)=0.50_PLFLT ! green
+    PCOLOR(4)=0.70_PLFLT ! yellow
+    PCOLOR(5)=0.85_PLFLT ! orange
+    PCOLOR(6)=1.00_PLFLT ! red
+    RPCOLOR(1)=0.80_PLFLT
+    GPCOLOR(1)=0.30_PLFLT
+    BPCOLOR(1)=1.00_PLFLT
+    RPCOLOR(2)=0.50_PLFLT
+    GPCOLOR(2)=1.00_PLFLT
+    BPCOLOR(2)=1.00_PLFLT
+    RPCOLOR(3)=0.00_PLFLT
+    GPCOLOR(3)=1.00_PLFLT
+    BPCOLOR(3)=0.00_PLFLT
+    RPCOLOR(4)=1.00_PLFLT
+    GPCOLOR(4)=1.00_PLFLT
+    BPCOLOR(4)=0.00_PLFLT
+    RPCOLOR(5)=1.00_PLFLT
+    GPCOLOR(5)=0.70_PLFLT
+    BPCOLOR(5)=0.00_PLFLT
+    RPCOLOR(6)=1.00_PLFLT
+    GPCOLOR(6)=0.00_PLFLT
+    BPCOLOR(6)=0.00_PLFLT
+    REVPCOLOR(:)=.FALSE.
+    GOTO 200
+
+200 CONTINUE
+
+CALL PLSCMAP1L(.TRUE.,PCOLOR,RPCOLOR,GPCOLOR,BPCOLOR) ! Set color map1 using a pice-wise linear relationship
+
+RETURN
+END
+!------------------------------------------------------------------------------
+SUBROUTINE SET_COLOR_PALETTE_PIXEL(NCOLOR,IPAGE,IFIELD)
+! PROCEDURE SETS COLOR MAP1 (COLOR PALETTE) USING SELECTED COLOR NUMBER AND
+! PALETTE TYPE:
+! 21 - Soil type following texture classification;
+! 22 - Vegetation type fillowing GLC1990 classification;
+! 23 - Vegetation type fillowing GLC2000 classification 
+! 24 - Soil type following FAO classification;
+! 61 - One-coloured mask
+
+USE PLPLOT
+USE MOD_GRAPH_WORK
+USE MOD_GRAPH_PAR, ONLY : PAGE
+
+IPALETTE=PAGE(IPAGE)%IPALETTE(IFIELD)
+
+CALL PLSCMAP1N(NCOLOR) ! Set number of colors in color map1
+
+ALLOCATE(RED  (NCOLOR))
+ALLOCATE(GREEN(NCOLOR))
+ALLOCATE(BLUE (NCOLOR))
+
+IF (IPALETTE==21) THEN
+  RED(1)=250; GREEN(1)=250; BLUE(1)=000    ! sand (yellow)
+  RED(2)=250; GREEN(2)=150; BLUE(2)=000    ! loamy sandy (orange)
+  RED(3)=250; GREEN(3)=050; BLUE(3)=050    ! sandy loam (red)
+  RED(4)=200; GREEN(4)=000; BLUE(4)=080    ! silty loam (bordo)
+  RED(5)=080; GREEN(5)=000; BLUE(5)=220    ! loam (violet)
+  RED(6)=000; GREEN(6)=130; BLUE(6)=160    ! sandy clay loam (sea blue)
+  RED(7)=000; GREEN(7)=150; BLUE(7)=000    ! silty clay loam (dark geen)
+  RED(8)=000; GREEN(8)=255; BLUE(8)=000    ! clay loam (green)
+  RED(9)=200; GREEN(9)=220; BLUE(9)=050    ! sandy clay (yeollw green)
+  RED(10)=120; GREEN(10)=120; BLUE(10)=070 ! silty clay (yellow grey)
+  RED(11)=200; GREEN(11)=200; BLUE(11)=200 ! clay (light grey)
+  RED(12)=140; GREEN(12)=050; BLUE(12)=050 ! peat (brown)
+  RED(13)=080; GREEN(13)=080; BLUE(13)=080 ! rock (dark grey)
+  RED(14)=080; GREEN(14)=250; BLUE(14)=250 ! glaciers (azzur)
+  RED(15)=040; GREEN(15)=150; BLUE(15)=255 ! water body (light blue)
+ENDIF
+
+IF (IPALETTE==22) THEN
+  RED(1)=020; GREEN(1)=090; BLUE(1)=100    ! evergreen needleleaf forest (green grey)
+  RED(2)=025; GREEN(2)=075; BLUE(2)=020    ! evergreen broadleaf forest (dark green)
+  RED(3)=150; GREEN(3)=180; BLUE(3)=030    ! deciduous needleleaf forest (yellow green)
+  RED(4)=125; GREEN(4)=225; BLUE(4)=100    ! deciduous broadleaf forest (light green)
+  RED(5)=120; GREEN(5)=040; BLUE(5)=000    ! mixed cover (dark brown)
+  RED(6)=220; GREEN(6)=120; BLUE(6)=060    ! woodland (beige)
+  RED(7)=200; GREEN(7)=000; BLUE(7)=060    ! wooded grassland (bordo)
+  RED(8)=130; GREEN(8)=050; BLUE(8)=140    ! closed shrubland (violet)
+  RED(9)=220; GREEN(9)=050; BLUE(9)=010    ! open shrubland (orange)
+  RED(10)=220; GREEN(10)=240; BLUE(10)=080 ! grassland (light yellow green)
+  RED(11)=250; GREEN(11)=210; BLUE(11)=050 ! cropland (yellow)
+  RED(12)=150; GREEN(12)=150; BLUE(12)=150 ! bare ground (gray)
+  RED(13)=020; GREEN(13)=120; BLUE(13)=050 ! urban and built-up (dark blue)
+  RED(14)=040; GREEN(14)=150; BLUE(14)=250 ! water body (light blue)
+ENDIF
+
+IF (IPALETTE==23) THEN
+  RED(1)=025; GREEN(1)=075; BLUE(1)=020    ! Tree cover, broadleaved evergreen, closed to oen (>15%) (dark green)
+  RED(2)=125; GREEN(2)=225; BLUE(2)=100    ! Tree Cover, broadleaved deciduous, closed (>40%) (light green)
+  RED(3)=120; GREEN(3)=120; BLUE(3)=070    ! Tree cover, broadleaved deciduous, open (15-40%) (yellow grey)
+  RED(4)=020; GREEN(4)=090; BLUE(4)=100    ! Tree cover, needleleaved evergreen,  closed to open (>15%) (green grey)
+  RED(5)=150; GREEN(5)=180; BLUE(5)=030    ! Tree cover, needleleaved decidous, closed to open (>15%) (yellow green)
+  RED(6)=120; GREEN(6)=040; BLUE(6)=000    ! Tree cover, mixed leaftype,  closed to open (>15%) (dark brown)
+  RED(7)=220; GREEN(7)=120; BLUE(7)=060    ! Tree cover, closed to open (>15%), regularly flooded, fresh or brackish water: Swamp Forests (beige)
+  RED(8)=200; GREEN(8)=000; BLUE(8)=060    ! Tree cover, closed to open (>15%),  regularly flooded, saline water: Mangrove Forests (bordo)
+  RED(9)=240; GREEN(9)=010; BLUE(9)=100    ! Mosaic of tree cover and other natural vegetation ( crop component possible) (creemson)
+  RED(10)=250; GREEN(10)=130; BLUE(10)=180 ! Tree Cover, burnt (mainly boreal forests) (rose)  
+  RED(11)=160; GREEN(11)=070; BLUE(11)=110 ! Shrubcover, closed to open (>15%) , evergreen(broadleaved or needleleaved) ! (grey rose)
+  RED(12)=220; GREEN(12)=000; BLUE(12)=240 ! Shrubcover, closed to open (>15%), deciduous (broadleaved) (lilac)
+  RED(13)=130; GREEN(13)=050; BLUE(13)=140 ! Herbaceous cover, closed to open (>15%) (violet)
+  RED(14)=220; GREEN(14)=050; BLUE(14)=010 ! Sparse Herbaceous or sparse Shrub cover ! (orange)
+  RED(15)=240; GREEN(15)=150; BLUE(15)=010 ! Regularly flooded ( > 2 month) Shrub or Herbaceous cover, closed to open (orange beige) 
+  RED(16)=250; GREEN(16)=210; BLUE(16)=050 ! Cropland (upland crops or inundated/ flooded crops as e.g. rice) (yellow)
+  RED(17)=250; GREEN(17)=250; BLUE(17)=020 ! Mosaic of Cropland / Tree cover/ Other Natural Vegetation (light yellow)
+  RED(18)=220; GREEN(18)=240; BLUE(18)=080 ! Mosaic of Cropland / Shrub or Herbaceous cover (light green yellow)
+  RED(19)=150; GREEN(19)=150; BLUE(19)=150 ! Bare Areas (grey)
+  RED(20)=000; GREEN(20)=020; BLUE(20)=120 ! Urban Areas (dark blue)
+  RED(21)=080; GREEN(21)=250; BLUE(21)=250 ! Snow or Ice (natural or artificial) (azzur)
+  RED(22)=040; GREEN(22)=150; BLUE(22)=250 ! Water Bodies (natural or artificial) (light blue)
+ENDIF
+
+IF (IPALETTE==24) THEN
+  RED(1)=215; GREEN(1)=080; BLUE(1)=040    ! Acrisols (orange-brown)
+  RED(2)=140; GREEN(2)=090; BLUE(2)=030    ! Cambisols (yellow-brown)
+  RED(3)=050; GREEN(3)=040; BLUE(3)=020    ! Chernozems (dark brown)
+  RED(4)=090; GREEN(4)=080; BLUE(4)=070    ! Podzoluvisols (gray-brown)
+  RED(5)=090; GREEN(5)=110; BLUE(5)=110    ! Rendzinans (gray)
+  RED(6)=200; GREEN(6)=090; BLUE(6)=090    ! Ferrasols (rose-gray)
+  RED(7)=080; GREEN(7)=150; BLUE(7)=180    ! Gleysols (gray-azzur)
+  RED(8)=230; GREEN(8)=160; BLUE(8)=050    ! Phaeozems (dark yellow)
+  RED(9)=180; GREEN(9)=230; BLUE(9)=230    ! Lithosols (light azzur)
+  RED(10)=070; GREEN(10)=210; BLUE(10)=160 ! Fluvisols (light sea blue)
+  RED(11)=125; GREEN(11)=090; BLUE(11)=030 ! Kastanozems (yellow-brown)
+  RED(12)=210; GREEN(12)=140; BLUE(12)=040 ! Luvisols (orange-red)
+  RED(13)=170; GREEN(13)=170; BLUE(13)=170 ! Gleysols (gray)
+  RED(14)=160; GREEN(14)=080; BLUE(14)=070 ! Nitosols (red-black)
+  RED(15)=090; GREEN(15)=080; BLUE(15)=040 ! Histosols (dark mossy)
+  RED(16)=170; GREEN(16)=180; BLUE(16)=020 ! Podzols (yellow-green)
+  RED(17)=250; GREEN(17)=200; BLUE(17)=150 ! Arenosols (beige)
+  RED(18)=220; GREEN(18)=230; BLUE(18)=130 ! Regosols  (light yellow-green)
+  RED(19)=190; GREEN(19)=130; BLUE(19)=180 ! Solonetz (dark gray-rose)
+  RED(20)=090; GREEN(20)=100; BLUE(20)=130 ! Andosols  (dark blue-gray)
+  RED(21)=150; GREEN(21)=130; BLUE(21)=100 ! Rankers (beige-gray)
+  RED(22)=190; GREEN(22)=150; BLUE(22)=120 ! Vertisols (dark beige)
+  RED(23)=110; GREEN(23)=180; BLUE(23)=250 ! Planosols (light blue)
+  RED(24)=210; GREEN(24)=205; BLUE(24)=105 ! Xerosols  (yellow-gray)
+  RED(25)=255; GREEN(25)=255; BLUE(25)=000 ! Yermosols (yellow)
+  RED(26)=230; GREEN(26)=150; BLUE(26)=230 ! Solonchaks (lavender)
+  RED(27)=240; GREEN(27)=240; BLUE(27)=200 ! Dunes (light yellow)
+  RED(28)=230; GREEN(28)=220; BLUE(28)=250 ! Salt flats (light lavender)
+  RED(29)=040; GREEN(29)=115; BLUE(29)=120 ! Rock debris (dark azzur-gray)
+  RED(30)=220; GREEN(30)=240; BLUE(30)=255 ! Glaciers  (light azzur)
+  RED(31)=040; GREEN(31)=150; BLUE(31)=250 ! Water body (light blue)
+ENDIF
+
+IF (IPALETTE==61) THEN
+  RED(1:2)=  MAX( MIN( NINT(PAGE(IPAGE)%CONTOUR_VAL(3,IFIELD)*255.), 255), 0)
+  GREEN(1:2)=MAX( MIN( NINT(PAGE(IPAGE)%CONTOUR_VAL(4,IFIELD)*255.), 255), 0)
+  BLUE(1:2)= MAX( MIN( NINT(PAGE(IPAGE)%CONTOUR_VAL(5,IFIELD)*255.), 255), 0)
+ENDIF
+
+CALL PLSCMAP1(RED,GREEN,BLUE) ! Set color map0 using RGB values (0-255) for integer color indexes
+
+RETURN
+END
+!------------------------------------------------------------------------------
+SUBROUTINE UNSET_COLOR_PALETTE
+! PROCEDURE UNSETS COLOR MAP1 (COLOR PALETTE)
+
+USE MOD_GRAPH_WORK
+
+IF (ALLOCATED(PCOLOR)) DEALLOCATE(PCOLOR)
+IF (ALLOCATED(RPCOLOR)) DEALLOCATE(RPCOLOR)
+IF (ALLOCATED(GPCOLOR)) DEALLOCATE(GPCOLOR)
+IF (ALLOCATED(BPCOLOR)) DEALLOCATE(BPCOLOR)
+IF (ALLOCATED(REVPCOLOR)) DEALLOCATE(REVPCOLOR)
+IF (ALLOCATED(RED)) DEALLOCATE(RED)
+IF (ALLOCATED(GREEN)) DEALLOCATE(GREEN)
+IF (ALLOCATED(BLUE)) DEALLOCATE(BLUE)
+
+RETURN
+END
+!------------------------------------------------------------------------------
+SUBROUTINE GEO_LINE_DATASET
+
+! PROCEDURE READS DATASET OF GEOGRAPHICAL LINES
+! ORIGINAL DATASET IS FREE AND LOADED FROM:
+!http://rimmer.ngdc.noaa.gov/mgg/coast/getcoast.html
+
+USE MOD_GEO_LINES
+USE MOD_GRAPH_PAR, ONLY : ALAT, ALON, IFL_LINE
+IMPLICIT NONE
+
+CHARACTER :: FILE_NAME*39, DIR_NAME*15, A1*1, AFIN*4, ATYPE*5, ASQUARE*14
+REAL :: ALATMIN, ALATMAX, ALONMIN, ALONMAX
+INTEGER ILINE, I, LATMIN, LATMAX, LONMIN, LONMAX, ILON, ILAT, IFL, III
+REAL(KIND=PLFLT) :: LAT, LON
+
+ALATMIN=MINVAL(ALAT)
+ALATMAX=MAXVAL(ALAT)
+ALONMIN=MINVAL(ALON)
+ALONMAX=MAXVAL(ALON)
+
+IF (ALATMIN>=0) THEN
+  LATMIN=INT(ALATMIN*0.1)*10
+ELSE
+  LATMIN=(INT(ALATMIN*0.1)-1)*10
+ENDIF
+IF (ALATMAX>=0) THEN
+  LATMAX=INT(ALATMAX*0.1)*10
+ELSE
+  LATMAX=(INT(ALATMAX*0.1)-1)*10
+ENDIF
+IF (ALONMIN>=0) THEN
+  LONMIN=INT(ALONMIN*0.1)*10
+ELSE
+  LONMIN=(INT(ALONMIN*0.1)-1)*10
+ENDIF
+IF (ALONMAX>=0) THEN
+  LONMAX=INT(ALONMAX*0.1)*10
+ELSE
+  LONMAX=(INT(ALONMAX*0.1)-1)*10
+ENDIF
+
+DIR_NAME='MAP_WORLD_FREE/'
+A1='p'
+AFIN='.LLP'
+
+INPUT_FILE_LOOP : DO ILINE=1,N_TYPE_LINE
+
+  N_POINT_LINE(ILINE)=0
+
+  IF (IFL_LINE(ILINE)==1) THEN
+
+    IF (ILINE==1) ATYPE='POL10' ! Coast line
+    IF (ILINE==2) ATYPE='POL01' ! State boundary
+    IF (ILINE==3) ATYPE='DNL01' ! stream, river, channelized river
+    IF (ILINE==4) ATYPE='POL05' ! administrative boundary 
+
+    DO ILAT=LATMIN,LATMAX,10
+      IF (ILAT>=0) THEN
+        ASQUARE(3:3)='n'
+      ELSE
+        ASQUARE(3:3)='s'
+      ENDIF
+      IF (ILAT+10>=0) THEN
+        ASQUARE(6:6)='n'
+      ELSE
+        ASQUARE(6:6)='s'
+      ENDIF
+      WRITE (ASQUARE(1:2),'(I2.2)') ABS(ILAT)
+      WRITE (ASQUARE(4:5),'(I2.2)') ABS(ILAT+10)
+    DO ILON=LONMIN,LONMAX,10
+      IF (ILON>=0) THEN
+        ASQUARE(10:10)='e'
+      ELSE
+        ASQUARE(10:10)='w'
+      ENDIF
+      IF (ILON+10>=0) THEN
+        ASQUARE(14:14)='e'
+      ELSE
+        ASQUARE(14:14)='w'
+      ENDIF
+      WRITE (ASQUARE(7:9),'(I3.3)') ABS(ILON)
+      WRITE (ASQUARE(11:13),'(I3.3)') ABS(ILON+10)
+
+      FILE_NAME=DIR_NAME//A1//ASQUARE//ATYPE//AFIN
+
+      OPEN (10,FILE=FILE_NAME,STATUS='OLD',FORM='FORMATTED',ERR=20)
+
+      READ (10,*) ! One line omission (description line)
+
+      DO I=1,N_POINT_LINE0
+        READ (10,'(F10.6,1X,F11.6,1X,I1)',END=10) LAT, LON, IFL
+        N_POINT_LINE(ILINE)=N_POINT_LINE(ILINE)+1
+        III=N_POINT_LINE(ILINE)
+        GEO_LINE(ILINE)%GEO_COORD(1,III)=LAT
+        GEO_LINE(ILINE)%GEO_COORD(2,III)=LON
+        GEO_LINE(ILINE)%IFL_POINT(III)=IFL
+      ENDDO
+ 10   CLOSE (10)
+ 20   CONTINUE
+
+    ENDDO ! ILON
+    ENDDO ! ILAT 
+
+  ENDIF ! IFL_LINE(ILINE)==1
+
+ENDDO INPUT_FILE_LOOP
+
+RETURN
+END
+!------------------------------------------------------------------------------
+SUBROUTINE GEO_LINE_DATASET_ITALY
+
+! PROCEDURE READS DATASET OF ADMINISTRATIVE BOUNDARIES OF ITALY
+
+USE MOD_GEO_LINES
+USE MOD_GRAPH_PAR, ONLY : ALAT, ALON, IFL_LINE
+IMPLICIT NONE
+
+CHARACTER(LEN=50) :: FILE_NAME
+CHARACTER(LEN=21) :: DIR_NAME='MAP_WORLD_FREE/ITALY/'
+CHARACTER(LEN=20) :: ANAME='italy_regions.dat'
+INTEGER ILINE, I, IFL, III
+REAL(KIND=PLFLT) :: LAT, LON
+
+ILINE=4 ! Admin. boundary
+
+N_POINT_LINE(ILINE)=0
+
+IF (IFL_LINE(ILINE)==1) THEN
+
+  FILE_NAME=DIR_NAME//ANAME
+  
+  OPEN (10,FILE=FILE_NAME,STATUS='OLD',FORM='FORMATTED',ERR=20)
+  
+  DO I=1,N_POINT_LINE0
+    READ (10,*,END=10) LAT, LON, IFL
+    N_POINT_LINE(ILINE)=N_POINT_LINE(ILINE)+1
+    III=N_POINT_LINE(ILINE)
+    GEO_LINE(ILINE)%GEO_COORD(1,III)=LAT
+    GEO_LINE(ILINE)%GEO_COORD(2,III)=LON
+    GEO_LINE(ILINE)%IFL_POINT(III)=IFL
+  ENDDO
+ 10   CLOSE (10)
+ 20   CONTINUE
+
+ENDIF ! IFL_LINE(ILINE)==1
+
+RETURN
+END
+!------------------------------------------------------------------------------
+SUBROUTINE GEO_LINE_CONVERT_1
+
+! PROCEDURE TRASFORMS THE GEOGRAPHYCAL COORDINATES OF GEO. LINE PROVIED
+! FROM EXTERNAL DATASET INTO THE MAP COORDINATE 
+
+! THIS IS ROTATED GEO. COORDINATES SYSTEM
+
+USE MOD_GEO_LINES
+USE PLPLOT, PI => PL_PI
+USE MOD_GRAPH_PAR, ONLY : DX, DY, X0, Y0, X00, Y00, IFL_LINE
+IMPLICIT NONE
+
+REAL(KIND=PLFLT) :: ZX0, ZY0, ZFAC, ZX, ZY, LAT, LON, ZZ
+INTEGER ILINE, I
+
+ZFAC=PI/180._PLFLT
+ZX0=DBLE(X0)*ZFAC
+ZY0=DBLE(Y0)*ZFAC
+
+TYPE_LINE_LOOP : DO ILINE=1,N_TYPE_LINE
+
+  IF (IFL_LINE(ILINE)==1) THEN
+
+    IF (ABS(X0)>=0.01.OR.ABS(Y0)>=0.01) THEN
+
+    ! Rotated coordinates system
+
+      DO I=1,N_POINT_LINE(ILINE)
+        ZX=GEO_LINE(ILINE)%GEO_COORD(2,I)*ZFAC
+        ZY=GEO_LINE(ILINE)%GEO_COORD(1,I)*ZFAC
+        LAT=ASIN( -COS(ZY)*SIN(ZY0)*COS(ZX-ZX0)+SIN(ZY)*COS(ZY0) )
+        ZZ=SIN(ZY)-COS(ZY0)*SIN(LAT)
+        ZZ=ZZ/(SIN(ZY0)*COS(LAT))
+        IF (ZZ<-1._PLFLT.AND.ZZ>-1.00001_PLFLT) ZZ = -1._PLFLT
+        IF (ZZ> 1._PLFLT.AND.ZZ< 1.00001_PLFLT) ZZ = 1._PLFLT
+        IF (ZX<ZX0) THEN
+          LON=-ACOS(ZZ)
+        ELSE
+          LON= ACOS(ZZ)
+        ENDIF
+        ZX=LON/ZFAC
+        ZY=LAT/ZFAC
+        GEO_LINE(ILINE)%MAP_COORD(2,I)=(ZX-X00)/DX+1._PLFLT
+        GEO_LINE(ILINE)%MAP_COORD(1,I)=(ZY-Y00)/DY+1._PLFLT
+      ENDDO
+
+    ELSE
+
+    ! Non rotated coordinates system
+
+      DO I=1,N_POINT_LINE(ILINE)
+        ZX=GEO_LINE(ILINE)%GEO_COORD(2,I)
+        ZY=GEO_LINE(ILINE)%GEO_COORD(1,I)
+        GEO_LINE(ILINE)%MAP_COORD(2,I)=(ZX-X00)/DX+1._PLFLT
+        IF (X00>=0..AND.GEO_LINE(ILINE)%MAP_COORD(2,I)<0.) GEO_LINE(ILINE)%MAP_COORD(2,I)=(ZX+360.-X00)/DX+1._PLFLT
+        GEO_LINE(ILINE)%MAP_COORD(1,I)=(ZY-Y00)/DY+1._PLFLT
+      ENDDO
+
+    ENDIF 
+
+  ENDIF ! IFL_LINE(ILINE)==1
+
+ENDDO TYPE_LINE_LOOP
+
+RETURN
+END
+!------------------------------------------------------------------------------
+SUBROUTINE GEO_GRID_CONVERT_1
+
+! PROCEDURE TRASFORMS THE MAP GRID COORDINATES INTO THE GEOGRAPHICAL
+! COORDINATES (IF THIS COORDINATES WAS NOT BE READ)
+
+! THIS IS ROTATED GEO. COORDINATES SYSTEM
+
+USE MOD_GRAPH_PAR, ONLY : DX, DY, X0, Y0, X00, Y00, NX, NY, IFLAG_GEO, ALON, ALAT
+IMPLICIT NONE
+
+REAL*8 :: PI, ZX0, ZY0, ZFAC, ZX, ZY, LAT, LON, ZZ
+INTEGER IX, IY
+
+IF (IFLAG_GEO==0) THEN
+
+! COORDINATES WAS NOT BE READ
+
+PI=DABS(DACOS(-1.D0))
+ZFAC=PI/180.D0
+ZX0=X0*ZFAC
+ZY0=Y0*ZFAC
+
+IF (ABS(X0)>=0.01.OR.ABS(Y0)>=0.01) THEN
+
+  ! Rotated coordinates system
+
+  DO IY=1,NY
+    LAT=(DBLE(Y00)+(IY-1)*DBLE(DY))*ZFAC
+    DO IX=1,NX
+      LON=(DBLE(X00)+(IX-1)*DBLE(DX))*ZFAC
+      ZY=1.D0/ZFAC*DASIN(DCOS(ZY0)*DSIN(LAT)+DSIN(ZY0)*DCOS(LAT)*DCOS(LON))
+      ZZ=-DSIN(LAT)*DSIN(ZY0)+DCOS(ZY0)*DCOS(LAT)*DCOS(LON)
+      ZZ=ZZ/DCOS(ZFAC*ZY)
+      ALAT(IX,IY)=SNGL(ZY)
+      IF (ZZ<-1.D0.AND.ZZ>-1.00001D0) ZZ = -1.D0
+      IF (ZZ> 1.D0.AND.ZZ< 1.00001D0) ZZ =  1.D0
+      IF (LON<0.D0) THEN
+        ALON(IX,IY)=SNGL(1.D0/ZFAC*(ZX0-DACOS(ZZ)))
+      ELSE
+        ALON(IX,IY)=SNGL(1.D0/ZFAC*(ZX0+DACOS(ZZ)))
+      ENDIF
+    ENDDO
+  ENDDO
+
+ELSE
+
+  ! Non rotated coordinates system
+
+  DO IY=1,NY
+    ALAT(:,IY)=Y00+(IY-1)*DY
+  ENDDO
+  DO IX=1,NX
+    ALON(IX,:)=X00+(IX-1)*DX
+  ENDDO
+
+ENDIF
+
+ENDIF ! IFLAG_GEO==0
+
+RETURN
+END
+!------------------------------------------------------------------------------
+SUBROUTINE CONVERT_GEOCOORD(XGEO,YGEO,XMAP,YMAP)
+
+! PROCEDURE TRASFORMS GEOGRAPHICAL COORDINATES INTO THE MAP GRID COORDINATES
+
+! THIS IS ROTATED GEO. COORDINATES SYSTEM
+
+USE MOD_GRAPH_PAR, ONLY : DX, DY, X0, Y0, X00, Y00
+IMPLICIT NONE
+
+REAL :: XGEO, YGEO, XMAP, YMAP
+REAL*8 :: ZFAC, ZX0, ZY0, ZX, ZY, ZLON, ZLAT, ZZ
+
+ZFAC = DABS(DACOS(-1.D0))/180.D0
+ZX0  = DBLE(X0)*ZFAC
+ZY0  = DBLE(Y0)*ZFAC
+
+IF (ABS(X0)>=0.01.OR.ABS(Y0)>=0.01) THEN
+
+  ! Rotated coordinates system
+
+  ZX=DBLE(XGEO)*ZFAC
+  ZY=DBLE(YGEO)*ZFAC
+  ZLAT=ASIN( -COS(ZY)*SIN(ZY0)*COS(ZX-ZX0)+SIN(ZY)*COS(ZY0) )
+  ZZ=SIN(ZY)-COS(ZY0)*SIN(ZLAT)
+  ZZ=ZZ/(SIN(ZY0)*COS(ZLAT))
+  IF (ZZ<-1.D0.AND.ZZ>-1.00001D0) ZZ = -1.D0
+  IF (ZZ> 1.D0.AND.ZZ< 1.00001D0) ZZ = 1.D0
+  IF (ZX<ZX0) THEN
+    ZLON=-ACOS(ZZ)
+  ELSE
+    ZLON= ACOS(ZZ)
+  ENDIF
+  ZX=ZLON/ZFAC
+  ZY=ZLAT/ZFAC
+
+ELSE
+
+  ! Non rotated coordinates system
+
+  ZX=DBLE(XGEO)
+  ZY=DBLE(YGEO)
+
+ENDIF
+
+XMAP=(SNGL(ZX)-X00)/DX+1.
+YMAP=(SNGL(ZY)-Y00)/DY+1.
+
+RETURN
+END
+!------------------------------------------------------------------------------
+SUBROUTINE POINT_SEARCH(IPAGE, IFIELD)
+! Plot selected point on the map
+
+USE PLPLOT
+USE MOD_GRAPH_WORK
+USE MOD_GRAPH_PAR, ONLY : PAGE, LSM, ALON, ALAT
+IMPLICIT NONE
+
+INTEGER :: IPAGE, IFIELD, ISYM, ICOL, I ,J
+
+ICOL=9 ! blue
+ICOL=1 ! red
+ISYM=856 ! star
+
+I= 75
+J= 80
+
+CALL PLCOL0(ICOL) ! Set color with using map0 pallet
+!CALL PLSSYM(10.0_PLFLT,1.0_PLFLT) ! Set font size (in mm)
+
+!CALL PLSYM((/278.0_PLFLT/),(/208.0_PLFLT/),ISYM) ! Plot a symbol
+!CALL PLSYM((/TR2DX(I,J)/),(/TR2DY(I,J)/),ISYM) ! Plot a symbol
+
+!PRINT *,TR2DX(I,J),TR2DY(I,J),ALON(I,J),ALAT(I,J)
+!PRINT *,'POINT ',PAGE(IPAGE)%FIELD(I,J,IFIELD)
+!PRINT *,'POINT ',PAGE(IPAGE)%FIELD(I,J,IFIELD),PAGE(IPAGE)%FIELD(I,J,IFIELD+1)
+!PRINT *,'POINT ',PAGE(IPAGE)%FIELD(278,208,IFIELD)
+!PRINT *,'POINT ',PAGE(IPAGE)%FIELD(107,16,IFIELD),LSM(108,16)
+
+RETURN
+END SUBROUTINE POINT_SEARCH
+!------------------------------------------------------------------------------
+SUBROUTINE GEO_POINT(IPAGE)
+! Read geographical points coordinates and Plot this points on the map
+
+USE PLPLOT
+USE MOD_GRAPH_WORK, ONLY : XINI, XFIN, YINI, YFIN, CHARSIZE, NXPIXEL, NYPIXEL,&
+ LMARG, RMARG, BMARG, TMARG, DX_GRAPH, DY_GRAPH, ILINEW1, ICHARTYPE1
+USE MOD_GRAPH_PAR, ONLY : NX, NY, LSM
+IMPLICIT NONE
+
+INTEGER :: IPAGE
+REAL, DIMENSION(:), ALLOCATABLE :: XGEO, YGEO, XMAP, YMAP, XGEO1, YGEO1
+REAL(KIND=PLFLT), DIMENSION(:), ALLOCATABLE :: XMAP1, YMAP1
+INTEGER, DIMENSION(:), ALLOCATABLE :: HTOP, HTOP1
+CHARACTER(LEN=15), DIMENSION(:), ALLOCATABLE :: AGEO, AGEO1
+CHARACTER :: ALINE*50
+INTEGER :: NPOINT, NVALID, I, I1, J1, K, III, JJJ, XPIXEL, YPIXEL, ICOLOR=11,&
+ ICOL=1,& ! red
+! ISYM=2710,& ! circle (850 circle also but the center is shifted)
+ ISYM= 850,& ! circle (850 circle also but the center is shifted)
+ ISYM_SPEC= 847, & ! star
+! RED=150, GREEN=000, BLUE=150, & ! dark violet for meteo maps
+ RED=80, GREEN=000, BLUE=100, &! dark violet for Map of Meteograms points
+ RED_SPEC=170, GREEN_SPEC=000, BLUE_SPEC=050 ! dark red
+
+REAL(KIND=PLFLT) :: SCALE_CHAR=1.5_PLFLT 
+REAL :: XINIPIXEL, XFINPIXEL, YINIPIXEL, YFINPIXEL, ZZZ
+  
+OPEN (10,FILE='geopoint_meteogram.txt',STATUS='OLD',ERR=10)
+
+DO NPOINT=1,100000
+  READ (10,*,END=20) ALINE
+ENDDO
+20 NPOINT=NPOINT-1
+
+ALLOCATE(XGEO(NPOINT))
+ALLOCATE(YGEO(NPOINT))
+ALLOCATE(XMAP(NPOINT))
+ALLOCATE(YMAP(NPOINT))
+ALLOCATE(XMAP1(NPOINT))
+ALLOCATE(YMAP1(NPOINT))
+ALLOCATE(HTOP(NPOINT))
+ALLOCATE(AGEO(NPOINT))
+ALLOCATE(XGEO1(NPOINT))
+ALLOCATE(YGEO1(NPOINT))
+ALLOCATE(HTOP1(NPOINT))
+ALLOCATE(AGEO1(NPOINT))
+
+REWIND (10)
+DO I=1,NPOINT
+  READ (10,*) AGEO(I), YGEO(I), XGEO(I), HTOP(I)
+  ZZZ=XGEO(I)
+  IF (ZZZ>180.) ZZZ=ZZZ-360.
+  CALL CONVERT_GEOCOORD(ZZZ,YGEO(I),XMAP(I),YMAP(I))
+ENDDO
+CLOSE(10)
+
+NVALID=0
+DO I=1,NPOINT
+  IF (XMAP(I) < XINI .OR. XMAP(I) > XFIN) CYCLE
+  IF (YMAP(I) < YINI .OR. YMAP(I) > YFIN) CYCLE
+!  I1=INT(XMAP(I))
+!  J1=INT(YMAP(I))
+!  IF (ANY(LSM(I1:I1+1,J1:J1+1) > 0.5)) CYCLE
+  NVALID=NVALID+1
+  XMAP1(NVALID)=XMAP(I)*1._PLFLT
+  YMAP1(NVALID)=YMAP(I)*1._PLFLT
+  XGEO1(NVALID)=XGEO(I)
+  YGEO1(NVALID)=YGEO(I)
+  HTOP1(NVALID)=HTOP(I)
+  AGEO1(NVALID)=AGEO(I)
+ENDDO
+
+!! ---- Special Symbol -----
+!CALL PLSCOL0(ICOLOR,RED_SPEC,GREEN_SPEC,BLUE_SPEC) ! Set color with index ICOLOR in map0 pallet
+!CALL PLCOL0(ICOLOR) ! Set color with using map0 pallet
+!
+!CALL PLCOL0(ICOL) ! Set color with using map0 pallet
+!
+!CALL PLSSYM(CHARSIZE*0.9_PLFLT,SCALE_CHAR) ! Set font size (in mm)
+!CALL PLSYM(XMAP1(1:1),YMAP1(1:1),ISYM_SPEC) ! Plot a symbol
+!! ---------------------------
+  
+CALL PLSCOL0(ICOLOR,RED,GREEN,BLUE) ! Set color with index ICOLOR in map0 pallet
+CALL PLCOL0(ICOLOR) ! Set color with using map0 pallet
+
+!CALL PLCOL0(ICOL) ! Set color with using map0 pallet
+
+CALL PLSSYM(CHARSIZE*1.0_PLFLT,SCALE_CHAR) ! Set font size (in mm)
+CALL PLSYM(XMAP1(1:NVALID),YMAP1(1:NVALID),ISYM) ! Plot a symbol
+
+! Draw a circular or elliptical arc
+!DO I=1,NVALID
+!  CALL PLARC(XMAP1(I),YMAP1(I), DX_GRAPH*0.5_PLFLT, DY_GRAPH*0.5_PLFLT, 0., 360., 0., 1) ! Plot a circular or elliptical arc
+!ENDDO
+
+!DO I=1,NVALID
+!  READ (AGEO1(I)(1:5),'(I5)') I1
+!  JJJ=I1/1000
+!  III=I1-JJJ*1000
+!  IF (JJJ==16.AND.III<600) THEN ! Italian WMO synop land stations
+!    CALL PLSYM(XMAP1(I:I),YMAP1(I:I),ISYM) ! Plot a symbol
+!  ENDIF
+!ENDDO
+!
+!! Meteograms map --->
+!! Point name in the map, for map of meteograms points only
+!!
+!CALL PLWIDTH(REAL(ILINEW1,PLFLT)) ! Set pen width
+!CALL PLFONT(ICHARTYPE1) ! Set font type
+!CALL PLSCHR(CHARSIZE*1.0,0.8_PLFLT) ! Set font size (in mm)
+!DO I=1,NVALID
+!  CALL PLPTEX(XMAP1(I)+DX_GRAPH*0.8_PLFLT,YMAP1(I)-DX_GRAPH*0.2_PLFLT,0._PLFLT,0._PLFLT,0.0_PLFLT,TRIM(AGEO1(I))) ! Write text relative plot coordinates
+!ENDDO
+!
+!! For htm del web site --->
+!
+!OPEN (10,FILE='point_pixel.htm', FORM='formatted', STATUS='unknown')
+!!OPEN (12,FILE='geopoint_meteogram.txt', FORM='formatted', STATUS='unknown')
+!XINIPIXEL=FLOAT(NXPIXEL)*LMARG
+!XFINPIXEL=FLOAT(NXPIXEL)*RMARG
+!YINIPIXEL=FLOAT(NYPIXEL)*(1.-BMARG)
+!YFINPIXEL=FLOAT(NYPIXEL)*(1.-TMARG)
+!DO I=1,NVALID
+!  XPIXEL=NINT((XMAP1(I)-XINI)/(XFIN-XINI)*(XFINPIXEL-XINIPIXEL)+XINIPIXEL)+1
+!  YPIXEL=NINT((1.-(YMAP1(I)-YINI)/(YFIN-YINI))*(YINIPIXEL-YFINPIXEL)+YFINPIXEL)+1
+!  WRITE (10,'(7X,A,2(I4,A),I3,A,I3.3,3A)') &
+! "<area shape=""circle"" coords=""", XPIXEL,",", YPIXEL,",", 10, &
+! """ href="""" onclick=""open_win_meteogram('meteogram_img.htm','", I, &
+!!!! "',1,500,750,'BOLAM_GFS_'); return false"" alt=""", TRIM(AGEO1(I)), &
+!!!! "',1,500,750,'MOLOCH_ITALY_'); return false"" alt=""", TRIM(AGEO1(I)), &
+! "',1,500,750,'GLOBO_POINT_'); return false"" alt=""", TRIM(AGEO1(I)), &
+! """>"
+!!  WRITE (12,'(A,1X,F5.2,1X,F7.2,1X,I4)') AGEO1(I),YGEO1(I),XGEO1(I),HTOP1(I) 
+!ENDDO
+!CLOSE (10)
+!!CLOSE (12)
+!! <---
+!! <---
+
+DEALLOCATE(XGEO)
+DEALLOCATE(YGEO)
+DEALLOCATE(XMAP)
+DEALLOCATE(YMAP)
+DEALLOCATE(XMAP1)
+DEALLOCATE(YMAP1)
+DEALLOCATE(HTOP)
+DEALLOCATE(AGEO)
+
+10 RETURN
+END SUBROUTINE GEO_POINT
+!------------------------------------------------------------------------------
+SUBROUTINE CROSS_SECTION_LINE
+! Read geographical coordinates of cross-sction points and Plots this cross-section line on the map
+
+USE PLPLOT
+USE MOD_GRAPH_WORK, ONLY : ILINEW4
+IMPLICIT NONE
+
+CHARACTER(LEN=20) :: FILE_INPUT
+REAL, DIMENSION(:), ALLOCATABLE :: XGEO, YGEO, XMAP, YMAP
+REAL(KIND=PLFLT), DIMENSION(:), ALLOCATABLE :: XMAP1, YMAP1
+INTEGER :: NPOINT, IUNIT=10, I, III, ICOLOR=11,&
+ ICOL=1,& ! red
+! RED=150, GREEN=000, BLUE=150 ! dark violet for meteo maps
+ RED=80, GREEN=000, BLUE=100 ! dark violet for Map of meteograms points
+REAL(KIND=PLFLT) :: SCALE_CHAR=2.0_PLFLT 
+REAL :: ZZZ
+
+DO III=1,20
+
+  WRITE (FILE_INPUT, '(A,I2.2,A)') 'cross_lon_lat_',III,'.txt'
+ 
+  OPEN (IUNIT, FILE=FILE_INPUT, STATUS='OLD', ERR=10)
+
+  DO NPOINT=1,100000
+    READ (10,*,END=20)
+  ENDDO
+  20 NPOINT=NPOINT-1
+
+  ALLOCATE(XGEO(NPOINT))
+  ALLOCATE(YGEO(NPOINT))
+  ALLOCATE(XMAP(NPOINT))
+  ALLOCATE(YMAP(NPOINT))
+  ALLOCATE(XMAP1(NPOINT))
+  ALLOCATE(YMAP1(NPOINT))
+
+  REWIND (IUNIT)
+  DO I=1,NPOINT
+    READ (IUNIT,'(2F11.6)') XGEO(I), YGEO(I)
+    ZZZ=XGEO(I)
+    IF (ZZZ>180.) ZZZ=ZZZ-360.
+    CALL CONVERT_GEOCOORD(ZZZ,YGEO(I),XMAP(I),YMAP(I))
+    XMAP1(I)=XMAP(I)*1._PLFLT
+    YMAP1(I)=YMAP(I)*1._PLFLT
+  ENDDO
+
+  CLOSE(IUNIT)
+
+  CALL PLSCOL0(ICOLOR,RED,GREEN,BLUE) ! Set color with index ICOLOR in map0 pallet
+  CALL PLCOL0(ICOLOR) ! Set color with using map0 pallet
+
+  !CALL PLCOL0(ICOL) ! Set color with using map0 pallet
+
+
+!!!  CALL PLSTYL(1, 2000, 3000) ! Line style (dashed etc.)
+  CALL PLWIDTH(REAL(ILINEW4,PLFLT)) ! Set pen width
+  CALL PLLINE(XMAP1(1:NPOINT),YMAP1(1:NPOINT)) ! Plot a line
+
+  DEALLOCATE(XGEO)
+  DEALLOCATE(YGEO)
+  DEALLOCATE(XMAP)
+  DEALLOCATE(YMAP)
+  DEALLOCATE(XMAP1)
+  DEALLOCATE(YMAP1)
+
+  10 CONTINUE
+
+ENDDO
+
+RETURN
+END SUBROUTINE CROSS_SECTION_LINE
+!------------------------------------------------------------------------------
+SUBROUTINE GEO_LEGEND(IPAGE, NCOLOR, IPALETTE)
+! PROCEDURE SETS LEGEND NAME USING IPALETTEE INDEX:
+! 21 - Soil type following texture classification;
+! 22 - Vegetation type fillowing GLC1990 classification;
+! 23 - Vegetation type fillowing GLC2000 classification 
+! 24 - Soil type following FAO classification;
+
+USE PLPLOT
+USE MOD_GRAPH_WORK
+USE MOD_GRAPH_PAR, ONLY : PAGE
+IMPLICIT NONE
+
+INTEGER :: IPAGE, NCOLOR, IPALETTE
+
+CHARACTER(LEN=100), DIMENSION(50) :: NAME
+INTEGER :: NLINE, ILINE, ICOLOR, ICOLON
+REAL(KIND=PLFLT) :: COLOR
+
+ IF (IPALETTE==21) THEN
+! Domain Soil Typies following texture classificathion
+  NAME(1)='Sand'
+  NAME(2)='Loamy Sand'
+  NAME(3)='Sandy Loam'
+  NAME(4)='Silty loam'
+  NAME(5)='Loam'
+  NAME(6)='Sandy Clay Loam'
+  NAME(7)='Silty Clay Loam'
+  NAME(8)='Clay Loam'
+  NAME(9)='Sandy Clay'
+  NAME(10)='Silty Clay'
+  NAME(11)='Clay'
+  NAME(12)='Peat'
+  NAME(13)='Rock'
+  NAME(14)='Glaciers'
+  NAME(15)='Water Body'
+  NLINE=5
+ ENDIF
+
+ IF (IPALETTE==22) THEN
+! Domain Vegetaion Types fillowing GLC1990 classification
+  NAME(1)='Evergreen Needleleaf Forest'
+  NAME(2)='Evergreen Broadleaf Forest'
+  NAME(3)='Deciduous Needleleaf Forest'
+  NAME(4)='Deciduous Broadleaf Forest'
+  NAME(5)='Mixed Cover'
+  NAME(6)='Woodland'
+  NAME(7)='Wooded grassland'
+  NAME(8)='Closed Shrubland'
+  NAME(9)='Open Shrubland'
+  NAME(10)='Grassland'
+  NAME(11)='Cropland'
+  NAME(12)='Bare Ground'
+  NAME(13)='Urban and Built-up'
+  NAME(14)='Water Body'
+  NLINE=5
+ ENDIF
+
+ IF (IPALETTE==23) THEN
+! Domain Vegetaion Types fillowing GLC2000 classification
+  NAME(1)='Trees Broadleaved Evergreen closed to open (>15%)'
+  NAME(2)='Trees Broadleaved Deciduous closed (>40%)'
+  NAME(3)='Trees Broadleaved Deciduous open (15-40%)'
+  NAME(4)='Trees Needleleaved Evergreen closed to open (>15%)'
+  NAME(5)='Trees Needleleaved Decidous closed to open (>15%)'
+  NAME(6)='Trees Mixed Leaftype closed to open (>15%)'
+  NAME(7)='Trees closed to open (>15%) flooded fresh water'
+  NAME(8)='Trees closed to open (>15%) flooded saline water'
+  NAME(9)='Mosaic of Trees and other natural vegetation and Crop'
+  NAME(10)='Trees Burnt (mainly Boreal Forests)'
+  NAME(11)='Shrubcover closed to open (>15%) Evergreen'
+  NAME(12)='Shrubcover closed to open (>15%) Deciduous'
+  NAME(13)='Herbaceous closed to open (>15%)'
+  NAME(14)='Sparse Herbaceous or sparse Shrubs'
+  NAME(15)='Flooded ( > 2 month) Shrubs or Herbaceous closed to open'
+  NAME(16)='Cropland: upland crops or inundated / Flooded Crops (rice).'
+  NAME(17)='Mosaic of Cropland / Trees / Other Natural Vegetation'
+  NAME(18)='Mosaic of Cropland / Shrub or Herbaceous cover'
+  NAME(19)='Bare Areas'
+  NAME(20)='Urban Areas'
+  NAME(21)='Snow or Ice'
+  NAME(22)='Water Body'
+  NLINE=11
+ ENDIF
+
+ IF (IPALETTE==24) THEN
+! Domain Soil Types fillowing FAO classification
+  NAME(1)='Acrisols'
+  NAME(2)='Cambisols'
+  NAME(3)='Chernozems'
+  NAME(4)='Podzoluvisols'
+  NAME(5)='Rendzinans'
+  NAME(6)='Ferrasols'
+  NAME(7)='Gleysols'
+  NAME(8)='Phaeozems'
+  NAME(9)='Lithosols'
+  NAME(10)='Fluvisols'
+  NAME(11)='Kastanozems'
+  NAME(12)='Luvisols'
+  NAME(13)='Gleysols'
+  NAME(14)='Nitosols'
+  NAME(15)='Histosols'
+  NAME(16)='Podzols'
+  NAME(17)='Arenosols'
+  NAME(18)='Regosols'
+  NAME(19)='Solonetz'
+  NAME(20)='Andosols'
+  NAME(21)='Rankers'
+  NAME(22)='Vertisols'
+  NAME(23)='Planosols'
+  NAME(24)='Xerosols'
+  NAME(25)='Yermosols'
+  NAME(26)='Solonchaks'
+  NAME(27)='Dunes'
+  NAME(28)='Salt flats'
+  NAME(29)='Rock debris'
+  NAME(30)='Glaciers'
+  NAME(31)='Water body'
+  NLINE=12
+ ENDIF
+
+ CALL CLIP(0) ! Clipping disable
+
+ CALL PLFONTLD(1)
+ CALL PLWIDTH(REAL(ILINEW1,PLFLT)) ! Set pen width
+ CALL PLFONT(ICHARTYPE1) ! Set font type
+ CALL PLSCHR(CHARSIZE*1.0_PLFLT,1.0_PLFLT) ! Set font size (in mm)
+
+ ZDX=DX_GRAPH*1.6_PLFLT
+ ZDY=DY_GRAPH*1.6_PLFLT
+
+ ILINE=0
+ ICOLON=1
+ DO ICOLOR=1,NCOLOR
+   ILINE=ILINE+1
+   IF (ILINE>NLINE) THEN
+     ILINE=1
+     ICOLON=ICOLON+1
+   ENDIF
+   IF (IPALETTE/=23) THEN
+     LEG_SQUARE_X(1)=XINI+(XFIN-XINI)/3.0_PLFLT*(ICOLON-1)
+   ELSE
+     LEG_SQUARE_X(1)=XINI+(XFIN-XINI)/2.0_PLFLT*(ICOLON-1)
+   ENDIF
+   LEG_SQUARE_X(2)=LEG_SQUARE_X(1)+ZDX*1.0_PLFLT
+   LEG_SQUARE_X(3)=LEG_SQUARE_X(2)
+   LEG_SQUARE_X(4)=LEG_SQUARE_X(1)
+   LEG_SQUARE_Y(1)=YINI-ZDY*1.0_PLFLT-ZDY*1.5_PLFLT*(ILINE-1)
+   LEG_SQUARE_Y(2)=LEG_SQUARE_Y(1)
+   LEG_SQUARE_Y(3)=LEG_SQUARE_Y(2)-ZDY*1.0_PLFLT
+   LEG_SQUARE_Y(4)=LEG_SQUARE_Y(3)
+   LEG_X=LEG_SQUARE_X(2)+ZDX*1.0_PLFLT
+   LEG_Y=0.5_PLFLT*(LEG_SQUARE_Y(1)+LEG_SQUARE_Y(3))
+   COLOR=(ICOLOR-1._PLFLT)/((NCOLOR-1)*1._PLFLT)
+   CALL PLCOL1(COLOR) ! Set color with using map1 pallet
+   CALL PLFILL(LEG_SQUARE_X(1:4),LEG_SQUARE_Y(1:4)) ! Draw filled polygon
+   CALL PLCOL0(15) ! Set color with using map0 pallet
+   CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,0.0_PLFLT,NAME(ICOLOR)) ! Write text relative plot coordinates
+ ENDDO
+
+ LEG_X=XINI
+ ZDY=DY_GRAPH*3._PLFLT
+ LEG_Y=YFIN+ZDY
+ CALL PLCOL0(15) ! Set color with using map0 pallet
+ CALL PLSCHR(CHARSIZE*1.0_PLFLT,1.4_PLFLT) ! Set font size (in mm)
+ CALL PLPTEX(LEG_X,LEG_Y,0._PLFLT,0._PLFLT,0.0_PLFLT,PAGE(IPAGE)%ACOMMENT(1)) ! Write text relative plot coordinates
+
+ CALL CLIP(1) ! Clipping able
+
+RETURN
+END SUBROUTINE GEO_LEGEND
+!------------------------------------------------------------------------------

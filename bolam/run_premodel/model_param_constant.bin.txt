@@ -1,0 +1,1 @@
+model_param_constant.bin is full and closed

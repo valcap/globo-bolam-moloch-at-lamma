@@ -1,0 +1,41 @@
+&model
+dtstep = TIMESTEP, nadv = NSTEP_ADV, nsound = NSTEP_SOUND,
+nbl = 8, nradm = RADIATION_TYPE,
+hrun = RUNTERM, hist = DHOUTPUT_MAIN, hist_full_res = DHOUTPUT_MAIN_FULL_RES, mswshf =  DMINOUTPUT_ADD, hbound = DHBOUND, hdiag = DHDIAG,
+mhfr=INDEX_OUTPUT_RES,
+srad = 480., mslfilter = 5., htop = 0.92,
+nlmic2=.false., nlana=.true.,
+nlconv=.false., nlradar=.false., nltwice=.false., nlhdiff=.false., nlclimate=.false., nlrst=.false.,
+hrst= 240., hback=-0.1, hspray=-0.50, nxspray= 70, nyspray= 70, nzspray=45, xsorg=15.200, ysorg=37.24 ! Sicilia
+&end
+
+! dtstep    integration time step (in seconds)
+! nadv      number of advection steps in dtstep sec.
+! nsound    number of steps for sound waves
+! nbl       no. of lateral boundary lines
+! nradm     radiation scheme flag: 0 - no radiation,
+!                                  1 - Geleyn only every srad seconds
+!                                  2 - Geleyn and ECMWF combined
+! hrun      forecast duration in hours
+! hist      interval (in hours) between two writings of model output (mhf)
+! hist_full_res   interval (in hours) between two writings of model output (mhf) in full horizontal resolution
+! hbound    interval (in hours) between two boundary conditions
+! hdiag     interval (in hours) between two model diagnostics printouts
+! srad      interval (in seconds) between two calls of radiation parameterization
+! mswshf    interval (in minutes) between two writings of surface fields (shf)
+! mslfilter period (in minutes) of filtering of turbulent coefficient of the surface layer exchanging
+! htop      fraction of vertical column where microphys. and turbul. are active (<= 1.)
+! nlmic2    if true, 2-moment microphysics
+! nlbfix    if true, fixed boundary conditions
+! nlana     if true, saves initial condition in output (mhf)
+! nltwice   it true, double computation of vertical advection per timestep
+! nlhdiff   if true, computes horizontal turbulent diffusion
+! nlconv    if true, parameterization of convection is switched on
+! nlord     if true, orographic drag (block+GW)
+! nlradar   if true, simulation of radar reflectivity
+! nlclimate if true, very long run options are active (name of input/putput files)
+! nlrst,    if true, restart input files be read at the run initial
+! mhfr      1: full mhf resolution; 2: half mhf resolution
+! hrst      interval (in hours) between two restart files writting
+! hback     interval (in hours) between two outputs of trajectory file (if negative, file is not written)
+! hspray    interval (in hours) between two outputs of SPRAY file (if negative, file is not written)

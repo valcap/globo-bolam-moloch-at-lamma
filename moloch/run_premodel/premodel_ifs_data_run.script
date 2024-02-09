@@ -1,0 +1,383 @@
+#! /bin/bash
+
+# Variables exported from ../../moloch_forecast_chain.script
+#MODEL_INP="IFS"
+#INIDATE=2020123100
+#HRUN=3
+#DHINPUT=1
+#HOUR_LIMIT=1
+#DIR_GEO_DATA="/data/geo_dataset"
+#DIRINPUT="/data/strade/ifs/moloch"
+#DIRINPUT_CONST="/data/strade/ifs/moloch_empty"
+#DIROUTPUT="/data/strade/moloch/premodel"
+#DIR_MHF_SOIL="/data/strade/moloch/mhf_soil_copy"
+#FILE_FLAG_INPUT="../../ifs_moloch_data_problem.txt"
+#FILE_FLAG_PREMODEL_FINISH="../../premoloch_finish.txt"
+#MODEL_LOWER="moloch"
+#DIR_BIN="/home/strade/eccodes/eccodes_gfortran/bin"
+
+FC_INP=1 # Input data are analysis and forecast data
+###FC_INP=0 # Input data are analysis forecast data only (reanalysis case ofr hindcast case, etc.)
+
+MODEL_INP_LOWER=`echo ${MODEL_INP} | tr [:upper:] [:lower:]`
+
+DIR_MODEL_RUN="../run_model"
+
+FILE_CONST_REM="${DIROUTPUT}/model_param_constant.bin"
+FILE_CONST_LOC="model_param_constant.bin"
+FILE_CONST_REM2="${DIROUTPUT}/land_par.bin"
+FILE_CONST_LOC2="land_par.bin"
+
+FILE_CONST_INP_REM0="${DIRINPUT_CONST}/${MODEL_INP}_const.grib"
+FILE_CONST_INP_REM="${DIRINPUT_CONST}/${MODEL_INP}_const.grib2"
+FILE_CONST_INP_LOC="${MODEL_INP_LOWER}_const.grib2"
+
+if [ ! -s $FILE_CONST_INP_REM ] && [ -s $FILE_CONST_INP_REM0 ]; then
+# Conversion of grib format to grib2 format
+  echo " "
+  COM="${DIR_BIN}/grib_filter -o $FILE_CONST_INP_REM filter_rules_convert $FILE_CONST_INP_REM0"; echo $COM; $COM
+  if [ ! -s $FILE_CONST_INP_REM ]; then
+    echo "Conversion of $FILE_CONST_INP_REM0 to grib2 format failed => exit"
+    exit
+  fi
+  echo " "
+fi
+
+NFILE_INPUT=$(($HRUN/$DHINPUT)); NFILE_INPUT=$(($NFILE_INPUT+1))
+
+COM="rm -f ${DIR_MODEL_RUN}/input_*.mhf"; echo $COM; $COM
+COM="rm -f ${DIR_MODEL_RUN}/${FILE_CONST_LOC}"; echo $COM; $COM
+
+DATE0=`echo $INIDATE | cut -c 1-8`; HOUR0=`echo $INIDATE | cut -c 9-10`
+
+# Control of degrib files existence
+
+NFILE=0
+
+echo " "
+IFILE=1
+while [ $IFILE -le $NFILE_INPUT ]
+do
+  NHOUR=$(($IFILE-1)); NHOUR=$(($NHOUR*$DHINPUT))
+  AHOUR=`printf '%03d\n' $NHOUR`
+  OUTPUT_FILE1="${DIROUTPUT}/${INIDATE}_${AHOUR}_atm.mhf"
+  OUTPUT_FILE2="${DIROUTPUT}/${INIDATE}_${AHOUR}_soil.mhf"
+  if [ -s $OUTPUT_FILE1 ] && [ -s $OUTPUT_FILE2 ]
+  then
+    echo 'Moloch input files exist:' $OUTPUT_FILE1 $OUTPUT_FILE2
+  else
+    NFILE=$(($NFILE+1))
+  fi
+  IFILE=$(($IFILE+1))
+done
+
+if [ -s $FILE_CONST_REM ]
+then
+  echo " "
+  echo "Moloch input file $FILE_CONST_REM exists"
+else
+  NFILE=$(($NFILE+1))
+fi
+
+if [ $NFILE -eq 0 ]
+then
+
+# All required Moloch input files exist
+
+  echo " "
+  COM="ln -sf $FILE_CONST_REM ${DIR_MODEL_RUN}/${FILE_CONST_LOC}"; echo $COM; $COM
+  echo " "
+
+  IFILE=1
+  while [ $IFILE -le $NFILE_INPUT ]
+  do
+    AFILE=`printf '%02d\n' $IFILE`
+    NHOUR=$(($IFILE-1)); NHOUR=$(($NHOUR*$DHINPUT))
+    AHOUR=`printf '%03d\n' $NHOUR`
+    OUTPUT_FILE1="${DIROUTPUT}/${INIDATE}_${AHOUR}_atm.mhf"
+    OUTPUT_FILE2="${DIROUTPUT}/${INIDATE}_${AHOUR}_soil.mhf"
+    INPUT_FILE_MODEL1="${DIR_MODEL_RUN}/input_atm_${AFILE}.mhf"
+    INPUT_FILE_MODEL2="${DIR_MODEL_RUN}/input_soil_${AFILE}.mhf"
+    rm -f $INPUT_FILE_MODEL1 $INPUT_FILE_MODEL2
+    COM="ln -sf $OUTPUT_FILE1 $INPUT_FILE_MODEL1"; echo $COM; $COM
+    COM="ln -sf $OUTPUT_FILE2 $INPUT_FILE_MODEL2"; echo $COM; $COM
+    IFILE=$(($IFILE+1))
+  done
+
+else
+
+# Create degrib files
+
+  echo " "
+  echo "      Premoloch with ${MODEL_INP} input data starts"
+  echo " "
+
+  timemax=$(($HOUR_LIMIT*3600))
+
+  INPUT_FILE_MODEL_FIN1="${DIR_MODEL_RUN}/input_atm_01.mhf"
+  INPUT_FILE_MODEL_FIN2="${DIR_MODEL_RUN}/input_soil_01.mhf"
+
+  if [ -s $FILE_FLAG_INPUT ]; then
+    echo " "
+    echo "Exist file-flag $FILE_FLAG_INPUT, means that there are problems with input data => exit"
+    echo "Pre-Moloch procedures does not have input data files" > ${FILE_FLAG_PREMODEL_FINISH}
+    echo "Premodel: exist file-flag $FILE_FLAG_INPUT, means that there are problems with input data, interruption" > $INPUT_FILE_MODEL_FIN1
+    echo "Premodel: exist file-flag $FILE_FLAG_INPUT, means that there are problems with input data, interruption" > $INPUT_FILE_MODEL_FIN2
+    exit
+  fi
+
+# Link geophysical dataset
+
+  ln -sf $DIR_GEO_DATA/orogr_global_latlon_1km.bin
+  ln -sf $DIR_GEO_DATA/soil_fao_global_latlon_8km.bin
+  ln -sf $DIR_GEO_DATA/worldexp.dat
+  ln -sf $DIR_GEO_DATA/veget_global_latlon_1km.bin
+  ln -sf $DIR_GEO_DATA/vegtype_GLC2000_global_latlon_1km.bin
+  ln -sf $DIR_GEO_DATA/ecmwf_glob_0_25_lsm.bin
+  ln -sf $DIR_GEO_DATA/ecmwf_ifs_1979_2014_t2_clim.bin
+  echo "  "
+
+  cd $DIR_GEO_DATA
+  LIST_FILE1=`ls lai_global_latlon_1km_day*.bin`
+  LIST_FILE2=`ls fveg_global_latlon_1km_day*.bin`
+  cd -
+  for FILE in $LIST_FILE1
+  do
+    COM="ln -sf $DIR_GEO_DATA/$FILE"; $COM
+  done
+  for FILE in $LIST_FILE2
+  do
+    COM="ln -sf $DIR_GEO_DATA/$FILE"; $COM
+  done
+
+# Link to forecast soil parameter data
+
+  echo " "
+  HRUN_PREC=$HRUN
+  if [ $HRUN_PREC -lt 24 ]; then HRUN_PREC=24; fi
+  HFC=24
+  while [ $HFC -le $HRUN_PREC ]; do
+    AHFC=`printf '%03d\n' $HFC`
+    FILE_NAME="${MODEL_LOWER}_${INIDATE}_${AHFC}h_soil.mhf"
+    if [ -s ${DIR_MHF_SOIL}/${FILE_NAME} ]; then
+      echo "--------------"
+      COM="ln -sf ${DIR_MHF_SOIL}/${FILE_NAME} ${MODEL_LOWER}_forecast_soil.mhf"; echo $COM; $COM
+      echo "--------------"
+      break
+    fi
+    HFC=$(($HFC+24))
+  done
+
+# Clean and link input files, preprocessing execute, remove and link
+# output files
+
+  echo " "
+  echo "------------------"
+  COM="ln -sf $FILE_CONST_REM ${DIR_MODEL_RUN}/$FILE_CONST_LOC"; echo $COM; $COM
+  if [ ! -s $FILE_CONST_REM ]; then
+    COM="ln -sf $FILE_CONST_REM $FILE_CONST_LOC"; echo $COM; $COM
+  fi
+  if [ ! -s $FILE_CONST_REM2 ]; then
+    COM="ln -sf $FILE_CONST_REM2 $FILE_CONST_LOC2"; echo $COM; $COM
+  fi
+  echo "------------------"
+
+###  rm -f land_par.bin
+
+  AN=`printf '%02d\n' $NFILE_INPUT`
+  sed -e "s/INST_STOP *= *[0-9][0-9]* *,/INST_STOP=${AN},/g" premoloch.inp > text
+  mv text premoloch.inp
+
+  COM="rm -f input_*.mhf"; echo $COM; $COM
+  COM="rm -f input_*.txt"; echo $COM; $COM
+  COM="rm -f grib_*"; echo $COM; $COM
+
+echo " "
+../executable_premodel/premoloch &
+pause_execute_premoloch=$!
+
+  time_curr=0
+  time_curr2=0
+
+  IFILE=1
+  while [ $IFILE -le $NFILE_INPUT ]
+  do
+    AFILE_MODEL=`printf '%02d\n' $IFILE`
+    NHOUR=$(($IFILE-1)); NHOUR=$(($NHOUR*$DHINPUT))
+    AHOUR=`printf '%03d\n' $NHOUR`
+    FILE_INPUT_FULL_NAME0="${DIRINPUT}/${MODEL_INP}_${INIDATE}+${AHOUR}.grib"
+    if [ $FC_INP -eq 0 ]; then
+      DATE_CURR_INP=`date -u --date="${DATE0} ${HOUR0} ${NHOUR}hour" +%Y%m%d%H`
+      FILE_INPUT_FULL_NAME0="${DIRINPUT}/${MODEL_INP}_${DATE_CURR_INP}+000.grib"
+    fi
+    FILE_INPUT_FULL_NAME="${FILE_INPUT_FULL_NAME0}2"
+    AFILE=`printf '%03d\n' $IFILE`
+    FILE_INPUT_LOC_NAME="grib_${AFILE}"
+
+    INPUT_FILE_MODEL_FIN1="${DIR_MODEL_RUN}/input_atm_${AFILE_MODEL}.mhf"
+    INPUT_FILE_MODEL_FIN2="${DIR_MODEL_RUN}/input_soil_${AFILE_MODEL}.mhf"
+
+    echo " "
+    if [ -s $FILE_INPUT_FULL_NAME ] || [ -s $FILE_INPUT_FULL_NAME0 ]; then
+      rm -f ${FILE_INPUT_LOC_NAME}
+      if [ -s $FILE_INPUT_FULL_NAME0 ]; then
+# Conversion of grib format to grib2 format
+        echo " "
+        COM="${DIR_BIN}/grib_filter -o ${FILE_INPUT_FULL_NAME} filter_rules_convert ${FILE_INPUT_FULL_NAME0}"; echo $COM; $COM
+        if [ ! -s ${FILE_INPUT_FULL_NAME} ]; then
+          echo "Conversion of ${FILE_INPUT_FULL_NAME0} to grib2 format failed, => exit"
+          echo "Conversion of ${FILE_INPUT_FULL_NAME0} to grib2 format failed => exit" > $FILE_INPUT_LOC_NAME
+          echo "Conversion of ${FILE_INPUT_FULL_NAME0} to grib2 format failed => exit" > $INPUT_FILE_MODEL_FIN1
+          echo "Conversion of ${FILE_INPUT_FULL_NAME0} to grib2 format failed => exit" > $INPUT_FILE_MODEL_FIN2
+          rm -f grib_*
+          rm orogr_global_latlon_1km.bin soil_fao_global_latlon_8km.bin worldexp.dat veget_global_latlon_1km.bin vegtype_GLC2000_global_latlon_1km.bin
+          rm ecmwf_glob_0_25_lsm.bin ecmwf_ifs_1979_2014_t2_clim.bin
+          rm lai_global_latlon_1km_day*.bin
+          rm fveg_global_latlon_1km_day*.bin
+          rm -f ${MODEL_LOWER}_forecast_soil.mhf
+          rm -f ${FILE_CONST_LOC}*
+          exit
+        fi
+      echo " "
+      fi
+      if [ ! -s ${FILE_CONST_INP_REM} ]; then
+        COM="ln -sf ${FILE_INPUT_FULL_NAME} ${FILE_INPUT_LOC_NAME}"; echo $COM; $COM
+      else
+        echo "cat ${FILE_INPUT_FULL_NAME} ${FILE_CONST_INP_REM} > ${FILE_INPUT_LOC_NAME}" 
+        cat ${FILE_INPUT_FULL_NAME} ${FILE_CONST_INP_REM} > ${FILE_INPUT_LOC_NAME} 
+      fi
+    else
+      echo "Not found ${FILE_INPUT_FULL_NAME} input grib file"
+      while true
+      do  
+        if [ -s $FILE_INPUT_FULL_NAME ]
+        then
+          echo "Input data file $FILE_INPUT_FULL_NAME is ready"
+#          sleep 2
+          COM="ln -sf ${FILE_INPUT_FULL_NAME} ${FILE_INPUT_LOC_NAME}"; echo $COM; $COM
+          break
+        else
+          time_curr=$(($time_curr+60)) 
+          if [ $time_curr -ge $timemax ]
+          then
+            echo "Execution time exceeded maximum time (${HOUR_LIMIT} h) => exit" 
+            echo "Pre-Moloch procedures timeout" > ${FILE_FLAG_PREMODEL_FINISH}
+            echo "Premodel: execution time exceeded maximum time (${HOUR_LIMIT} h) => interruption" > $INPUT_FILE_MODEL_FIN1
+            echo "Premodel: execution time exceeded maximum time (${HOUR_LIMIT} h) => interruption" > $INPUT_FILE_MODEL_FIN2
+            rm -f grib_*
+            rm orogr_global_latlon_1km.bin soil_fao_global_latlon_8km.bin worldexp.dat veget_global_latlon_1km.bin vegtype_GLC2000_global_latlon_1km.bin
+            rm ecmwf_glob_0_25_lsm.bin ecmwf_ifs_1979_2014_t2_clim.bin
+            rm lai_global_latlon_1km_day*.bin
+            rm fveg_global_latlon_1km_day*.bin
+            rm -f ${MODEL_LOWER}_forecast_soil.mhf
+            rm -f ${FILE_CONST_LOC}*
+            exit
+          fi  
+          echo "Wait input data file ${FILE_INPUT_FULL_NAME}, sleep 1 min"
+          sleep 1m
+        fi
+      done
+    fi
+
+# Moving of created files and link from moved created files to local file in model run directory
+
+    INPUT_FILE_MODEL1="input_atm_${AFILE_MODEL}.mhf"
+    INPUT_FILE_MODEL2="input_soil_${AFILE_MODEL}.mhf"
+    FILE_FLAG1="${INPUT_FILE_MODEL1}.txt"
+    FILE_FLAG2="${INPUT_FILE_MODEL2}.txt"
+
+    echo " "
+    while true
+    do
+
+      if [ -s $FILE_FLAG1 ] && [ $FILE_FLAG2 ]; then
+
+        if [ $IFILE -eq 1 ]; then
+
+# The control of creation of file with model constant (in time) physicogeographical parameters at the fisrt instant only
+
+          if [ -s ${FILE_CONST_LOC}.txt ]; then 
+            echo "File with constant (in time) model physicographycal parameters created"
+          else
+            echo "File with constant (in time) model physicographycal parameters not created, exit"
+            rm -f grib_*
+            rm orogr_global_latlon_1km.bin soil_fao_global_latlon_8km.bin worldexp.dat veget_global_latlon_1km.bin vegtype_GLC2000_global_latlon_1km.bin
+            rm ecmwf_glob_0_25_lsm.bin ecmwf_ifs_1979_2014_t2_clim.bin
+            rm lai_global_latlon_1km_day*.bin
+            rm fveg_global_latlon_1km_day*.bin
+            rm -f ${MODEL_LOWER}_forecast_soil.mhf
+            rm -f ${FILE_CONST_LOC}*
+###            rm -f land_par.bin
+            exit
+          fi
+        fi
+
+        AHOUR=`printf '%03d\n' $NHOUR`
+        OUTPUT_FILE1="${DIROUTPUT}/${INIDATE}_${AHOUR}_atm.mhf"
+        OUTPUT_FILE2="${DIROUTPUT}/${INIDATE}_${AHOUR}_soil.mhf"
+
+        echo "Output data files $INPUT_FILE_MODEL1 and $INPUT_FILE_MODEL2 ready"
+        COM="mv $INPUT_FILE_MODEL1 $OUTPUT_FILE1"; echo $COM; $COM
+        COM="mv $INPUT_FILE_MODEL2 $OUTPUT_FILE2"; echo $COM; $COM
+        COM="touch $OUTPUT_FILE1"; echo $COM; $COM
+        COM="touch $OUTPUT_FILE2"; echo $COM; $COM
+        COM="rm $FILE_FLAG1"; echo $COM; $COM
+        COM="rm $FILE_FLAG2"; echo $COM; $COM
+        sync
+        COM="ln -sf $OUTPUT_FILE2 $INPUT_FILE_MODEL_FIN2"; echo $COM; $COM
+        COM="ln -sf $OUTPUT_FILE1 $INPUT_FILE_MODEL_FIN1"; echo $COM; $COM
+        COM="touch $INPUT_FILE_MODEL_FIN1"; echo $COM; $COM
+        COM="touch $INPUT_FILE_MODEL_FIN2"; echo $COM; $COM
+        break
+      else
+        time_curr2=$(($time_curr2+30))
+        if [ $time_curr2 -ge $timemax ]
+        then
+          COM="touch $INPUT_FILE_MODEL_FIN1"; echo $COM; $COM
+          echo "Execution time exceeded maximum time (${HOUR_LIMIT} h) => exit" 
+          echo "Premodel: execution time exceeded maximum time (${HOUR_LIMIT} h) => interruption" > $INPUT_FILE_MODEL_FIN1
+          echo "Premodel: execution time exceeded maximum time (${HOUR_LIMIT} h) => interruption" > $INPUT_FILE_MODEL_FIN2
+          rm -f grib_*
+          rm orogr_global_latlon_1km.bin soil_fao_global_latlon_8km.bin worldexp.dat veget_global_latlon_1km.bin vegtype_GLC2000_global_latlon_1km.bin
+          rm ecmwf_glob_0_25_lsm.bin ecmwf_ifs_1979_2014_t2_clim.bin
+          rm lai_global_latlon_1km_day*.bin
+          rm fveg_global_latlon_1km_day*.bin
+          rm -f ${MODEL_LOWER}_forecast_soil.mhf
+          rm -f ${FILE_CONST_LOC}*
+          exit
+        fi
+        echo " "
+        echo "Wait flag-file of output data ${FILE_FLAG1}, sleep 30"
+        echo " "
+        sleep 30
+      fi
+    done
+
+    echo " "
+    COM="rm -f ${FILE_CONST_LOC}*"; echo $COM; $COM
+    echo " "
+
+    IFILE=$(($IFILE+1))
+  done
+  echo " "
+
+  if [ -n "$pause_execute_premoloch" ]; then
+    echo "Wait of termination of the Premoloch exacution, job index $pause_execute_premoloch"
+    wait $pause_execute_premoloch
+  fi
+
+###  rm -f land_par.bin
+
+  rm -f grib_*
+
+  rm orogr_global_latlon_1km.bin soil_fao_global_latlon_8km.bin worldexp.dat veget_global_latlon_1km.bin vegtype_GLC2000_global_latlon_1km.bin
+  rm ecmwf_glob_0_25_lsm.bin ecmwf_ifs_1979_2014_t2_clim.bin
+  rm lai_global_latlon_1km_day*.bin
+  rm fveg_global_latlon_1km_day*.bin
+  rm -f ${MODEL_LOWER}_forecast_soil.mhf
+  rm -f ${FILE_CONST_LOC}*
+###  rm -f land_par.bin
+
+fi
+
+echo "All Pre-Moloch procedures finish" > ${FILE_FLAG_PREMODEL_FINISH}

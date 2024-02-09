@@ -1,0 +1,180 @@
+#! /bin/bash
+# Exported form ../../globo_forecast_chain.script:
+#NNODE=8
+#NPROC_NODE=48
+#INIDATE=2023030700
+#DH_NEXT_FORECAST=24
+#HRUN=168
+#HRESTART=0
+#DHOUTPUT_MHF=12
+#DHOUTPUT_MHF_ZOOM=1
+#DHOUTPUT_SHF=0
+#DIROUTPUT_MHF="/home/meteo/meteo/globo/mhf"
+#DIROUTPUT_MHF_ZOOM="/home/meteo/meteo/globo/mhf_zoom"
+#DIR_MHF_SOIL="/home/meteo/meteo/globo/mhf_soil_copy"
+#DIR_RESTART_DATA="/home/meteo/meteo/globo/restart"
+#DIROUTPUT_SHF="/home/meteo/meteo/globo/shf"
+#MODEL_LOWER="globo"
+#HOUR_LIMIT=6
+#FILE_FLAG_MODEL_RUN_FINISH="/home/meteo/forecast/globo_run_finish.txt"
+#FILE_FLAG_MODEL_RUN_ERROR="/home/meteo/forecast/globo_run_error.txt"
+
+DIR_EXE="../executable_model"
+
+DHINPUT=3
+
+HRUN_MHF_SOIL=120
+DIR_WORK=`pwd`
+DIR_MODEL_OUTPUT=$DIR_WORK # directory/file systme where model directly outputs 
+
+echo " "
+rm -f bolam.inp
+COM="cp globo.inp bolam.inp"; echo $COM; $COM
+echo " "
+
+echo "*******************"
+echo "Globo run starts at"
+date
+echo "*******************"
+
+# Cleaning of output
+
+rm -f $FILE_FLAG_MODEL_RUN_FINISH $FILE_FLAG_MODEL_RUN_ERROR
+#rm -f $DIR_WORK/bolam*.rf
+#rm -f ${DIR_RESTART_DATA}/bolam*.rf
+rm -f ${DIR_WORK}/${MODEL_LOWER}_*.shf
+rm -f ${DIR_WORK}/${MODEL_LOWER}_atm_*.mhf
+rm -f ${DIR_WORK}/${MODEL_LOWER}_soil_*.mhf
+rm -f ${DIR_WORK}/${MODEL_LOWER}_zoom_atm_*.mhf
+rm -f ${DIR_WORK}/${MODEL_LOWER}_zoom_soil_*.mhf
+rm -f exit_codes.txt
+
+# Move mhf and shf output (separated files for each instant)
+
+export INIDATE
+export HRUN
+export HRESTART
+export HRUN_MHF_SOIL
+export HOUR_LIMIT
+export FILE_FLAG_MODEL_RUN_ERROR
+export MODEL_LOWER
+export DIR_MODEL_OUTPUT
+
+export DHOUTPUT_SHF
+export DIROUTPUT_SHF
+if [ $DHOUTPUT_SHF -gt 0 ]; then
+  ./mv_shf.script &
+fi
+
+export DHOUTPUT=$DHOUTPUT_MHF_ZOOM
+export DIROUTPUT_MHF_ZOOM
+if [ $DHOUTPUT_MHF_ZOOM -gt 0 ]; then
+  echo " "  
+  COM="ln -sf ${DIROUTPUT_MHF_ZOOM}/model_param_constant_zoom.bin"; echo $COM; $COM
+  echo " "  
+  ./mv_mhf_zoom.script & 
+fi
+
+export DHOUTPUT=$DHOUTPUT_MHF
+export DIROUTPUT_MHF
+if [ $DHOUTPUT_MHF -gt 0 ]; then
+  ./mv_mhf.script &
+fi
+
+# For case of no mhf output:
+export DH_NEXT_FORECAST
+export DIR_MHF_SOIL
+if [ $DHOUTPUT_MHF -lt 0 ]; then
+  ./mv_mhf_soil.script & 
+fi
+
+## Output data for restart
+#
+#echo " "
+#COM="ln -sf ${DIR_RESTART_DATA}/bolam_01.rf"; echo $COM; $COM
+#COM="ln -sf ${DIR_RESTART_DATA}/bolam_pochva_01.rf"; echo $COM; $COM
+#COM="ln -sf ${DIR_RESTART_DATA}/bolam_02.rf"; echo $COM; $COM
+#COM="ln -sf ${DIR_RESTART_DATA}/bolam_pochva_02.rf"; echo $COM; $COM
+#echo " "
+
+# Model run
+
+NPROC=$(($NNODE*$NPROC_NODE))
+
+echo "  "
+echo "      Model Globo runs on $NPROC processors"
+#echo "mpirun -n $NPROC ${DIR_EXE}/globo"
+echo "  "
+
+#mpirun -n $NPROC ${DIR_EXE}/globo
+#ERR_mpiexe=$?
+
+echo "mpirun -machinefile processors_list -bysocket -bind-to-socket -n $NPROC ${DIR_EXE}/globo"
+mpirun -machinefile processors_list -bysocket -bind-to-socket -n $NPROC ${DIR_EXE}/globo
+ERR_mpiexe=$?
+
+echo "mpirun exit code ${ERR_mpiexe}"
+
+echo " "
+
+echo "*******************"
+echo "Globo run freed nodes at "; date
+echo "*******************"
+echo " "
+echo "Globo run finished" > $FILE_FLAG_MODEL_RUN_FINISH
+echo " "
+
+globo_mpirun_exit=$ERR_mpiexe
+echo "Globo mpirun exit = $globo_mpirun_exit"
+echo " "
+if [ $globo_mpirun_exit != 0 ]; then
+  sleep 5m
+  echo "globo mpirun exit = $globo_mpirun_exit" > $FILE_FLAG_MODEL_RUN_ERROR
+fi
+
+wait
+
+# For case of mhf output:
+export DH_NEXT_FORECAST
+export DIR_MHF=$DIROUTPUT_MHF
+export DIR_MHF_SOIL
+if [ $DHOUTPUT_MHF -gt 0 ]; then
+  echo " ------------------------"
+  ./cp_mhf_soil.script
+  echo " ------------------------"
+fi
+
+# Cleaning of input files
+
+DIRMODINP=$DIR_WORK
+NFILEINP=1
+
+###FLINPUTM="${DIRMODINP}/model_param_constant.bin"
+###COM="rm $FLINPUTM"; echo $COM; $COM
+
+FLINPUTM="${DIRMODINP}/model_param_constant_zoom.bin"
+COM="rm -f $FLINPUTM"; echo $COM; $COM
+
+echo " "
+IFILE=1
+while [ $IFILE -le $NFILEINP ]; do
+  AIFILE=`printf '%02d\n' $IFILE`
+  FLINPUTM="${DIRMODINP}/input_atm_${AIFILE}.mhf"
+  COM="rm -f $FLINPUTM"; echo $COM; $COM
+  FLINPUTM="${DIRMODINP}/input_soil_${AIFILE}.mhf"
+  COM="rm -f $FLINPUTM"; echo $COM; $COM
+  IFILE=$(($IFILE+1))
+done
+
+rm -f ${DIR_WORK}/${MODEL_LOWER}_*.shf
+rm -f ${DIR_WORK}/${MODEL_LOWER}_atm_*.mhf
+rm -f ${DIR_WORK}/${MODEL_LOWER}_soil_*.mhf
+rm -f ${DIR_WORK}/${MODEL_LOWER}_zoom_atm_*.mhf
+rm -f ${DIR_WORK}/${MODEL_LOWER}_zoom_soil_*.mhf
+#rm -f ${DIR_WORK}/bolam*.rf
+
+echo " "
+echo "*******************"
+echo "Globo run finished at"
+date
+echo "*******************"

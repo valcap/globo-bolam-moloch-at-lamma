@@ -1,0 +1,179 @@
+#! /bin/bash
+
+# Variables exported from ../../moloch_forecast_chain.script
+#NNODE=8
+#NPROC_NODE=16
+#INIDATE="2019120303"
+#DH_NEXT_FORECAST=24
+#HRUN=45
+#DHINPUT=1
+#DHOUTPUT=3
+#DHOUTPUT_SHF=1
+#DHOUTPUT_MAIN_FULL_RES=24
+#DIROUTPUT_MHF="/data/oper/moloch/mhf"
+#DIR_MHF_SOIL="/data/oper/moloch/mhf_soil_copy"
+#DIROUTPUT_SHF="/data/oper/moloch/shf"
+#HOUR_LIMIT=6
+#MODEL_LOWER="moloch"
+#FILE_FLAG_MODEL_RUN_FINISH="../../moloch_run_finish.txt"
+#FILE_FLAG_MODEL_RUN_ERROR="../../moloch_run_error.txt"
+
+DIR_EXE="../executable_model"
+
+DIR_WORK=`pwd`
+DIR_MODEL_OUTPUT=$DIR_WORK # directory/file systme where model directly outputs
+
+echo "*******************"
+echo "Moloch run starts at"
+date
+echo "*******************"
+
+# Cleaning of output
+
+rm -f $FILE_FLAG_MODEL_RUN_FINISH $FILE_FLAG_MODEL_RUN_ERROR
+rm -f $DIR_WORK/${MODEL_LOWER}_atm_*.mhf
+rm -f $DIR_WORK/${MODEL_LOWER}_soil_*.mhf
+rm -f $DIR_WORK/${MODEL_LOWER}_*.shf
+rm -f $DIR_WORK/${MODEL_LOWER}_full_res_soil_*.mhf*
+#rm -f $DIR_WORK/${MODEL_LOWER}.rf
+rm -f exit_codes.txt
+
+# Move mhf and shf output (separated files for each instant)
+
+export INIDATE
+export HRUN
+export HRESTART=0
+export DHOUTPUT_MHF=$DHOUTPUT
+export DHOUTPUT_SHF
+export HOUR_LIMIT
+export DIROUTPUT_MHF
+export DIROUTPUT_SHF
+export FILE_FLAG_MODEL_RUN_ERROR
+export MODEL_LOWER
+export DIR_MODEL_OUTPUT
+
+if [ $DHOUTPUT -gt 0 ]; then
+  ./mv_mhf.script &
+fi
+
+if [ $DHOUTPUT_SHF -gt 0 ]; then
+  ./mv_shf.script &
+fi
+
+# For the case of mhf writing with not full (half) resolution:
+
+if [ $DHOUTPUT_MAIN_FULL_RES -gt 0 ]; then
+  echo " "
+  COM="ln -sf ${DIROUTPUT_MHF}/model_param_constant.bin ./model_param_constant_not_full_res.bin"; echo $COM; $COM
+  echo " "
+fi
+
+# Model run
+
+NPROC=$(($NNODE*$NPROC_NODE))
+
+echo "*******************"
+echo "      Model Moloch runs on $NPROC processors"
+echo "  "
+
+# ------ LAUNCH ------
+
+# gfortran, openmpi --->
+#export OMPI_FC=gfortran
+#echo "mpirun -np $NPROC --hostfile processors_list ${DIR_EXE}/moloch"
+#echo "*******************"
+#echo " "
+#mpirun -np $NPROC --hostfile processors_list ${DIR_EXE}/moloch
+# <---
+
+# itel mpi, ifort --->
+export OMPI_FC=ifort
+echo "mpirun -machinefile processors_list -bysocket -bind-to-socket -n $NPROC ${DIR_EXE}/moloch"
+echo "*******************"
+echo " "
+mpirun -machinefile processors_list -bysocket -bind-to-socket -n $NPROC ${DIR_EXE}/moloch
+# <---
+
+ERR_mpiexe=$?
+echo "mpirun exit code ${ERR_mpiexe}"
+
+echo " "
+
+echo "*******************"
+echo "Moloch run freed nodes at "; date
+echo "*******************"
+echo " "
+echo "Moloch run finished" > $FILE_FLAG_MODEL_RUN_FINISH
+echo " "
+
+ERR=0
+ERR=`expr $ERR "+" $ERR_mpiexe`
+
+echo " "
+mpirun_exit=$ERR
+echo "${MODEL_LOWER} mpirun exit = $mpirun_exit"
+echo " "
+if [ $mpirun_exit != 0 ]; then
+  sleep 5m
+  echo "${MODEL_LOWER} mpirun exit = $mpirun_exit" > $FILE_FLAG_MODEL_RUN_ERROR
+fi
+
+wait
+
+# Copy of mhf_soil (case of full mhf resolution) or
+# moving of mhf_soil_full_res (case of half mhf resolution)
+
+export INIDATE
+export HRUN
+export DHOUTPUT_MHF=$DHOUTPUT
+export DIR_WORK
+export DIR_MHF=$DIROUTPUT_MHF
+export DIR_MHF_SOIL
+export MODEL_LOWER
+export DH_NEXT_FORECAST
+echo " ---------------------"
+if [ $DHOUTPUT_MAIN_FULL_RES -gt 0 ]; then
+  ./mv_mhf_soil_full.script
+else
+  if [ $DHOUTPUT -gt 0 ]; then
+    ./cp_mhf_soil.script
+  fi
+fi
+echo " ---------------------"
+
+# Cleaning of linked input files
+
+NFILEINP=$(($HRUN/$DHINPUT)); NFILEINP=$(($NFILEINP+1))
+
+###FLINPUTM="./model_param_constant.bin"
+###COM="rm $FLINPUTM"; echo $COM; $COM
+
+echo " "
+IFILE=1
+while [ $IFILE -le $NFILEINP ]
+do
+  AIFILE=`printf '%02d\n' $IFILE`
+  FLINPUTM1="./input_atm_${AIFILE}.mhf"
+  FLINPUTM2="./input_soil_${AIFILE}.mhf"
+  COM="rm $FLINPUTM1 $FLINPUTM2"; echo $COM; $COM
+  IFILE=$(($IFILE+1))
+done
+
+# For the case of mhf writing with not full (half) resolution:
+
+if [ $DHOUTPUT_MAIN_FULL_RES -gt 0 ]; then
+  echo " "
+  COM="rm -f ./model_param_constant_not_full_res.bin"; echo $COM; $COM
+fi
+
+# mhf and shf output must be moved by mv_mhf.script and mv_shf.script
+# it is control purging:
+rm -f $DIR_WORK/${MODEL_LOWER}_atm_*.mhf
+rm -f $DIR_WORK/${MODEL_LOWER}_soil_*.mhf
+rm -f $DIR_WORK/${MODEL_LOWER}_*.shf
+
+echo " "
+echo "*******************"
+echo "Moloch run finished at"
+date
+echo "*******************"

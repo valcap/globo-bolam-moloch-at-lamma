@@ -1,0 +1,203 @@
+#! /bin/bash
+#Exported form ../../globo_forecast_chain.script:
+#INIDATE="2023051500"
+#HRUN=168
+#DH=12
+#HOUR_LIMIT=6
+#DIRINPUT="/home/meteo/meteo/globo/ppf"
+#DIRINPUT_GEO="/home/meteo/meteo/globo/ppf"
+#DIROUTPUT1="/home/meteo/meteo/globo/graph_nh"
+#MODEL_LOWER="globo"
+#FILE_FLAG_MODEL_RUN_ERROR="../../globo_run_error.txt"
+#DIR_ECCODES="${HOME}/eccodes/eccodes_gfortran"
+#DIR_SOURCES_PLGRIBFA="${HOME}/sources/plgribfa"
+
+DIR_EXE="../../executable_plgribfa"
+
+echo "-------------------------------------------------------------"
+
+echo " "
+echo "Start at ";date
+echo " "
+
+FILE_JUMP=1
+HINI=$(($DH*0))
+
+NACCUM=1
+
+DH=$(($DH*$FILE_JUMP))
+DMIN=$(($DH*60))
+DMIN=$(($DMIN*$NACCUM))
+
+MIN_RUN=$(($HRUN*60))
+MIN_INI=$(($HINI*60))
+
+DATE=`echo $INIDATE|cut -c 1-8`
+YEAR=`echo $INIDATE|cut -c 1-4`; MONTH=`echo $INIDATE|cut -c 5-6`; DAY=`echo $INIDATE|cut -c 7-8`
+
+timemax=$(($HOUR_LIMIT*3600))
+time_curr=0
+
+DIROUTPUT="${DIROUTPUT1}/${DATE}"
+
+echo " "
+COM="mkdir -p $DIROUTPUT"; echo $COM; $COM
+echo " "
+
+# Parameters to perform the procedure:
+
+# Full pass name of eccodes package directory (for example: /home/dinamica/eccodes_gfortran/share/eccodes)
+DIR_TABLE="${DIR_ECCODES}/share/eccodes"
+
+# Data files numer
+NINPUTFILE=$(($NACCUM+2))
+
+# Stuction of data file
+FLAG_CONST_FIELD=1 # 1 - first data file contains constant (static) data, 0 - no
+FLAG_STATISTIC=0 # 1 - Statistical elaboration of data file, 0 - no
+FLAG_STATISTIC_MODE=1 # Model of statistical elaboration (value only if FLAG_STATISTIC=1)
+# 1 - accumulation, 2 -average, 3 - maximum, 4 - minimum
+
+# Flag use the Stereographic geo. projection (0/1)
+STEREO=1
+
+# Parameters of stereographic geo. projection: origin latitude and longitude,
+# projection radius, extreem latitude, (default: 90. 0. 1. 15.)'
+STEREO_PAR="-90. 0. 1. -15."
+
+#Graphical devise type: 1 - PostScript color, 2 - Postscript Cairo, 3 - PDF Cairo,
+# 4 - XWIN, 5 - PNG, 6 - PNG Cairo, 7 - JPEG, 8 - GIF
+GRAPH_DEV=6
+
+# Flags for ploting of geographical lines (0/1) :
+# Coast line, State boundaries, Rivers, Administrative boundaries
+GEO_FLAGS="0, 0, 0, 0"
+
+# Relative zoom boundary (in x and in y), for full field plot: 0. 1. 0. 1
+ZOOM="0. 1. 0. 1."
+
+# Flag to define fields graphic presentation parameters: 'y' - automatic (color filling, 1 field in 1 page, automatic definition color palette, color number, interval etc), 'n' - manual
+CONTROL1="n"
+
+# Flag to parameters definition source: 'y' - interactive, 'n' - reading from 'definition.txt' text file
+CONTROL2="n"
+
+# If CONTROL2 equals 'n'; then flag to define: The definition.txt file is valid for all input data files? (y/n)
+CONTROL3="n"
+
+COM="ln -sf definition_instant.txt definition.txt"; echo $COM; $COM
+COM="ln -sf namelist_graf_def_instant namelist_graf_def"; echo $COM; $COM
+
+if [ -s ${DIRINPUT_GEO}/${MODEL_LOWER}_domain_orogr_lsm.grib2 ]
+then
+  COM="ln -sf ${DIRINPUT_GEO}/${MODEL_LOWER}_domain_orogr_lsm.grib2 ./file_grib2_001"; echo $COM; $COM 
+  COM="ln -sf ${DIRINPUT_GEO}/${MODEL_LOWER}_domain_orogr_lsm.grib2 ./file_grib2_002"; echo $COM; $COM 
+else
+  echo "Requested input data file ${DIRINPUT_GEO}/${MODEL_LOWER}_domain_orogr_lsm.grib2 not found"
+  exit
+fi
+
+echo " "
+COM="ln -sf ${DIR_SOURCES_PLGRIBFA}/date_def_fortran.script"; echo $COM; $COM
+COM="ln -sf ${DIR_SOURCES_PLGRIBFA}/MAP_WORLD_FREE"; echo $COM; $COM
+
+echo "-------------------------------------------------------------"
+INST=$INST_INI
+MIN=$MIN_INI
+while [ $MIN -le $MIN_RUN ]
+do
+
+  echo " "
+  IACCUM=1
+  while [ $IACCUM -le $NACCUM ]; do
+    I=$(($IACCUM-1))
+    NNN=$(($I*$DMIN)); MIN1=$(($MIN+$NNN))
+    ND=$(($MIN1/1440))
+    N1=$(($ND*1440)); N2=$(($MIN1-$N1)); NH=$(($N2/60))
+    N3=$(($NH*60)); NM=$(($N2-$N3))
+    AND=`printf '%03d\n' $ND`; ANH=`printf '%02d\n' $NH`; ANM=`printf '%02d\n' $NM`
+    FILE_DATA="${MODEL_LOWER}_${INIDATE}_${AND}${ANH}${ANM}.grib2"
+  
+    while true; do  
+      if [ -s ${DIRINPUT}/${FILE_DATA} ]; then
+        I=$(($IACCUM+2)); ACCUM=`printf '%03d\n' $I` 
+        COM="ln -sf ${DIRINPUT}/${FILE_DATA} ./file_grib2_${ACCUM}"; echo $COM; $COM
+        break
+      else
+        if [ -s $FILE_FLAG_MODEL_RUN_ERROR ]; then
+          echo "Flag-file $FILE_FLAG_MODEL_RUN_ERROR exists and means that ${MODEL_LOWER} model run terminated with error => exit" 
+          rm -f file_grib2_001 file_grib2_002
+          rm -f namelist_graf_def definition.txt
+          exit
+        fi
+        time_curr=$(($time_curr+60))
+        if [ $time_curr -ge $timemax ]; then
+          echo "Execution time exceeded maximum time (${HOUR_LIMIT} h) => exit" 
+          rm -f file_grib2_001 file_grib2_002
+          rm -f namelist_graf_def definition.txt
+          exit
+        fi
+        echo "Requested input data file ${DIRINPUT}/${FILE_DATA} not created yet, sleep 60"
+        sleep 60
+      fi
+    done
+    IACCUM=$(($IACCUM+1))
+  done
+  
+  rm -f file_name_control.txt
+
+${DIR_EXE}/plgribfa << EOF
+$DIR_TABLE
+$NINPUTFILE
+$FLAG_CONST_FIELD $FLAG_STATISTIC $FLAG_STATISTIC_MODE
+$STEREO
+$STEREO_PAR
+$GRAPH_DEV
+$GEO_FLAGS
+$ZOOM
+$CONTROL1
+$CONTROL2
+$CONTROL3
+EOF
+
+# Control of output file names and them moving
+
+  HHH=$(($MIN1/60))
+  HA=`printf '%03d\n' $HHH`
+  IFILE=0
+  while read LINE; do
+    IFILE=$(($IFILE+1))
+    TERM=`echo $LINE | cut -d " " -f 1`
+    MIN2=`expr $TERM "*" 60`
+    ND=$(($MIN2/1440))
+    N1=$(($ND*1440)); N2=$(($MIN2-$N1)); NH=$(($N2/60))
+    N3=$(($NH*60)); NM=$(($N2-$N3))
+    AND=`printf '%03d\n' $ND`; ANH=`printf '%02d\n' $NH`; ANM=`printf '%02d\n' $NM`
+    PAGE=`echo $LINE | cut -d " " -f 2`
+    PAGE_REM=$PAGE
+    APAGE_REM=`printf '%03d\n' $PAGE_REM`
+    FILE_OUT="plplot_${INIDATE}_${HA}_page_${IFILE}.png"
+    FILE_REM="plplot_${INIDATE}_${AND}${ANH}${ANM}_page${APAGE_REM}.png"
+    COM="mv $FILE_OUT ${DIROUTPUT}/${FILE_REM}"; echo $COM; $COM
+  done < file_name_control.txt
+
+  IACCUM=1
+  while [ $IACCUM -le $NACCUM ]; do
+    I=$(($IACCUM+2)); ACCUM=`printf '%03d\n' $I`
+    rm -f file_grib2_${ACCUM}
+    IACCUM=$(($IACCUM+1))
+  done
+
+  MIN=$(($MIN+$DMIN))
+echo "-------------------------------------------------------------"
+done
+
+rm -f file_grib2_001 file_grib2_002
+
+rm namelist_graf_def definition.txt
+rm -r -f MAP_WORLD_FREE
+rm -f date_def_fortran.script
+
+echo " "
+echo "Finish at ";date
+echo " "

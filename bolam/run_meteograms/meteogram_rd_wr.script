@@ -1,0 +1,95 @@
+#! /bin/bash
+
+# Exported for ../../bolam_forecast_chain.script
+#INIDATE=2020112000
+#HRUN=72
+#DH=3
+#HOUR_LIMIT=6
+#DIR_DATA_INP="/data/oper/bolam_globo/meteograms_eu"
+#DIR_DATA_OUT="/data/oper/bolam_globo/meteograms_eu"
+#MODEL_LOWER="bolam"
+#FILE_FLAG_MODEL_RUN_ERROR="../../bolam_run_error.txt"
+#DIR_SOURCES="/home/oper/sources/common"
+
+PARAM_LIST="surf_pmsl surf_t2 surf_rh2 surf_windspeed10 surf_winddir10\
+ surf_prectot surf_precsnow surf_cllcover surf_clmcover surf_clhcover\
+ atm_windspeed atm_winddir"
+
+DIR_WORK="./work"
+
+DATE=$INIDATE
+MIN_RUN=$(($HRUN*60))
+DMIN=$(($DH*60))
+
+timemax=$(($HOUR_LIMIT*3600))
+time_curr=0
+
+for PARAM in $PARAM_LIST
+do
+
+  COM="rm -f ${DIR_WORK}/*"
+
+  MIN=0
+  while [ $MIN -le $MIN_RUN ]
+  do
+
+    NDAY=$(($MIN/1440))
+    I1=$(($NDAY*1440)); I2=$(($MIN-$I1)); NHOUR=$(($I2/60))
+    I3=$(($NHOUR*60)); NMIN=$(($I2-$I3))
+    ANDAY=`printf '%02d\n' $NDAY`; ANHOUR=`printf '%02d\n' $NHOUR`; ANMIN=`printf '%02d\n' $NMIN`
+
+    HOUR=$(($MIN/60))
+    AHOUR=`printf '%03d\n' $HOUR`
+
+    FILE_INP_REM="${MODEL_LOWER}_meteogram_inst_${INIDATE}_${ANDAY}${ANHOUR}${ANMIN}_${PARAM}.dat"
+    FILE_INP_LOC="meteogram_${INIDATE}_${ANDAY}${ANHOUR}${ANMIN}.dat"
+
+    while true
+    do
+      if [ -s ${DIR_DATA_INP}/${FILE_INP_REM} ]; then
+        #sleep 1
+        echo " "
+        COM="ln -sf ${DIR_DATA_INP}/${FILE_INP_REM} ${DIR_WORK}/${FILE_INP_LOC}"; echo $COM; $COM
+        break
+      else
+        if [ -s $FILE_FLAG_MODEL_RUN_ERROR ]; then
+          echo " "
+          echo "Flag-file $FILE_FLAG_MODEL_RUN_ERROR exists and means that ${MODEL_LOWER} model run terminated with error => exit"
+          exit
+        fi
+        time_curr=$(($time_curr+5))
+        if [ $time_curr -ge $timemax ]; then
+          echo " "
+          echo "Execution time exceeded maximum time (${HOUR_LIMIT} h) => exit"
+          exit
+        fi
+        echo "Requested input data file ${DIR_DATA_INP}/${FILE_INP_REM} not created yet, sleep 5"
+        sleep 5
+      fi
+    done
+
+    MIN=$(($MIN+$DMIN))
+
+  done
+
+  cd $DIR_WORK
+
+  export DIR_METEOGRAMS=`pwd`
+  export INIDATE
+
+  echo " "
+  COM="python ${DIR_SOURCES}/meteogram_rd_wr.py"; echo $COM; $COM
+  echo " "
+
+  for FILE_OUT_LOC in `ls meteogram_${INIDATE}_point_*.dat` 
+  do
+    POINT=`echo $FILE_OUT_LOC | cut -d "_" -f 4`
+    POINT=`echo $POINT | cut -d "." -f 1`
+    FILE_OUT_REM="${MODEL_LOWER}_meteogram_${INIDATE}_point_${POINT}_${PARAM}.dat"
+    COM="mv $FILE_OUT_LOC ${DIR_DATA_OUT}/${FILE_OUT_REM}"; echo $COM; $COM
+  done
+
+  cd -
+  COM="rm -f ${DIR_WORK}/*"; echo $COM; $COM
+
+done

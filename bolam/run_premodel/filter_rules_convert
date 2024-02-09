@@ -1,0 +1,6 @@
+if( localDefinitionNumber == 17 )
+{
+  set localDefinitionNumber = 1;
+}
+set editionNumber = 2;
+write;

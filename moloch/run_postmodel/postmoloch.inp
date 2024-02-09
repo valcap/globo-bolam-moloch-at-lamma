@@ -1,0 +1,155 @@
+ &POSTP
+ NJUMP=3, ZCBOT=0., ZCTOP=12500., NLIVZ=90, NCROSSEC=.F.,
+ OUTPUT_FORMAT_PPF=.F., OUTPUT_FORMAT_GRIB2=.T.,
+ LONCR(1:3) = 50, 100, 150, ! Caution: LONCR and LATCR may be redefined in the program
+ LATCR(1:3) = 50, 100, 150,
+ LONINI_CROSS =  3.500000, 6.000000,  9.00000, -9999., -9999., -9999., -9999., -9999., -9999., -9999.,
+ LATINI_CROSS =  48.00000, 48.20000, 48.40000, -9999., -9999., -9999., -9999., -9999., -9999., -9999.,
+ LONFIN_CROSS =  17.00000, 18.00000, 19.00000, -9999., -9999., -9999., -9999., -9999., -9999., -9999.,
+ LATFIN_CROSS =  37.50000, 38.50000, 39.50000, -9999., -9999., -9999., -9999., -9999., -9999., -9999.,
+ NPOINT_CROSS = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+ CROSS_INTERP_GAUSS = 1,
+
+!------------------------------------------------------------------------------------------------
+! NJUMP: NJUMP-1 is the number of forecast instants jumped between post-processed instants
+!        (example: if a model run stores fields every 2 hours, but
+!         postprocessing files are needed every 6 hours, set NJUMP=3. Normally NJUMP=1.
+!         Note that NJUMP acts only on forecast instants - if the first field is an
+!         initial condition, it is postprocessed even when NJUMP>1).
+! ZCBOT, ZCTOP: bottom and top z levels (in m) of the cross-sections.
+! NLIVZ: number of z coordinate levels of the cross-sections.
+! NCROSSEC: if TRUE, cross-sections are computed and written in output.
+! OUTPUT_FORMAT_PPF: if true, output is written in ppf format (see subr. wrpost)
+!                    used as input for NCAR Graphics.
+! OUTPUT_FORMAT_GRIB2: if true, the output is written in grib2 format (using externals subroutines).
+! LONCR: I grid point values of the 3 standard N-S cross-sections (redefined in the program if out of boundaries).
+! LATCR: J grid point values of the 3 standard W-E cross-sections (redefined in the program if out of boundaries).
+! LONINI_CROSS, LATINI_CROSS, LONFIN_CROSS, LATFIN_CROSS:
+!        longitude and latitude of initial and final points of "free" cross-sections
+!        defined as arbitrary lines in the lon-lat non-rotated coordinates.
+!        The free cross-sections are directed from west to east.
+!        Values -9999. indicate that the corresponding cross-section is not defined.
+! NPOINT_CROSS: number of points of the "free" cross-sections.
+!        Value 0 (in the case of defined LONINI_CROSS, LONFIN_CROSS, LATINI_CROSS, LATFIN_CROS)
+!        indicates that the number of points is automatically defined so that the horizontal
+!        resolution of the cross-section is approximately equal to dlat of the model grid.
+! CROSS_INTERP_GAUSS : Flag for horizontal interpolation type used to compute free cross-sections:
+!        0 - 2-D spline interpolation with preliminary smoothing of input fields;
+!        1 - Gaussian interpolation.
+!------------------------------------------------------------------------------------------------
+
+! Flags to decide which fields at surface or at single levels are written for output writing
+
+ ISFLAG(01) = 0, ! Orography
+ ISFLAG(02) = 1, ! M.s.l. pressure
+ ISFLAG(03) = 1, ! Total precipitation
+ ISFLAG(04) = 1, ! Snow fall
+ ISFLAG(05) = 1, ! Wind at 10 m
+ ISFLAG(06) = 1, ! Temper. at 2 m
+ ISFLAG(07) = 0, ! Specific hum. at 2 m
+ ISFLAG(08) = 1, ! Relative hum. at 2 m
+ ISFLAG(09) = 1, ! Ground water lev. 1
+ ISFLAG(10) = 1, ! Ground water lev. 3
+ ISFLAG(11) = 1, ! Ground water lev. 5
+ ISFLAG(12) = 1, ! Ground water lev. 7
+ ISFLAG(13) = 1, ! Skin temperature
+ ISFLAG(14) = 1, ! Ground temp. lev. 1
+ ISFLAG(15) = 1, ! Ground temp. lev. 3
+ ISFLAG(16) = 1, ! Ground temp. lev. 5
+ ISFLAG(17) = 1, ! Ground temp. lev. 7
+ ISFLAG(18) = 0, ! Flux of sensible heat
+ ISFLAG(19) = 0, ! Flux of latent heat
+ ISFLAG(20) = 1, ! Temperature at lowest atm. level
+ ISFLAG(21) = 0, ! Equiv. pot. temperature at lowest atm. level
+ ISFLAG(22) = 1, ! Wind at lowest atm. level
+ ISFLAG(23) = 0, ! Spec. hum. at lowest atm. level
+ ISFLAG(24) = 1, ! Total cloud cover
+ ISFLAG(25) = 1, ! High cloud cover
+ ISFLAG(26) = 1, ! Middle cloud cover
+ ISFLAG(27) = 1, ! Low cloud cover
+ ISFLAG(28) = 1, ! Snow cover
+ ISFLAG(29) = 1, ! Run-off
+ ISFLAG(30) = 1, ! CAPE
+ ISFLAG(31) = 0, ! Skin specific humidity
+ ISFLAG(32) = 0, ! Temper at 0.5 m above surface
+ ISFLAG(33) = 0, ! Rel. hum. at 0.5 m above surface
+ ISFLAG(34) = 0, ! Temper. at 0.05 m above surface
+ ISFLAG(35) = 0, ! Ground temp. at 5 cm depth
+ ISFLAG(36) = 0, ! Ground temp. at 10 cm depth
+ ISFLAG(37) = 0, ! Ground temp. at 20 cm depth
+ ISFLAG(38) = 0, ! Ground temp. at 50 cm depth
+ ISFLAG(39) = 0, ! Ground temp. at 100 cm depth
+ ISFLAG(40) = 0, ! Albedo
+ ISFLAG(41) = 0, ! Emissivity (broadband)
+ ISFLAG(42) = 0, ! Emissivity (window)
+ ISFLAG(43) = 1, ! Cumulated short wave radiative flux
+ ISFLAG(44) = 1, ! Cumulated long wave radiative flux
+ ISFLAG(45) = 1, ! Cumulated sensible heat flux
+ ISFLAG(46) = 1, ! Cumulated latent heat flux
+ ISFLAG(47) = 0, ! T min 2 m
+ ISFLAG(48) = 0, ! T max 2 m
+ ISFLAG(49) = 0, ! Wind speed max 10 m
+ ISFLAG(50) = 1, ! Lifted index
+ ISFLAG(51) = 0, ! Sea ice fraction
+ ISFLAG(52) = 0, ! Sea ice thickness
+ ISFLAG(53) = 1, ! Dew point temperature at 2 m
+ ISFLAG(54) = 1, ! Integrated Water Vapour
+ ISFLAG(55) = 0, ! CIN
+ ISFLAG(56) = 0, ! PBL height
+ ISFLAG(57) = 0, ! Wind gust
+ ISFLAG(58) = 1, ! Level of 0 C
+ ISFLAG(59) = 1, ! Snow cover products
+ ISFLAG(60) = 1, ! Lapse rate in lower troposphere
+ ISFLAG(61) = 1, ! Height of snow fall limit (m)
+ ISFLAG(62) = 1, ! Height of snow fall limit (m), fist guess
+ ISFLAG(63) = 0, ! Surface Pressure
+ ISFLAG(64:70) = 0, 0, 0, 0, 0, 0, 0,
+ ISFLAG(71:80) = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+! Flags to decide which fields at which pressure levels are written for output writing;
+! note that the same index is used for u and v (wind)
+
+!                   GPH  T  U,V  Q   RH  W THE CWI/PV
+ IPFLAG0(001:008) =  1,  1,  1,  0,  1,  0,  0,  0, ! 1000 HPA
+ IPFLAG0(009:016) =  1,  1,  1,  0,  1,  0,  1,  0, !  950
+ IPFLAG0(017:024) =  0,  0,  0,  0,  0,  0,  0,  0, !  900
+ IPFLAG0(025:032) =  1,  1,  1,  0,  1,  1,  1,  1, !  850
+ IPFLAG0(033:040) =  0,  0,  0,  0,  0,  0,  0,  0, !  800
+ IPFLAG0(041:048) =  0,  0,  0,  0,  0,  0,  0,  0, !  750
+ IPFLAG0(049:056) =  1,  1,  1,  0,  1,  1,  1,  1, !  700
+ IPFLAG0(057:064) =  0,  0,  0,  0,  0,  0,  0,  0, !  650
+ IPFLAG0(065:072) =  0,  0,  0,  0,  0,  0,  0,  0, !  600
+ IPFLAG0(073:080) =  0,  0,  0,  0,  0,  0,  0,  0, !  550
+ IPFLAG0(081:088) =  1,  1,  1,  0,  1,  1,  0,  1, !  500
+ IPFLAG0(089:096) =  0,  0,  0,  0,  0,  0,  0,  0, !  450
+ IPFLAG0(097:104) =  0,  0,  0,  0,  0,  0,  0,  0, !  400
+ IPFLAG0(105:112) =  0,  0,  0,  0,  0,  0,  0,  0, !  350
+ IPFLAG0(113:120) =  0,  1,  1,  0,  1,  0,  0,  1, !  300
+ IPFLAG0(121:128) =  1,  0,  1,  0,  0,  0,  0,  0, !  250
+ IPFLAG0(129:136) =  0,  0,  0,  0,  0,  0,  0,  0, !  200
+ IPFLAG0(137:144) =  0,  0,  0,  0,  0,  0,  0,  0, !  150
+ IPFLAG0(145:152) =  0,  0,  0,  0,  0,  0,  0,  0, !  100 
+ IPFLAG0(153:160) =  0,  0,  0,  0,  0,  0,  0,  0, !   50
+
+ IZFLAG(01) = 0, !   500 M
+ IZFLAG(02) = 0, !  1000
+ IZFLAG(03) = 0, !  1500
+ IZFLAG(04) = 0, !  2000
+ IZFLAG(05) = 0, !  2500
+ IZFLAG(06) = 0, !  3000
+ IZFLAG(07) = 0, !  3500
+ IZFLAG(08) = 0, !  4000
+ IZFLAG(09) = 0, !  4500
+ IZFLAG(10) = 0, !  5000
+ IZFLAG(11) = 0, !  5500
+ IZFLAG(12) = 0, !  6000
+ IZFLAG(13) = 0, !  6500
+ IZFLAG(14) = 0, !  7000
+ IZFLAG(15) = 0, !  7500
+ IZFLAG(16) = 0, !  8000
+ IZFLAG(17) = 0, !  8500
+ IZFLAG(18) = 0, !  9000
+ IZFLAG(19) = 0, !  9500
+ IZFLAG(20) = 0, ! 10000
+
+ &END

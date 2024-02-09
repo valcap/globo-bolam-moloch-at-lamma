@@ -1,0 +1,64 @@
+&PARAM_PREMOLOCH
+ INPUT_FORMAT="MHFB", INPUT_FILE_STD=2,
+ NLON=1154, NLAT=1154, NLEV=60,
+ DLON=0.0113, DLAT=0.0114,
+ X0=365.50, Y0= 43.50,
+ ALON0= -5.1, ALAT0= -8.1, A0=0.5, B0= 0.5,
+ SOIL_LEV0=  0.05, 0.13, 0.32, 0.69, 1.30, 2.21, 3.48, 5.17, 7.34, 10.05, 13.36, 17.33, 22.02,
+ -9999., -9999., -9999., -9999., -9999., -9999., -9999.,
+ NLEV_ATM_INP_MAX=200, NLEV_SOIL_INP_MAX=15,
+ INST_START=1, INST_STOP=0,
+ NLEV_ATM_INP_MAX=200, NLEV_SOIL_INP_MAX=20
+&END
+
+! ------  MODEL GRID PARAMETERS ------
+
+! NLON, NLAT, NLEV: dimensions of the Moloch grid
+! NLEVG: number of Moloch soil levels
+! DLON, DLAT: Moloch grid resolution in degrees
+! X0, Y0: geographical coordinates in deg of the centre of rotation (point "T" of the Arakawa grid)
+! For non rotated grid, define X0=Y0=0.
+! If X0<-180 or X0>360 or Y0<-90 or Y0>90, then X0 and Y0 are redefined equal to input values.
+! ALON0, ALAT0: rotated coord. in deg of the SW corner (point "V") of the model grid.
+! B0: stretching parameter (0.2 > B0 <=1), defining the Moloch hybrid vertical coordinate:
+! reducing B0 from 1. decreases the height of the lowest model level above the surface.
+! In case of non rotated grid, ALON0, ALAT0 must define the true coordinates of the SW corner
+! and DLON should be set to DLAT/COS(ALAT0) where ALAT0 is a mean latitude of the model grid.
+! SLT(10): thickness of soil layers (m).
+! If any SLT(:)<0., then NLEVG and SLT() are redefined equal to input values.
+
+! ------  PROCEDURE EXECUTION PARAMETERS ------
+
+! INST_START: progressive number of the first instant in input data
+! that will be used as initial condition for Moloch.
+! INST_START is equal 1 usually, it may be grater then 1 in the case of mhfb or mhfm input data
+! with input_file_std equl 1 (see below).
+! INST_STOP: progressive number of the last instant in input data.
+! that will be used as last lateral boundary condition for Moloch.
+! Note: in the case of launching premoloch for single input data file (operative mode)
+! recommend to use INST_START=1 and INST_STOP=0for the fist input data file
+! when all surface parameters must be defined,
+! and to use INST_START=1 and INST_STOP=0for other input data file
+! when no surface parameters must be defined.
+
+!------  PARAMETERS OF THE INPUT DATA GRID  ----------
+
+!INPUT_FORMAT:      'grib2' for NOAA-GFS, ECMWF-IFS, COSMO input data;
+!                   'mhfb' for Bolam or Globo (CNR-ISAC) models input data;
+!                   'mhfm' for Moloch (CNR-ISAC) modelsinput data.
+!INPUT_FILE_STD:    used for INPUT_FORMAT='mhfb' or INPUT_FORMAT='mhfm', denotes type of the input data:
+!                   1 - united file (all instants in the same file),
+!                   2 - separated files (one file for each instant).
+!
+!                   If INPUT_FORMAT equal 'grib2', then input files must be named: grib_001, grib_002, grib_003, ...
+!                   If INPUT_FORMAT equal 'mhfb' and INPUT_FILE_STD equal 1, then
+!                   the input file must be named mhfb.
+!                   If INPUT_FORMAT equal 'mhfb' and INPUT_FILE_STD equal 2, then
+!                   input files must be named mhfb_001, mhfb_002, mhfb_003,...
+!                   If INPUT_FORMAT equal 'mhfm' and INPUT_FILE_STD equal 1, then
+!                   the input file must be named mhfm.
+!                   If INPUT_FORMAT equal 'mhfm' and INPUT_FILE_STD equal 2, then
+!                   input files must be named mhfm_001, mhfm_002, mhfm_003,...
+!
+!NLEV_ATM_INP_MAX:  Max. possible number of atmospheric levels of the input data.
+!NLEV_SOIL_INP_MAX: Max. possible number of soil levels of the input data.

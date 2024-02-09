@@ -1,0 +1,7 @@
+if ( 
+( typeOfFirstFixedSurface == 100 ) # all parameters at all isobaric levels
+|| ( typeOfFirstFixedSurface == 1 ) # all parameters at surface
+|| ( typeOfFirstFixedSurface == 101 ) # all parameters at mean sea level
+|| ( typeOfFirstFixedSurface == 103 ) # all parameters at all specified height levels above ground
+|| ( typeOfFirstFixedSurface == 106 && scaledValueOfFirstFixedSurface == 50 && scaleFactorOfFirstFixedSurface == 3 ) # all parameters at 0.05 m below land surfac
+) {write;}

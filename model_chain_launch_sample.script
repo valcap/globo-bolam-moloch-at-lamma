@@ -1,0 +1,366 @@
+#! /bin/bash
+# ------------------------------------------------------
+#      Main script for ISAC NWP managing
+# ------------------------------------------------------
+
+# There are 2 modes: auto and manual
+# Before launching this script, you must export the variable MODE:
+# export MODE="auto" or export MODE="manual"
+
+# Mode "auto": automatic execution of operational application with analysis/forecast global model data
+# (for initial and boundary condition of Bolam model) for the current date,
+# you must export the variable H0 - initial instant (hour):
+# export H0=0 
+
+# Mode "manual": execution for case-studies, tests etc. -  in this case
+# you must set the application parameters in ./model_chain_manual_launch_params.script
+
+# ------------------------------------------------------
+# Compilation
+
+make
+
+# ------------------------------------------------------
+
+echo " "
+if [ ! -n "$MODE" ]; then
+echo "Not defined variable MODE ---> exit"; exit
+else
+if [ $MODE != "auto" ] && [ $MODE != "manual" ]; then
+echo "Defined variable MODE=${MODE} not equal to auto or manual ---> exit"; exit
+fi
+fi
+echo " "
+
+# ------------------------------------------------------
+
+if [ $MODE == "auto" ]; then
+
+DATE=`date -u +%Y%m%d`
+
+# ---- Bolam ----
+
+export FLAG_BOLAM=1                     # Model chain basic flag
+
+export FLAG_BOLAM_PREMODEL=1            # Preprocessing flag
+export FLAG_BOLAM_MODEL=1               # Model run flag
+export FLAG_BOLAM_POSTMODEL=1           # Postprocessing flag
+export FLAG_BOLAM_POST_SHF=1            # Flag for conversation of shf output in grib2 format
+export FLAG_BOLAM_METEOGRAMS=1          # Meteograms creation flag, python is required
+export FLAG_BOLAM_PLGRIBFA=0            # Graphic output (forecast charts) with Plgribfa SW, Plplot is required
+export FLAG_BOLAM_FILE_CLEANIG=1        # Flag for input, output files managing and cleaning
+
+# ---- Moloch ----
+
+export FLAG_MOLOCH=1                    # Model chain basic flag
+
+export FLAG_MOLOCH_PREMODEL=1           # Preprocessing flag
+export FLAG_MOLOCH_MODEL=1              # Model run flag
+export FLAG_MOLOCH_POSTMODEL=1          # Postprocessing flag
+export FLAG_MOLOCH_POST_SHF=1           # Flag for conversation of shf output in grib2 format
+export FLAG_MOLOCH_METEOGRAMS=1         # Meteograms creation flag, python is re quire
+export FLAG_MOLOCH_PLGRIBFA=0           # Graphic output (forecast charts) with Plgribfa SW, Plplot is required
+export FLAG_MOLOCH_FILE_CLEANIG=1       # Flag for input, output files managing and cleaning
+
+# ---- Globo ----
+
+export FLAG_GLOBO=0                     # Model chain basic flag
+
+export FLAG_GLOBO_PREMODEL=0            # Preprocessing flag
+export FLAG_GLOBO_MODEL=0               # Model run flag
+export FLAG_GLOBO_POSTMODEL=0           # Postprocessing flag
+export FLAG_GLOBO_POSTMODEL_ZOOM=0      # Flag of postprocessing with mhf on zoon mhf domain
+export FLAG_GLOBO_POST_SHF=0            # Flag for conversation of shf output in grib2 format
+export FLAG_GLOBO_METEOGRAMS=0          # Meteograms creation flag, python is re quire
+export FLAG_GLOBO_PLGRIBFA=0            # Graphic output (forecast charts) with Plgribfa SW, Plplot is required
+export FLAG_GLOBO_FILE_CLEANIG=0
+
+elif [ $MODE == "manual" ]; then
+
+. ./model_chain_manual_launch_params.script
+
+fi
+
+# Hour of analysis data:
+H0=0
+
+# Model that creates input data for Bolam
+export GLOBAL_MODEL="IFS" # You may choose: IFS, GFS or GLOBO 
+GLOBAL_MODEL_LOWER=`echo ${GLOBAL_MODEL} | tr [:upper:] [:lower:]`
+# Attention: there are scripts for the case of using of GFS (NCEP, USA),
+# IFS (ECWNF) and Globo (CNR-ISAC) model only
+
+# Model that creates input data for Moloch
+export INPUT_MODEL_MOLOCH="BOLAM" # You may choose: BOLAM or IFS
+# Attention: there are scripts for the case of Bolam (CNR-ISAC) model,
+# and IFS (ECWNF) model only
+
+# Global analysis model for initial data creation for Globo:
+export ANALYSIS_MODEL=GFS # You may choose: IFS or GFS
+ANALYSIS_MODEL_LOWER=`echo ${ANALYSIS_MODEL} | tr [:upper:] [:lower:]`
+
+echo " "
+echo "Current date and time ";date
+echo " "
+echo "NWP forecast chain launched in ${MODE} mode, date ${DATE}, at ${H0} UTC"
+echo " "
+
+# Interval (hours) between 2 forecast (for example, if the forecast performes
+# each day at 0 UTC, then this interval is 24 hours), used in preprocessing of all model
+# to define of forecast soil data file created by a previous forecast run
+export DH_NEXT_FORECAST=24
+
+export DIR_START=`pwd`
+
+export DIR_LOG="${DIR_START}/log/current" # Complete path to logs directory
+
+DIR_ARCHIVE="${HOME}/data" # Root of complete path of dircetory with data storage (local use)
+
+export DIR_GEO_DATA="/data/geo_dataset" # Directory with orography, soil, vegetation etc. dataset
+export DIR_SST_DATA="${DIR_ARCHIVE}/sst" # Directory with SST daily data (it may be empty)
+
+export DIR_ECCODES="${HOME}/eccodes/eccodes_gfortran" # Path to eccodes tools directory
+export DIR_SOURCES_COMMON="${DIR_START}/sources/common" # Path to common codes directory for meteogram
+export DIR_SOURCES_PLGRIBFA="${DIR_START}/sources/plgribfa" # Path to Plgribfa codes directory for graphics
+
+# ---- Definition of setup parameters for all operational models ----
+
+DATE=`printf '%08d\n' $DATE`
+H0=`printf '%02d\n' $H0`
+
+# ---- Bolam ---- 
+
+# The following two parameters must be in according with parameters NPROCX and NPROCY
+# in ./install.script and with parameters in ./bolam/run_model/processors_list or 
+# in ./bolam/run_model/bolam_run.script
+export NNODE_BOLAM=4           # Number of used nodes for mpi application
+export NPROC_NODE_BOLAM=16     # Number of processors in a signle used node
+
+export DH_START_BOLAM=0                 # Only for the case of input data created by Globo model
+export INIDATE_BOLAM="${DATE}${H0}"
+export HRUN_BOLAM=IRUNTERM_BOLAM
+export DHINPUT_BOLAM=IDHBOUND_BOLAM
+export DHOUTPUT_BOLAM_MAIN=IDHOUTPUT_MAIN_BOLAM
+export NJUMP_BOLAM_MAIN=3
+export DHOUTPUT_BOLAM_ADD=IDHOUTPUT_ADD_BOLAM
+export NJUMP_BOLAM_ADD=1
+
+export HOUR_LIMIT_PRE_BOLAM=3
+export HOUR_LIMIT_BOLAM=3
+export HOUR_LIMIT_POST_BOLAM=3
+
+DIR_ARCHIVE_BOLAM="${DIR_ARCHIVE}/bolam"
+export DIR_INPUT_DATA_BOLAM="${DIR_ARCHIVE}/${GLOBAL_MODEL_LOWER}/bolam"
+export DIR_PREMODEL_DATA_BOLAM="${DIR_ARCHIVE_BOLAM}/premodel"
+export DIR_MODEL_DATA_MHF_BOLAM="${DIR_ARCHIVE_BOLAM}/mhf"
+export DIR_MODEL_DATA_MHF_SOIL_COPY_BOLAM="${DIR_ARCHIVE_BOLAM}/mhf_soil_copy"
+export DIR_MODEL_DATA_SHF_BOLAM="${DIR_ARCHIVE_BOLAM}/shf"
+export DIR_POSTMODEL_DATA_GRIB2_BOLAM="${DIR_ARCHIVE_BOLAM}/ppf_grib2"
+export DIR_POSTMODEL_DATA_GRIB2_CROSS_BOLAM="${DIR_ARCHIVE_BOLAM}/ppf_cross_grib2"
+export DIR_POSTMODEL_SHF_DATA_GRIB2_BOLAM="${DIR_ARCHIVE_BOLAM}/shf_grib2"
+export DIR_METEOGRAMS_BOLAM="${DIR_ARCHIVE_BOLAM}/meteograms"
+export DIR_GRAPH_BOLAM="${DIR_ARCHIVE_BOLAM}/graph"
+
+export FILE_FLAG_BOLAM_RUN_FINISH="${DIR_START}/bolam_run_finish.txt"
+export FILE_FLAG_BOLAM_RUN_ERROR="${DIR_START}/bolam_run_error.txt"
+export FILE_FLAG_PREBOLAM_FINISH="${DIR_START}/prebolam_finish.txt"
+
+# ---- Moloch ----
+
+# The following two parameters must be in according with parameters NPROCX and NPROCY
+# in ./install.script and with parameters in ./moloch/run_model/processors_list or 
+# in ./moloch/run_model/moloch_run.script
+export NNODE_MOLOCH=4          # Number of used nodes for mpi application
+export NPROC_NODE_MOLOCH=16    # Number of processors in a signle used node
+
+export DH_START_MOLOCH=3       # Only for the case of input data created by Bolam model
+export INIDATE_MOLOCH=`date -u --date="$DATE $H0 ${DH_START_MOLOCH}hour" +%Y%m%d%H`
+export HRUN_MOLOCH=IRUNTERM_MOLOCH
+export DHINPUT_MOLOCH=IDHBOUND_MOLOCH
+export DHOUTPUT_MOLOCH_MAIN=IDHOUTPUT_MAIN_MOLOCH
+export NJUMP_MOLOCH_MAIN=1
+export DHOUTPUT_MOLOCH_ADD=IDHOUTPUT_ADD_MOLOCH
+export NJUMP_MOLOCH_ADD=1
+export DHOUTPUT_MOLOCH_MAIN_FULL_RES=IDHOUTPUT_MAIN_FULL_RES_MOLOCH
+
+export HOUR_LIMIT_PRE_MOLOCH=6
+export HOUR_LIMIT_MOLOCH=4
+export HOUR_LIMIT_POST_MOLOCH=6
+
+DIR_ARCHIVE_MOLOCH="${DIR_ARCHIVE}/moloch"
+export DIR_INPUT_DATA_MOLOCH="${DIR_MODEL_DATA_MHF_BOLAM}"
+export DIR_INPUT_DATA_CONST_MOLOCH="${DIR_PREMODEL_DATA_BOLAM}"
+###export DIR_INPUT_DATA_MOLOCH="${DIR_ARCHIVE}/${GLOBAL_MODEL_LOWER}/moloch"
+###export DIR_INPUT_DATA_CONST_MOLOCH="${DIR_INPUT_DATA_MOLOCH}"
+export DIR_PREMODEL_DATA_MOLOCH="${DIR_ARCHIVE_MOLOCH}/premodel"
+export DIR_MODEL_DATA_MHF_MOLOCH="${DIR_ARCHIVE_MOLOCH}/mhf"
+export DIR_MODEL_DATA_MHF_SOIL_COPY_MOLOCH="${DIR_ARCHIVE_MOLOCH}/mhf_soil_copy"
+export DIR_MODEL_DATA_SHF_MOLOCH="${DIR_ARCHIVE_MOLOCH}/shf"
+export DIR_POSTMODEL_DATA_GRIB2_MOLOCH="${DIR_ARCHIVE_MOLOCH}/ppf_grib2"
+export DIR_POSTMODEL_SHF_DATA_GRIB2_MOLOCH="${DIR_ARCHIVE_MOLOCH}/shf_grib2"
+export DIR_METEOGRAMS_MOLOCH="${DIR_ARCHIVE_MOLOCH}/meteograms"
+export DIR_GRAPH_MOLOCH="${DIR_ARCHIVE_MOLOCH}/graph"
+
+export FILE_FLAG_MOLOCH_RUN_ERROR="${DIR_START}/moloch_run_error.txt"
+export FILE_FLAG_MOLOCH_RUN_FINISH="${DIR_START}/moloch_run_finish.txt"
+export FILE_FLAG_PREMOLOCH_FINISH="${DIR_START}/premoloch_finish.txt"
+
+# ---- Globo ---- 
+
+# The following two parameters must be in according with parameters NPROCX and NPROCY
+# in ./install.script and with parameters in ./globo/run_model/processors_list or 
+# in ./globo/run_model/globo_run.script
+export NNODE_GLOBO=12          # Number of used nodes for mpi application
+export NPROC_NODE_GLOBO=16     # Number of processors in a signle used node
+
+export INIDATE_GLOBO="${DATE}${H0}"
+export HRUN_GLOBO=IRUNTERM_GLOBO
+export DHOUTPUT_GLOBO_MAIN=IDHOUTPUT_MAIN_GLOBO
+export DHOUTPUT_GLOBO_MAIN_ZOOM=IDHOUTPUT_MAIN_ZOOM_GLOBO
+export DHOUTPUT_GLOBO_ADD=IDHOUTPUT_ADD_GLOBO
+export NJUMP_POST_GLOBO=1
+export NJUMP_POST_GLOBO_ZOOM=3
+export NJUMP_POST_GLOBO_ADD=1
+export NJUMP_GRAPH_GLOBO=1
+export NJUMP_GRAPH_GLOBO_ZOOM=6
+
+export HOUR_LIMIT_PRE_GLOBO=4
+export HOUR_LIMIT_GLOBO=8
+export HOUR_LIMIT_POST_GLOBO=8
+
+DIR_ARCHIVE_GLOBO="${DIR_ARCHIVE}/globo"
+export DIR_INPUT_DATA_GLOBO="${DIR_ARCHIVE}/${ANALYSIS_MODEL_LOWER}/global"
+export DIR_PREMODEL_DATA_GLOBO="${DIR_ARCHIVE_GLOBO}/premodel"
+export DIR_MODEL_DATA_MHF_GLOBO="${DIR_ARCHIVE_GLOBO}/mhf"
+export DIR_MODEL_DATA_MHF_GLOBO_ZOOM="${DIR_ARCHIVE_GLOBO}/mhf_zoom"
+export DIR_MODEL_DATA_MHF_SOIL_COPY_GLOBO="${DIR_ARCHIVE_GLOBO}/mhf_soil_copy"
+export DIR_MODEL_DATA_SHF_GLOBO="${DIR_ARCHIVE_GLOBO}/shf"
+export DIR_MODEL_RESTART_DATA_GLOBO="${DIR_ARCHIVE_GLOBO}/restart"
+export DIR_POSTMODEL_DATA_GRIB2_GLOBO="${DIR_ARCHIVE_GLOBO}/ppf_grib2"
+export DIR_POSTMODEL_DATA_GRIB2_GLOBO_ZOOM="${DIR_ARCHIVE_GLOBO}/ppf_zoom"
+export DIR_POSTMODEL_SHF_DATA_GRIB2_GLOBO="${DIR_ARCHIVE_GLOBO}/shf_grib2"
+export DIR_METEOGRAMS_GLOBO_EU="${DIR_ARCHIVE_GLOBO}/meteograms_eu"
+export DIR_METEOGRAMS_GLOBO_IT="${DIR_ARCHIVE_GLOBO}/meteograms_it"
+export DIR_GRAPHIC_PROD_GLOBO_NH="${DIR_ARCHIVE_GLOBO}/graph_nh"
+export DIR_GRAPHIC_PROD_GLOBO_SH="${DIR_ARCHIVE_GLOBO}/graph_sh"
+export DIR_GRAPHIC_PROD_GLOBO_EU="${DIR_ARCHIVE_GLOBO}/graph_eu"
+export DIR_GRAPHIC_PROD_GLOBO_IT="${DIR_ARCHIVE_GLOBO}/graph_it"
+
+export FILE_FLAG_GLOBO_RUN_FINISH="${DIR_START}/globo_run_finish.txt"
+export FILE_FLAG_GLOBO_RUN_ERROR="${DIR_START}/globo_run_error.txt"
+
+# ----------------------------
+
+# Flag-file that used in the case of GFS or IFS analysis/forecast
+# data for definition of Bolam initial and boundary conditions,
+# this parameter must be defined, the existing of this file indicates
+# that there are problems with input data, and Preprocessing of Bolam
+# do not wait input data and stops:
+export FILE_FLAG_BOLAM_INPUT_DATA_PROBLEM="${DIR_START}/${GLOBAL_MODEL_LOWER}_data_download/${GLOBAL_MODEL_LOWER}_bolam_data_problem.txt"
+
+# Flag-file that used in the case of Globo model ouput for 
+# definition of Bolam initial and boundary conditions,
+# this parameter must be defined:
+export FILE_FLAG_GLOBO_RUN_ERROR="${DIR_START}/globo_run_error.txt"
+
+# ----------------------------
+# Creation of input/output data directions
+
+COM="mkdir -p $DIR_ARCHIVE"; echo $COM; $COM
+
+COM="mkdir -p ${DIR_ARCHIVE_BOLAM}"; echo $COM; $COM
+COM="mkdir -p ${DIR_PREMODEL_DATA_BOLAM}"; echo $COM; $COM
+COM="mkdir -p ${DIR_MODEL_DATA_MHF_BOLAM}"; echo $COM; $COM
+COM="mkdir -p ${DIR_MODEL_DATA_MHF_SOIL_COPY_BOLAM}"; echo $COM; $COM
+COM="mkdir -p ${DIR_MODEL_DATA_SHF_BOLAM}"; echo $COM; $COM
+COM="mkdir -p ${DIR_POSTMODEL_DATA_GRIB2_BOLAM}"; echo $COM; $COM
+COM="mkdir -p ${DIR_POSTMODEL_DATA_GRIB2_CROSS_BOLAM}"; echo $COM; $COM
+COM="mkdir -p ${DIR_POSTMODEL_SHF_DATA_GRIB2_BOLAM}"; echo $COM; $COM
+COM="mkdir -p ${DIR_METEOGRAMS_BOLAM}"; echo $COM; $COM
+COM="mkdir -p ${DIR_GRAPH_BOLAM}"; echo $COM; $COM
+
+COM="mkdir -p ${DIR_ARCHIVE_MOLOCH}"; echo $COM; $COM
+COM="mkdir -p ${DIR_PREMODEL_DATA_MOLOCH}"; echo $COM; $COM
+COM="mkdir -p ${DIR_MODEL_DATA_MHF_MOLOCH}"; echo $COM; $COM
+COM="mkdir -p ${DIR_MODEL_DATA_MHF_SOIL_COPY_MOLOCH}"; echo $COM; $COM
+COM="mkdir -p ${DIR_MODEL_DATA_SHF_MOLOCH}"; echo $COM; $COM
+COM="mkdir -p ${DIR_POSTMODEL_DATA_GRIB2_MOLOCH}"; echo $COM; $COM
+COM="mkdir -p ${DIR_POSTMODEL_SHF_DATA_GRIB2_MOLOCH}"; echo $COM; $COM
+COM="mkdir -p ${DIR_METEOGRAMS_MOLOCH}"; echo $COM; $COM
+COM="mkdir -p ${DIR_GRAPH_MOLOCH}"; echo $COM; $COM
+
+COM="mkdir -p ${DIR_ARCHIVE_GLOBO}"; echo $COM; $COM
+COM="mkdir -p ${DIR_PREMODEL_DATA_GLOBO}"; echo $COM; $COM
+COM="mkdir -p ${DIR_MODEL_DATA_MHF_GLOBO}"; echo $COM; $COM
+COM="mkdir -p ${DIR_MODEL_DATA_MHF_GLOBO_ZOOM}"; echo $COM; $COM
+COM="mkdir -p ${DIR_MODEL_DATA_MHF_SOIL_COPY_GLOBO}"; echo $COM; $COM
+COM="mkdir -p ${DIR_MODEL_DATA_SHF_GLOBO}"; echo $COM; $COM
+COM="mkdir -p ${DIR_MODEL_RESTART_DATA_GLOBO}"; echo $COM; $COM
+COM="mkdir -p ${DIR_POSTMODEL_DATA_GRIB2_GLOBO}"; echo $COM; $COM
+COM="mkdir -p ${DIR_POSTMODEL_DATA_GRIB2_GLOBO_ZOOM}"; echo $COM; $COM
+COM="mkdir -p ${DIR_POSTMODEL_SHF_DATA_GRIB2_GLOBO}"; echo $COM; $COM
+COM="mkdir -p ${DIR_METEOGRAMS_GLOBO_EU}"; echo $COM; $COM
+COM="mkdir -p ${DIR_METEOGRAMS_GLOBO_IT}"; echo $COM; $COM
+COM="mkdir -p ${DIR_GRAPHIC_PROD_GLOBO_NH}"; echo $COM; $COM
+COM="mkdir -p ${DIR_GRAPHIC_PROD_GLOBO_SH}"; echo $COM; $COM
+COM="mkdir -p ${DIR_GRAPHIC_PROD_GLOBO_EU}"; echo $COM; $COM
+COM="mkdir -p ${DIR_GRAPHIC_PROD_GLOBO_IT}"; echo $COM; $COM
+
+# ----------------------------
+
+# ---- Launching models ----
+
+rm -f $FILE_FLAG_BOLAM_RUN_ERROR $FILE_FLAG_BOLAM_RUN_FINISH $FILE_FLAG_PREBOLAM_FINISH
+rm -f $FILE_FLAG_MOLOCH_RUN_ERROR $FILE_FLAG_MOLOCH_RUN_FINISH $FILE_FLAG_PREMOLOCH_FINISH
+rm -f $FILE_FLAG_GLOBO_RUN_ERROR $FILE_FLAG_GLOBO_RUN_FINISH
+
+if [ $MODE == "auto" ]; then
+  rm -f ${DIR_LOG}/stout_*
+fi
+
+# ---- Launching Globo chain ----
+
+if [ $FLAG_GLOBO == 0 ]; then
+  echo "Not launching Globo" > $FILE_FLAG_GLOBO_RUN_FINISH
+fi
+
+if [ $FLAG_GLOBO == 1 ]; then
+  ./globo_forecast_chain.script 1>${DIR_LOG}/stout_globo_forecast_chain 2>&1 &
+fi
+
+# ---- Launching Bolam chain ----
+
+if [ $FLAG_BOLAM == 0 ]; then
+  echo "Not launching Bolam" > $FILE_FLAG_BOLAM_RUN_FINISH
+fi
+
+if [ $FLAG_BOLAM == 1 ]; then
+  if [ $FLAG_GLOBO == 1 ]; then sleep 60; fi
+  ./bolam_forecast_chain.script 1>${DIR_LOG}/stout_bolam_forecast_chain 2>&1 &
+fi
+
+# ---- Launching Moloch chain ----
+
+if [ $FLAG_MOLOCH == 0 ]; then
+  echo "Not launching moloch" > $FILE_FLAG_MOLOCH_RUN_FINISH
+fi
+
+if [ $FLAG_MOLOCH == 1 ]; then
+  if [ $FLAG_BOLAM == 1 ]; then sleep 60; fi
+  ./moloch_forecast_chain.script 1>${DIR_LOG}/stout_moloch_forecast_chain 2>&1 &
+fi
+
+echo " "
+echo "     Waiting of a finish of all launched processes"
+echo " "
+wait          # Waiting for all launched processes                             
+
+if [ $MODE == "auto" ]; then
+
+  COM="cd $DIR_LOG"; echo $COM; $COM
+  COM="mkdir ../${DATE}"; echo $COM; $COM
+  COM="mv ./* ../${DATE}"; echo $COM; $COM
+
+fi
+
+cd $DIR_START

@@ -1,0 +1,9 @@
+#! /bin/bash
+
+#export MODE="manual"
+#export MODE="auto"
+
+#export DATE=`date -u +%Y%m%d`
+#export DATE="20180916"
+
+nohup ./model_chain_launch.script 1>log/current/model_chain_launch_stout 2>&1 &

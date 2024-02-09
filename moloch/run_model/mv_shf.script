@@ -1,0 +1,51 @@
+#! /bin/bash
+
+# Variable exported from ./moloch_run.script
+#INIDATE="2019120303"
+#HRUN=45
+#DHOUTPUT_SHF=1
+#HOUR_LIMIT=4
+#DIR_MODEL_OUTPUT="/scratch/oper/moloch"
+#DIROUTPUT_SHF="/data/oper/moloch/shf"
+#FILE_FLAG_MODEL_RUN_ERROR="../../moloch_run_error.txt"
+#MODEL_LOWER="moloch"
+
+echo " "
+COM="rm -f ${MODEL_LOWER}*.shf.txt"; echo $COM; $COM
+
+NFILE=$(($HRUN/$DHOUTPUT_SHF)); NFILE=$(($NFILE+1))
+
+timemax=$(($HOUR_LIMIT*3600))
+time_curr=0
+
+IFILE=1
+while [ $IFILE -le $NFILE ]
+do
+  AFILE=`printf '%03d\n' $IFILE`
+  FILE_FLAG="${MODEL_LOWER}_${AFILE}.shf.txt"
+  FILE_LOC="${DIR_MODEL_OUTPUT}/${MODEL_LOWER}_${AFILE}.shf"
+  FILE_REM="${DIROUTPUT_SHF}/${MODEL_LOWER}_${INIDATE}_${AFILE}.shf"
+  while true
+  do
+    if [ -s $FILE_LOC ]; then
+      sleep 2
+      echo " "
+      COM="mv $FILE_LOC ${FILE_REM}_work"; echo $COM; $COM
+      COM="mv ${FILE_REM}_work $FILE_REM"; echo $COM; $COM
+      break
+    else
+      if [ -s $FILE_FLAG_MODEL_RUN_ERROR ]; then
+        echo "mv_shf.script: Flag-file $FILE_FLAG_MODEL_RUN_ERROR exists and means that Moloch model run terminated with error => exit" 
+        exit
+      fi
+      time_curr=$(($time_curr+10)) 
+      if [ $time_curr -ge $timemax ]
+      then
+         echo "Execution time exceeded maximum time (${HOUR_LIMIT} h) => exit" 
+         exit
+      fi 
+      sleep 10
+    fi 
+  done
+  IFILE=$(($IFILE+1))
+done

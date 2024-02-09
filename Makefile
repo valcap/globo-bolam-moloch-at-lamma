@@ -1,0 +1,68 @@
+export OMPI_FC= ifort
+
+export USE_MPI = YES
+export USE_RAD_ECMWF = YES
+
+BOLAM = YES
+MOLOCH = YES
+GLOBO = YES
+GRAPHICS_PLGRIBFA = YES
+
+export FC = ifort
+export FC_MPI = mpif90.openmpi
+
+export FCFLAGS = -O2 -g -ip -vec-report0 -W0 -warn none
+###export FCFLAGS = -g -CU -CB -fpe0 -pg # debuger options
+# -pg - profiling (report of routines execution time)
+
+export FCFLAGS_MPI = -Dmpi -g -ip -O2 -vec-report0 -warn none -W0 -I/usr/include/mpi
+
+FCFLAGS += -Doper
+FCFLAGS_MPI += -Doper
+
+export DIR_START = $(shell pwd)
+export DIR_LIB = $(HOME)
+
+export DIR_ECCODES = $(DIR_LIB)/eccodes/eccodes_$(FC)
+
+ifeq ($(USE_RAD_ECMWF),YES)
+  export DIR_RAD = /home/oper/rad_ecmwf/executable_$(FC)
+endif
+
+export DIR_SOURCES_GLOBO = $(DIR_START)/sources/globo
+export DIR_SOURCES_BOLAM = $(DIR_START)/sources/bolam
+export DIR_SOURCES_MOLOCH = $(DIR_START)/sources/moloch
+export DIR_SOURCES_COMMON = $(DIR_START)/sources/common
+
+SUBDIRS =
+
+ifeq ($(BOLAM),YES)
+  SUBDIRS += bolam/executable_premodel bolam/executable_model\
+ bolam/executable_postmodel bolam/executable_convert_shf_to_grib2\
+ bolam/executable_meteograms
+endif
+
+ifeq ($(MOLOCH),YES)
+  SUBDIRS += moloch/executable_premodel moloch/executable_model\
+ moloch/executable_postmodel moloch/executable_convert_shf_to_grib2\
+ moloch/executable_meteograms
+endif
+
+ifeq ($(GLOBO),YES)
+  SUBDIRS += globo/executable_premodel globo/executable_model\
+ globo/executable_postmodel globo/executable_convert_shf_to_grib2\
+ globo/executable_meteograms
+endif
+
+ifeq ($(GRAPHICS_PLGRIBFA),YES)
+  export DIR_PLPLOT = /usr/lib/x86_64-linux-gnu/fortran/modules/plplot
+  export DIR_SOURCES_PLGRIBFA = $(DIR_START)/sources/plgribfa
+  export DIR_ECCODES_GFORTRAN = $(DIR_LIB)/eccodes/eccodes_gfortran
+  SUBDIRS += executable_plgribfa
+endif
+
+all:
+	for subdir in $(SUBDIRS); do cd $$subdir && $(MAKE); cd -; done
+
+clean:
+	for subdir in $(SUBDIRS); do cd $$subdir && $(MAKE) clean; cd -; done

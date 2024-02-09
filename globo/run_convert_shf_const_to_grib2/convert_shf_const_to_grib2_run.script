@@ -1,0 +1,56 @@
+#! /bin/bash
+
+# Variable exported from ../../globo_forecast_chain.script
+#INIDATE="2019120300"
+#HOUR_LIMIT=6
+#DIRINPUT="/data/oper/globo/shf"
+#DIROUTPUT="/data/oper/globo/shf_grib2"
+#MODEL_LOWER="globo"
+#FILE_FLAG_MODEL_RUN_ERROR="../../globo_run_error.txt"
+
+timemax=`expr $HOUR_LIMIT "*" 3600`
+time_curr=0
+
+SHF="${DIRINPUT}/${MODEL_LOWER}_${INIDATE}_const.shf"
+
+while true
+do
+  if [ -s $SHF ]
+  then
+    echo "     Convert ${MODEL_LOWER}_const.shf to grib2"
+
+#    sleep 1
+    sync
+    COM="ln -sf $SHF input.shf"; echo $COM; $COM
+    break
+  else
+    if [ -s $FILE_FLAG_MODEL_RUN_ERROR ]; then
+      echo "Flag-file $FILE_FLAG_MODEL_RUN_ERROR exists and means that ${MODEL_LOWER} model run terminated with error => exit" 
+      exit
+    fi
+    time_curr=`expr $time_curr "+" 5`
+    if [ $time_curr -ge $timemax ]
+    then
+       echo "Execution time exceeded maximum time (${HOUR_LIMIT} h) => exit" 
+       exit
+    fi
+    echo "Convert ${MODEL_LOWER} shf const to grib2: input file ${SHF} not created yet, sleep 5"
+    sleep 5
+  fi
+done
+
+time ../executable_convert_shf_to_grib2/convert_shf_to_grib2
+
+OUTPUTFILE="${MODEL_LOWER}_${INIDATE}_0000000.grib2"
+OUTPUTFILE_REM="${MODEL_LOWER}_${INIDATE}_const.grib2"
+
+if [ -s $OUTPUTFILE ]
+then
+
+  COM="mv $OUTPUTFILE ${DIROUTPUT}/${OUTPUTFILE_REM}"; echo $COM; $COM
+
+else
+  echo "Convert ${MODEL_LOWER} shf const to grib2: output file $OUTPUTFILE not created"
+fi
+
+rm input.shf

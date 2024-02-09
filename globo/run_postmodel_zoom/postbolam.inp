@@ -1,0 +1,193 @@
+ &POSTP
+ NJUMP= 3, NLWAFP=.T., PRTOP=150., ITERF=12, NCROSSEC=.F.,
+ OUTPUT_FORMAT_PPF=.F., OUTPUT_FORMAT_GRIB2=.T.,
+ LONCR1 = 48, LONCR2 = 63, LONCR3 = 78,
+ LATCR1 = 48, LATCR2 = 63, LATCR3 = 78,
+ LONINI_CROSS = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999.,
+ LATINI_CROSS = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999.,
+ LONFIN_CROSS = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999.,
+ LATFIN_CROSS = -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999., -9999.,
+ NPOINT_CROSS = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+ CROSS_INTERP_GAUSS = 0,
+
+!------------------------------------------------------------------------------------------------
+! NJUMP: NJUMP-1 is the number of forecast instants jumped between post-processed instants
+!        (example: if a model run stores fields every 2 hours, but
+!         postprocessing files are needed every 6 hours, set NJUMP=3. Normally NJUMP=1.
+!         Note that NJUMP acts only on forecast instants - if the first field is an
+!         initial condition, it is postprocessed even when NJUMP>1).
+! NLWAFP:if FALSE, OMEGA is computed consistently with eulerian
+!        advection; if TRUE is computed consistently with WAF advection.
+! PRTOP: pressure at cross-sections top, in hPa.
+! ITERF: number of iterations determining the degree of horiz.
+!        smoothing of surface pressure, T and GPH at levels below ground.
+! NCROSSEC: if TRUE, cross-sections are computed and written in output.
+! OUTPUT_FORMAT_PPF: if true, the output is written in ppf format (see subr. wrpost)
+!                    used as input for NCAR Graphics.
+! OUTPUT_FORMAT_GRIB2: if true, output is written in grib2 format (using externals subroutines).
+! LONCR: I grid point values of the 3 standard N-S cross-sections.
+! LATCR: J grid point values of the 3 standard W-E cross-sections.
+! LONINI_CROSS, LATINI_CROSS, LONFIN_CROSS, LATFIN_CROSS:
+!        longitude and latitude of initial and final points of "free" cross-sections
+!        defined as arbitrary lines in the lon-lat non-rotated coordinates.
+!        The free cross-sections are directed from west to east.
+!        Values -9999. indicate that the corresponding cross-section is not defined.
+! NPOINT_CROSS: number of points of the "free" cross-sections.
+!        Value 0 (in the case of defined LONINI_CROSS, LONFIN_CROSS, LATINI_CROSS, LATFIN_CROS)
+!        indicates that the number of points is automatically defined so that the horizontal
+!        resolution of the cross-section is approximately equal to dlat of the model grid.
+! CROSS_INTERP_GAUSS: Flag for horizontal interpolation type used to compute free cross-sections:
+!        0 - 2-D spline interpolation with preliminary smoothing of input fields;
+!        1 - Gaussian interpolation.
+!------------------------------------------------------------------------------------------------
+
+! Flags to decide which fields at surface or at
+! single levels (2-d fields) are written for output writing
+
+ ISFLAG(01) = 0, !  1:  Orography
+ ISFLAG(02) = 1, !  2:  M.s.l. pressure
+ ISFLAG(03) = 1, !  3:  Total precipitation
+ ISFLAG(04) = 1, !  4:  Convective precipitation
+ ISFLAG(05) = 1, !  5:  Snow fall
+ ISFLAG(06) = 1, !  6:  Wind at 10 m
+ ISFLAG(07) = 1, !  7:  Temper. at 2m
+ ISFLAG(08) = 0, !  8:  Specific hum. at 2 m
+ ISFLAG(09) = 1, !  9:  Relative hum. at 2 m
+ ISFLAG(10) = 0, ! 10:  Skin Specific hum.
+ ISFLAG(11) = 1, ! 11:  Skin temperature
+ ISFLAG(12) = 0, ! 12:  Flux of sensible heat
+ ISFLAG(13) = 0, ! 13:  Flux of latent heat
+ ISFLAG(14) = 0, ! 14:  Wind at lowest atm. level
+ ISFLAG(15) = 0, ! 15:  Temper. at lowest atm. level
+ ISFLAG(16) = 0, ! 16:  Spec. hum. at lowest atm. level
+ ISFLAG(17) = 1, ! 17:  Total cloud cover (post proc.)
+ ISFLAG(18) = 1, ! 18:  High clouds
+ ISFLAG(19) = 1, ! 19:  Middle clouds
+ ISFLAG(20) = 1, ! 20:  Low clouds
+ ISFLAG(21) = 0, ! 21:  Total cloud cover (model)
+ ISFLAG(22) = 1, ! 22:  Snow cover
+ ISFLAG(23) = 0, ! 23:  Runoff
+ ISFLAG(24) = 1, ! 24:  CAPE/CIN
+ ISFLAG(25) = 1, ! 25:  Ground water lev. 1
+ ISFLAG(26) = 1, ! 26:  Ground water lev. 3
+ ISFLAG(27) = 1, ! 27:  Ground water lev. 5
+ ISFLAG(28) = 1, ! 28:  Ground water lev. 7
+ ISFLAG(29) = 1, ! 29:  Ground temp. lev. 1
+ ISFLAG(30) = 1, ! 30:  Ground temp. lev. 3
+ ISFLAG(31) = 1, ! 31:  Ground temp. lev. 5
+ ISFLAG(32) = 1, ! 32:  Ground temp. lev. 7
+ ISFLAG(33) = 0, ! 33:  Ground temp. at 5 cm depth
+ ISFLAG(34) = 0, ! 34:  Ground temp. at 10 cm depth
+ ISFLAG(35) = 0, ! 35:  Ground temp. at 20 cm depth
+ ISFLAG(36) = 0, ! 36:  Ground temp. at 50 cm depth
+ ISFLAG(37) = 0, ! 37:  Ground temp. at 100 cm depth
+ ISFLAG(38) = 0, ! 38:  T min. 2m
+ ISFLAG(39) = 0, ! 39:  T max. 2m
+ ISFLAG(40) = 0, ! 40:  Temper. at 0.5 m above surf.
+ ISFLAG(41) = 0, ! 41:  Relative hum. at 0.5 m above surf.
+ ISFLAG(42) = 0, ! 42:  Temper. at 0.05 m above surf.
+ ISFLAG(43) = 0, ! 43:  Cumulated short wave radiative flux
+ ISFLAG(44) = 0, ! 44:  Cumulated long wave radiative flux
+ ISFLAG(45) = 0, ! 45:  Cumulated sensible heat flux
+ ISFLAG(46) = 0, ! 46:  Cumulated latent heat flux
+ ISFLAG(47) = 0, ! 47:  Albedo
+ ISFLAG(48) = 0, ! 48:  Emissivity (broadband)
+ ISFLAG(49) = 0, ! 49:  Emissivity (window)
+ ISFLAG(50) = 1, ! 50:  Lifted index
+ ISFLAG(51) = 1, ! 51:  Level of 0 C
+ ISFLAG(52) = 0, ! 52:  Sea ice fraction
+ ISFLAG(53) = 0, ! 53:  Sea ice thickness (m)
+ ISFLAG(54) = 0, ! 54:  Dew point temperature at 2 m (C)
+ ISFLAG(55) = 0, ! 55:  Integrated Water Vapour (kg/m2)
+ ISFLAG(56) = 0, ! 56:  CIN
+ ISFLAG(57) = 0, ! 57:  PBL height
+ ISFLAG(58) = 0, ! 58:  Wind gust
+ ISFLAG(59) = 1, ! 59:  Average short wave radiative downward flux
+ ISFLAG(60) = 1, ! 60:  Lapse rate in lower troposphere
+ ISFLAG(61) = 0, ! 61:  Surface pressure (Pa)
+ ISFLAG(62:70) = 0, 0, 0, 0, 0, 0, 0, 0, 0,
+ ISFLAG(71:80) = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+! Flags to decide which fields at which pressure levels are written for output writing;
+! note that the same index is used for u and v (wind)
+
+!                   GPH  T  U,V  Q  RH  OM  RV  PV  THE  ?   ?   ?
+ IPFLAG0(001:012) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, ! 1000 HPA
+ IPFLAG0(013:024) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  950
+ IPFLAG0(025:036) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  900
+ IPFLAG0(037:048) =  1,  1,  1,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  850
+ IPFLAG0(049:060) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  800
+ IPFLAG0(061:072) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  750
+ IPFLAG0(073:084) =  1,  1,  1,  0,  1,  0,  0,  0,  0,  0,  0,  0, !  700
+ IPFLAG0(085:096) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  650
+ IPFLAG0(097:108) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  600
+ IPFLAG0(109:120) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  550
+ IPFLAG0(121:132) =  1,  1,  1,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  500
+ IPFLAG0(133:144) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  450
+ IPFLAG0(145:156) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  400
+ IPFLAG0(157:168) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  350
+ IPFLAG0(169:180) =  0,  0,  0,  0,  0,  0,  0,  1,  0,  0,  0,  0, !  300
+ IPFLAG0(181:192) =  1,  0,  1,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  250
+ IPFLAG0(193:204) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  200
+ IPFLAG0(205:216) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  150
+ IPFLAG0(217:228) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !  100 
+ IPFLAG0(229:240) =  1,  0,  1,  0,  0,  0,  0,  0,  0,  0,  0,  0, !   50
+ IPFLAG0(241:252) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(253:264) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(265:276) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(277:288) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(289:300) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(301:312) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(313:324) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(325:336) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(337:348) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(349:360) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(361:372) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(373:384) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(385:396) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(397:408) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(409:420) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(421:432) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(433:444) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(445:456) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(457:468) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(469:480) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(481:492) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(493:504) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(505:516) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(517:528) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(529:540) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(541:552) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(553:564) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(565:576) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(577:588) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+ IPFLAG0(589:600) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, !    ?
+
+! Flag for setting the isentropic levels on which PV is plotted
+
+ ITFLAG(1) = 0, ! 315 K
+ ITFLAG(2) = 0, ! 320 K
+ ITFLAG(3) = 0, ! 325 K
+ ITFLAG(4) = 0, ! 330 K
+
+! Pressure levels in (hPa) of output data
+
+ IPLEVO(1:50) = 1000, 950, 900, 850, 800, 750, 700, 650, 600, 550,
+                 500, 450, 400, 350, 300, 250, 200, 150, 100,  50,
+                -9999, -9999, -9999, -9999, -9999, -9999, -9999, -9999, -9999, -9999
+                -9999, -9999, -9999, -9999, -9999, -9999, -9999, -9999, -9999, -9999
+                -9999, -9999, -9999, -9999, -9999, -9999, -9999, -9999, -9999, -9999,
+
+! Flags to decide which fields at level of the tropopause for output writing;
+! note that the same index is used for u and v (wind)
+
+!                   H   T  U,V  Q  RH  OM  RV  PV  THE  P   ?   ?
+ ITROPFLAG(1:12) =  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+
+! Flags to decide which fields at level of the maximum wind speed for output writing;
+! note that the same index is used for u and v (wind)
+
+!                   H   T  U,V  Q  RH  OM  RV  PV  THE  P   ?   ?
+ IMWFLAG(1:12) =    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+
+ &END

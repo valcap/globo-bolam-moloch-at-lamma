@@ -1,0 +1,60 @@
+#Snow depth
+'128141' = {
+	 table2Version = 128 ;
+	 indicatorOfParameter = 141 ;
+	}
+#Soil type  ()
+'12843' = {
+	 table2Version = 128 ;
+	 indicatorOfParameter = 43 ;
+	}
+#Soil temperature level 1  (K)
+'128139' = {
+	 table2Version = 128 ;
+	 indicatorOfParameter = 139 ;
+	}
+#Soil temperature level 2  (K)
+'128170' = {
+	 table2Version = 128 ;
+	 indicatorOfParameter = 170 ;
+	}
+#Soil temperature level 3  (K)
+'128183' = {
+	 table2Version = 128 ;
+	 indicatorOfParameter = 183 ;
+	}
+#Soil temperature level 4  (K)
+'128236' = {
+	 table2Version = 128 ;
+	 indicatorOfParameter = 236 ;
+	}
+#Volumetric soil water layer 1  (m**3 m**-3)
+'12839' = {
+	 table2Version = 128 ;
+	 indicatorOfParameter = 39 ;
+	}
+#Volumetric soil water layer 2  (m**3 m**-3)
+'12840' = {
+	 table2Version = 128 ;
+	 indicatorOfParameter = 40 ;
+	}
+#Volumetric soil water layer 3  (m**3 m**-3)
+'12841' = {
+	 table2Version = 128 ;
+	 indicatorOfParameter = 41 ;
+	}
+#Volumetric soil water layer 4  (m**3 m**-3)
+'12842' = {
+	 table2Version = 128 ;
+	 indicatorOfParameter = 42 ;
+	}
+#Sea-ice cover  (0 - 1)
+'12831' = {
+	 table2Version = 128 ;
+	 indicatorOfParameter = 31 ;
+	}
+#Ice surface temperature layer 1  (K)
+'12835' = {
+	 table2Version = 128 ;
+	 indicatorOfParameter = 35 ;
+	}

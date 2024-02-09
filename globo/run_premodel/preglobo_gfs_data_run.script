@@ -1,0 +1,187 @@
+# Variables exported from ../../globo_forecast_chain.script
+#ANALYSIS_MODEL="GFS"
+#INIDATE=2023030700
+#DH_PREV_FORECAST=24
+#DIR_INPUT_DATA="/home/meteo/meteo/gfs/global"
+#DIR_MHF_SOIL="/home/meteo/meteo/globo/mhf_soil_copy"
+#DIR_OUTPUT_DATA="/home/meteo/meteo/globo/premodel"
+#DIR_GEO_DATA="/home/meteo/meteo/geo_dataset"
+#HOUR_LIMIT=3
+####DIR_BIN="/home/meteo/eccodes/eccodes_ifort/bin"
+#MODEL_LOWER="globo"
+
+DIR_EXE="../executable_premodel"
+
+HRUN_MHF_SOIL=120
+DIR_MODEL_RUN="../run_model"
+
+echo " "
+echo "Start at ";date
+echo " "
+
+DATA_INPUT="${DIR_INPUT_DATA}/${ANALYSIS_MODEL}_${INIDATE}+000.grib2"
+
+FILE_INP_LOC="input_data.grib2"
+
+OUTPUT_FILE_REM_1="${DIR_OUTPUT_DATA}/${INIDATE}_atm.mhf"
+OUTPUT_FILE_REM_2="${DIR_OUTPUT_DATA}/${INIDATE}_soil.mhf"
+OUTPUT_FILE_LOC_1="input_atm_01.mhf"
+OUTPUT_FILE_LOC_2="input_soil_01.mhf"
+OUTPUT_FILE_CONST="model_param_constant.bin"
+OUTPUT_FILE_CONST2="land_par.bin"
+
+echo " "
+echo "--------------"
+COM="rm -f ${DIR_MODEL_RUN}/${OUTPUT_FILE_LOC_1} ${DIR_MODEL_RUN}/${OUTPUT_FILE_LOC_2}"; echo $COM; $COM
+echo "--------------"
+echo " "
+
+if [ -s $OUTPUT_FILE_REM_1 ] && [ -s $OUTPUT_FILE_REM_2 ]; then
+  echo "Premodel output files exist"
+  COM="ln -sf ${OUTPUT_FILE_REM_1} ${DIR_MODEL_RUN}/${OUTPUT_FILE_LOC_1}"; echo $COM; $COM
+  COM="ln -sf ${OUTPUT_FILE_REM_2} ${DIR_MODEL_RUN}/${OUTPUT_FILE_LOC_2}"; echo $COM; $COM
+  exit
+fi
+
+rm -f input_data.grib2
+echo " "
+
+timemax=$(($HOUR_LIMIT*3600))
+time_curr=0
+
+while true; do
+
+  if [ -s ${DATA_INPUT} ]; then
+
+    COM="ln -sf $DATA_INPUT ${FILE_INP_LOC}"; echo $COM; $COM
+#    COM="${DIR_BIN}/grib_filter -o ${FILE_INP_LOC} filter_rules_par ${DATA_INPUT}"; echo $COM; $COM
+    break
+
+  else
+
+    time_curr=$(($time_curr+60))
+    if [ $time_curr -ge $timemax ]; then
+
+      echo "Execution time exceeded maximum time (${HOUR_LIMIT} h) => exit"
+      echo "Premodel: execution time exceeded maximum time (${HOUR_LIMIT} h) => interruption" > ${DIR_MODEL_RUN}/${OUTPUT_FILE_LOC_1}
+      echo "Premodel: execution time exceeded maximum time (${HOUR_LIMIT} h) => interruption" > ${DIR_MODEL_RUN}/${OUTPUT_FILE_LOC_2}
+      exit
+
+    else
+
+      echo "Wait input data file ${DATA_INPUT}, sleep 1 min"
+      sleep 60
+
+    fi
+
+  fi
+
+done
+
+echo " "
+
+#COM="rm -f data_output.bin"; echo $COM; $COM
+
+# Link geophysical dataset
+
+ln -sf $DIR_GEO_DATA/orogr_global_latlon_1km.bin
+ln -sf $DIR_GEO_DATA/soil_fao_global_latlon_8km.bin
+ln -sf $DIR_GEO_DATA/worldexp.dat
+ln -sf $DIR_GEO_DATA/veget_global_latlon_1km.bin
+ln -sf $DIR_GEO_DATA/vegtype_GLC2000_global_latlon_1km.bin
+ln -sf $DIR_GEO_DATA/ecmwf_glob_0_25_lsm.bin
+ln -sf $DIR_GEO_DATA/ecmwf_ifs_1979_2014_t2_clim.bin
+
+cd $DIR_GEO_DATA
+LIST_FILE1=`ls lai_global_latlon_1km_day*.bin`
+LIST_FILE2=`ls fveg_global_latlon_1km_day*.bin`
+cd -
+for FILE in $LIST_FILE1
+do
+  COM="ln -sf $DIR_GEO_DATA/$FILE"; $COM
+done
+for FILE in $LIST_FILE2
+do
+  COM="ln -sf $DIR_GEO_DATA/$FILE"; $COM
+done
+
+# Link to forecast soil parameter data
+
+if [ $HRUN_MHF_SOIL -lt $DH_PREV_FORECAST ]; then HRUN_MHF_SOIL=$DH_PREV_FORECAST; fi
+HFC=$DH_PREV_FORECAST
+while [ $HFC -le $HRUN_MHF_SOIL ]; do
+  AHFC=`printf '%03d\n' $HFC`
+  FILE_NAME="${MODEL_LOWER}_${INIDATE}_${AHFC}h_soil.mhf"
+#  FILE_NAME="${MODEL_LOWER}_${INIDATE}_${AHFC}h_soil.bin"
+  if [ -s ${DIR_MHF_SOIL}/${FILE_NAME} ]; then
+    echo "--------------"
+    COM="ln -sf ${DIR_MHF_SOIL}/${FILE_NAME} ${MODEL_LOWER}_forecast_soil.mhf"; echo $COM; $COM
+###    COM="ln -sf ${DIR_MHF_SOIL}/${FILE_NAME} ${MODEL_LOWER}_forecast_soil.bin"; echo $COM; $COM
+    echo "--------------"
+    break
+  fi
+  HFC=$(($HFC+$DH_PREV_FORECAST))
+done
+
+#########################
+
+time ${DIR_EXE}/preglobo
+
+#########################
+
+# Clean input files
+
+rm -f orogr_global_latlon_1km.bin soil_fao_global_latlon_8km.bin worldexp.dat veget_global_latlon_1km.bin
+rm -f ecmwf_glob_0_25_lsm.bin ecmwf_ifs_1979_2014_t2_clim.bin
+rm -f vegtype_GLC2000_global_latlon_1km.bin
+rm -f lai_global_latlon_1km_day*.bin
+rm -f fveg_global_latlon_1km_day*.bin
+
+rm -f ${MODEL_LOWER}_forecast_soil.mhf
+
+rm -f ${FILE_INP_LOC}
+
+# Moving and link output files
+
+echo " "
+if [ ! -s $DIR_OUTPUT_DATA/${OUTPUT_FILE_CONST2} ]; then
+  COM="mv $OUTPUT_FILE_CONST2 ${DIR_OUTPUT_DATA}"; echo $COM; $COM
+  COM="ln -sf ${DIR_OUTPUT_DATA}/${OUTPUT_FILE_CONST2}"; echo $COM; $COM
+fi
+
+echo " "
+if [ -s $OUTPUT_FILE_CONST ]; then
+  if [ ! -s $DIR_OUTPUT_DATA/${OUTPUT_FILE_CONST} ]; then
+    COM="mv $OUTPUT_FILE_CONST ${DIR_OUTPUT_DATA}/${OUTPUT_FILE_CONST}_work"; echo $COM; $COM
+    COM="mv $DIR_OUTPUT_DATA/${OUTPUT_FILE_CONST}_work $DIR_OUTPUT_DATA/${OUTPUT_FILE_CONST}"; echo $COM; $COM
+  else
+    COM="rm $OUTPUT_FILE_CONST"; echo $COM; $COM
+  fi
+  COM="ln -sf ${DIR_OUTPUT_DATA}/${OUTPUT_FILE_CONST} ${DIR_MODEL_RUN}"; echo $COM; $COM
+else
+  echo "${OUTPUT_FILE_CONST} not created"
+fi
+
+echo " "
+if [ -s $OUTPUT_FILE_LOC_1 ]; then
+  sync
+  COM="mv ${OUTPUT_FILE_LOC_1} ${OUTPUT_FILE_REM_1}"; echo $COM; $COM
+  sync
+  COM="ln -sf ${OUTPUT_FILE_REM_1} ${DIR_MODEL_RUN}/${OUTPUT_FILE_LOC_1}"; echo $COM; $COM
+else
+  echo "Output file ${OUTPUT_FILE_LOC_1} not created"
+fi
+
+echo " "
+if [ -s $OUTPUT_FILE_LOC_2 ]; then
+  sync
+  COM="mv ${OUTPUT_FILE_LOC_2} ${OUTPUT_FILE_REM_2}"; echo $COM; $COM
+  sync
+  COM="ln -sf ${OUTPUT_FILE_REM_2} ${DIR_MODEL_RUN}/${OUTPUT_FILE_LOC_2}"; echo $COM; $COM
+else
+  echo "Output file ${OUTPUT_FILE_LOC_2} not created"
+fi
+
+echo " "
+echo "Finish at ";date
+echo " "

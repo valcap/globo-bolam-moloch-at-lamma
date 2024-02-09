@@ -1,0 +1,65 @@
+#!/bin/bash
+
+# Script deletes ALL files that have been created by installation,
+# compilation and execution procedures
+
+# Deleting of all compilated modules, object and executable files
+
+make clean
+
+# Deleting of all created *.inp *.inc *.script:
+
+echo " "
+COM="rm -f ./bolam/run_premodel/prebolam.inp"; echo $COM; $COM
+COM="rm -f ./bolam/dimensions.inc"; echo $COM; $COM
+COM="rm -f ./bolam/run_model/bolam.inp"; echo $COM; $COM
+echo " "
+COM="rm -f ./moloch/run_premodel/premoloch.inp"; echo $COM; $COM
+COM="rm -f ./moloch/dimensions.inc"; echo $COM; $COM
+COM="rm -f ./moloch/run_model/moloch.inp"; echo $COM; $COM
+echo " "
+COM="rm -f ./globo/run_premodel/preglobo.inp"; echo $COM; $COM
+COM="rm -f ./globo/dimensions.inc"; echo $COM; $COM
+COM="rm -f ./globo/run_model/globo.inp"; echo $COM; $COM
+COM="rm -f ./globo/run_model/bolam.inp"; echo $COM; $COM
+echo " "
+COM="rm -f ./bolam/run_postmodel/grib_sample.inp"; echo $COM; $COM
+COM="rm -f ./bolam/run_convert_shf_to_grib2/grib_sample.inp"; echo $COM; $COM
+COM="rm -f ./moloch/run_postmodel/grib_sample.inp"; echo $COM; $COM
+COM="rm -f ./moloch/run_convert_shf_to_grib2/grib_sample.inp"; echo $COM; $COM
+COM="rm -f ./globo/run_postmodel/grib_sample.inp"; echo $COM; $COM
+COM="rm -f ./globo/run_postmodel_zoom/grib_sample.inp"; echo $COM; $COM
+COM="rm -f ./globo/run_convert_shf_to_grib2/grib_sample.inp"; echo $COM; $COM
+COM="rm -f ./globo/run_convert_shf_const_to_grib2/grib_sample.inp"; echo $COM; $COM
+echo " "
+COM="rm -f ./grib_sample.inp"; echo $COM; $COM
+COM="rm -f ./model_chain_launch.script"; echo $COM; $COM
+
+# Deleting of all created files with models static (constant) variables and work files:
+
+echo " "
+COM="rm -f ./bolam/run_premodel/land_par.bin"; echo $COM; $COM
+COM="rm -f ./bolam/run_premodel/*.dat"; echo $COM; $COM
+COM="rm -f ./bolam/run_premodel/*.mhf.txt"; echo $COM; $COM
+COM="rm -f ./bolam/run_model/model_param_constant.bin"; echo $COM; $COM
+COM="rm -f ./bolam/run_model/*.mhf.txt"; echo $COM; $COM
+COM="rm -f ./bolam/run_model/*.shf.txt"; echo $COM; $COM
+echo " "
+COM="rm -f ./moloch/run_premodel/land_par.bin"; echo $COM; $COM
+COM="rm -f ./moloch/run_premodel/*.mhf.txt"; echo $COM; $COM
+COM="rm -f ./moloch/run_model/model_param_constant*.bin"; echo $COM; $COM
+COM="rm -f ./moloch/run_model/*.mhf.txt"; echo $COM; $COM
+COM="rm -f ./moloch/run_model/*.shf.txt"; echo $COM; $COM
+echo " "
+COM="rm -f ./globo/run_premodel/land_par.bin"; echo $COM; $COM
+COM="rm -f ./globo/run_premodel/model_param_constant.bin"; echo $COM; $COM
+COM="rm -f ./globo/run_premodel/*.dat"; echo $COM; $COM
+COM="rm -f ./globo/run_premodel/*.mhf.txt"; echo $COM; $COM
+COM="rm -f ./globo/run_model/model_param_constant.bin"; echo $COM; $COM
+COM="rm -f ./globo/run_model/model_param_constant_zoom.bin"; echo $COM; $COM
+COM="rm -f ./globo/run_model/*.mhf.txt"; echo $COM; $COM
+COM="rm -f ./globo/run_model/*.shf.txt"; echo $COM; $COM
+echo " "
+COM="rm -f ./bolam_run_finish.txt ./bolam_run_error.txt ./prebolam_finish.txt"; echo $COM; $COM
+COM="rm -f ./moloch_run_finish.txt ./moloch_run_error.txt ./premoloch_finish.txt"; echo $COM; $COM
+COM="rm -f ./globo_run_finish.txt ./globo_run_error.txt"; echo $COM; $COM

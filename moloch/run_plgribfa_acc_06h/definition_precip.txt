@@ -1,0 +1,112 @@
+# File contains indications to plot or jump read data field:
+# if 'y', then the current filed will be plotted, if 'n', then current filed will be jumped 
+#
+'n'   #  file 2 messsage 01 : GPH 1000
+'n'   #  file 2 messsage 02 : T 1000
+'n'   #  file 2 messsage 03 : U 1000
+'n'   #  file 2 messsage 04 : V 1000
+'n'   #  file 2 messsage 05 : RH 1000
+'n'   #  file 2 messsage 06 : GPH 950 
+'n'   #  file 2 messsage 07 : T 950 
+'n'   #  file 2 messsage 08 : U 950 
+'n'   #  file 2 messsage 09 : V 950 
+'n'   #  file 2 messsage 10 : RH 950 
+'n'   #  file 2 messsage 11 : THETAE 950 
+'n'   #  file 2 messsage 12 : GPH 850 
+'n'   #  file 2 messsage 13 : T 850 
+'n'   #  file 2 messsage 14 : U 850 
+'n'   #  file 2 messsage 15 : V 850 
+'n'   #  file 2 messsage 16 : RH 850 
+'n'   #  file 2 messsage 17 : W 850 
+'n'   #  file 2 messsage 18 : THETAE 850 
+'n'   #  file 2 messsage 19 : QC 850 
+'n'   #  file 2 messsage 20 : GPH 700 
+'n'   #  file 2 messsage 21 : T 700 
+'n'   #  file 2 messsage 22 : U 700 
+'n'   #  file 2 messsage 23 : V 700 
+'n'   #  file 2 messsage 24 : RH 700 
+'n'   #  file 2 messsage 25 : W 700 
+'n'   #  file 2 messsage 26 : THETAE 700 
+'n'   #  file 2 messsage 27 : QC 700 
+'n'   #  file 2 messsage 28 : GPH 500 
+'n'   #  file 2 messsage 29 : T 500 
+'n'   #  file 2 messsage 30 : U 500 
+'n'   #  file 2 messsage 31 : V 500 
+'n'   #  file 2 messsage 32 : RH 500 
+'n'   #  file 2 messsage 33 : W 500 
+'n'   #  file 2 messsage 34 : QC 500 
+'n'   #  file 2 messsage 35 : T 300 
+'n'   #  file 2 messsage 36 : U 300 
+'n'   #  file 2 messsage 37 : V 300 
+'n'   #  file 2 messsage 38 : RH 300 
+'n'   #  file 2 messsage 39 : QC 300 
+'n'   #  file 2 messsage 40 : GPH 250 
+'n'   #  file 2 messsage 41 : U 250 
+'n'   #  file 2 messsage 42 : V 250 
+'n'   #  file 2 messsage 43 : Q soil 5 cm =1st level
+'n'   #  file 2 messsage 44 : Q soil 13 cm = 2nd level
+'n'   #  file 2 messsage 45 : Q soil 32 cm = 3rd level
+'n'   #  file 2 messsage 46 : Q soil 69 cm = 4th level
+'n'   #  file 2 messsage 47 : Q soil 130 cm = 5th level
+'n'   #  file 2 messsage 48 : Q soil 221 cm = 6th level
+'n'   #  file 2 messsage 49 : Q soil 348 cm = 7th level
+'n'   #  file 2 messsage 50 : Q soil 517 cm = 8th level
+'n'   #  file 2 messsage 51 : Q soil 734 cm = 9th level
+'n'   #  file 2 messsage 52 : Q soil 10,05 m = 10th level
+'n'   #  file 2 messsage 53 : Q soil 13,36 m = 11th level
+'n'   #  file 2 messsage 54 : Q soil 17,33 m = 12th level
+'n'   #  file 2 messsage 55 : Q soil 22,02 m = 13th level
+'n'   #  file 2 messsage 56 : T soil 5 cm =1st level
+'n'   #  file 2 messsage 57 : T soil 13 cm = 2nd level
+'n'   #  file 2 messsage 58 : T soil 32 cm = 3rd level
+'n'   #  file 2 messsage 59 : T soil 69 cm = 4th level
+'n'   #  file 2 messsage 60 : T soil 130 cm = 5th level
+'n'   #  file 2 messsage 61 : T soil 221 cm = 6th level
+'n'   #  file 2 messsage 62 : T soil 348 cm = 7th level
+'n'   #  file 2 messsage 63 : T soil 517 cm = 8th level
+'n'   #  file 2 messsage 64 : T soil 734 cm = 9th level
+'n'   #  file 2 messsage 65 : T soil 10,05 m = 10th level
+'n'   #  file 2 messsage 66 : T soil 13,36 m = 11th level
+'n'   #  file 2 messsage 67 : T soil 17,33 m = 12th level
+'n'   #  file 2 messsage 68 : T soil 22,02 m = 13th level
+'n'   #  file 2 messsage 69 : MSLP
+'y'   #  file 2 messsage 70 : Total precip.
+'y'   #  file 2 messsage 71 : Total snowfall
+'n'   #  file 2 messsage 72 : U 10 m
+'n'   #  file 2 messsage 73 : V 10 m
+'n'   #  file 2 messsage 74 : T 2 m
+'n'   #  file 2 messsage 75 : RH 2 m
+'n'   #  file 2 messsage 76 : T skin
+'n'   #  file 2 messsage 77 : T lowest atm. level
+'n'   #  file 2 messsage 78 : U lowest atm. level
+'n'   #  file 2 messsage 79 : V lowest atm. level
+'n'   #  file 2 messsage 80 : Total cloud cover (%)
+'n'   #  file 2 messsage 81 : High cloud cover (%)
+'n'   #  file 2 messsage 82 : Medium cloud cover (%)
+'n'   #  file 2 messsage 83 : Low cloud cover (%)
+'n'   #  file 2 messsage 84 : Water equiv. of accumulated snow depth (kg m-2)
+'n'   #  file 2 messsage 85 : Run-Off
+'n'   #  file 2 messsage 86 : CAPE
+'n'   #  file 2 messsage 87 : SW rad. flux
+'n'   #  file 2 messsage 88 : LW rad. flux
+'n'   #  file 2 messsage 89 : Sensible heat flux
+'n'   #  file 2 messsage 90 : Latent heat flux
+'n'   #  file 2 messsage 91 : Lifted index
+'n'   #  file 2 messsage 92 : Dew point temperature at 2 m
+'n'   #  file 2 messsage 93 : Column integrated water vapour
+'n'   #  file 2 messsage 94 : Level of 0o C isotherm
+'n'   #  file 2 messsage 95 : Snow depth (m) at snow layer top
+'n'   #  file 2 messsage 96 : Snow temperature (K) at snow layer top
+'n'   #  file 2 messsage 97 : Snow density (kg/m^3) at snow layer top
+'n'   #  file 2 messsage 98 : Snow age (days) at snow layer top
+'n'   #  file 2 messsage 99 : Snow depth (m) at snow layer medium
+'n'   #  file 2 messsage 100 : Snow temperature (K) at snow layer medium
+'n'   #  file 2 messsage 101 : Snow density (kg/m^3) at snow layer medium
+'n'   #  file 2 messsage 102 : Snow age (days) at snow layer medium
+'n'   #  file 2 messsage 103 : Snow depth (m) at snow layer bottom
+'n'   #  file 2 messsage 104 : Snow temperature (K) at snow layer bottom
+'n'   #  file 2 messsage 105 : Snow density (kg/m^3) at snow layer bottom
+'n'   #  file 2 messsage 106 : Snow age (days) at snow layer bottom
+'n'   #  file 2 messsage 107 : Lapse rate actual
+'n'   #  file 2 messsage 108 : Snowfall height limit
+'n'   #  file 2 messsage 109 : Snowfall height limit 0

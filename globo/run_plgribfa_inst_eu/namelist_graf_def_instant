@@ -1,0 +1,515 @@
+!
+! DESCRIPTING PARAMETERS FOR GRAPHICAL PRESENTATION OF SELECTED 2D DATA FIELDS
+!
+! INDPAGE    : index of page on which to be put the field
+! NFL        : total numer of fields that to be put of this page (2 wind component are 2 different fields)
+! INDFL      : index of the filed in this page (Attention: U and V wind component must have 2 consequential indexes)
+! GRAFTYPE   : presentation type: 1 - color filling with black contours, 2 - bold black contours, 3 - symbols, 4 - vector arrows, 5 - wind barbs,
+!                                 6 - color pixels, 7 - bold color contours, 8 - color writting of valued in defined points,
+!                                 11 - color filling without black contours,
+!                                 41 - vector arrows with color filling for values of scalar product of vectors,
+!                                 51 - wind barbs with color filling for values of scalar product of vectors
+! NCONT      : number of contours (for GRAFTYPE = 1 or 2 must be odd)
+! COLORPAL   : color pallete index (for GRAFTYPE = 1 ) : 1-Rainbow, 2-Inverted Rainbow,
+!               3-Orography,  4-Physical values, 5-Cloud cover, 6-Satellite radiance,
+!               7-Satellite bright temperature, 11-White-black, 12-Black-wite
+! INDFORMAT  : contour label format index (for GRAFTYPE = 1 or 2 ) : 
+!               1-F9.0, 2-F9.1, 3-F9.2, 4-F9.3, 5-E9.0, 6-E9.1, 7-E9.2, 8-E9.3, 10-I
+! TYPECONTDEF: type of contour values definition : 1 - linear, 2 - free
+! ATYPE      : field type : S - scalar, U - U-component of wind, V - V-component of wind
+! CONTDEF    : REAL, DIMENSION(30) contains contour values :
+!              for TYPECONTDEF=1, CONTDEF(1) - central contour value, CONTDEF(2) - interval contour value,
+!              for TYPECONTDEF=2, CONTDEF (:) contains all determined contour values,
+!              for GRAFTYPE = 4 or 5, CONTDEF(1:2) contains wind speed for arrow/bard symbol scale and minimum wind speed to present on a graphic
+!              for GRAFTYPE = 3, CONTDEF(1:2) values interval (minimum and maximum) to present on a graphic,
+!                                CONTDEF(3) - symbol inedx, CONTDEF(4) - symbol size,
+!                                CONTDEF(5:7) - color definition: red, green, blue
+!               for GRAFTYPE = 7, CONTDEF(1:27) as for GRAFTYPE = 1, 2, ect., CONTDEF(28:30) color definition: red, green, blue
+!               for GRAFTYPE = 8, CONTDEF(1) value of rounding-off, CONTDEF(2:4) color definition: red, green, blue
+
+&GRAPH_DEF
+  ! 01) GPH 850
+  INDPAGE=07, NFL=4, INDFL=2, GRAFTYPE=2, NCONT=41, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=130., 2.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 02) T 850
+  INDPAGE=07, NFL=4, INDFL=1, GRAFTYPE=1, NCONT=39, COLORPAL=13, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=  -2.,  2.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 03) U 850 hPa
+  INDPAGE=07, NFL=4, INDFL=3, GRAFTYPE=4, NCONT= 2, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='U',
+  CONTDEF=25., 1., 
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='Vento su 850                                                                                                            '
+&END
+
+&GRAPH_DEF
+  ! 04) V 850 hPa
+  INDPAGE=07, NFL=4, INDFL=4, GRAFTYPE=4, NCONT= 2, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=2, ISMOOTH=0,
+  ATYPE='V',
+  CONTDEF=25., 1., 
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='Vento su 850                                                                                                            '
+&END
+
+&GRAPH_DEF
+  ! 05) GPH 700
+  INDPAGE=08, NFL=4, INDFL=2, GRAFTYPE=2, NCONT=41, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=300., 2.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 06) T 700
+  INDPAGE=08, NFL=4, INDFL=1, GRAFTYPE=1, NCONT=39, COLORPAL=13, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF= -12.,  2.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 07) U 700 hPa
+  INDPAGE=08, NFL=4, INDFL=3, GRAFTYPE=4, NCONT= 2, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='U',
+  CONTDEF=30., 1., 
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 08) V 700 hPa
+  INDPAGE=08, NFL=4, INDFL=4, GRAFTYPE=4, NCONT= 2, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=2, ISMOOTH=0,
+  ATYPE='V',
+  CONTDEF=30., 1., 
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 10) GPH 500
+  INDPAGE=10, NFL=4, INDFL=2, GRAFTYPE=2, NCONT=41, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=540., 4.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 11) T 500
+  INDPAGE=10, NFL=4, INDFL=1, GRAFTYPE=1, NCONT=39, COLORPAL=13, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF= -28.,  2.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 12) U 500 hPa
+  INDPAGE=10, NFL=4, INDFL=3, GRAFTYPE=4, NCONT= 2, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='U',
+  CONTDEF=30., 1., 
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 13) V 500 hPa
+  INDPAGE=10, NFL=4, INDFL=4, GRAFTYPE=4, NCONT= 2, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=2, ISMOOTH=0,
+  ATYPE='V',
+  CONTDEF=30., 1., 
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 14) PV 300 hPa
+  INDPAGE=18, NFL=1, INDFL=1, GRAFTYPE=1, NCONT=15, COLORPAL=4, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF= 6., 1.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='Potential vorticity (s-1) at 300 hPa                                                                                    '
+&END
+
+&GRAPH_DEF
+  ! 15) GPH 250
+  INDPAGE=11, NFL=3, INDFL=3, GRAFTYPE=2, NCONT=41, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=1020., 4.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 16) U 250 hPa
+  INDPAGE=11, NFL=3, INDFL=1, GRAFTYPE=51,NCONT=5,  COLORPAL=4, INDFORMAT=1, TYPECONTDEF=2, ISMOOTH=0,
+  ATYPE='U',
+  CONTDEF= 35.,45.,55.,65.,150.,0.,0.,0.,0.,0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 17) V 250 hPa
+  INDPAGE=11, NFL=3, INDFL=2, GRAFTYPE=51,NCONT= 2, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=2, ISMOOTH=0,
+  ATYPE='V',
+  CONTDEF=10., 8., 
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 18) GPH 50
+  INDPAGE=12, NFL=3, INDFL=3, GRAFTYPE=2, NCONT=41, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=2080., 4.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 19) U 50 hPa
+  INDPAGE=12, NFL=3, INDFL=1, GRAFTYPE=51,NCONT=5,  COLORPAL=4, INDFORMAT=1, TYPECONTDEF=2, ISMOOTH=0,
+  ATYPE='U',
+  CONTDEF= 5.,10.,15.,25.,50., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 20) V 50 hPa
+  INDPAGE=12, NFL=3, INDFL=2, GRAFTYPE=51,NCONT= 2, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=2, ISMOOTH=0,
+  ATYPE='V',
+  CONTDEF= 2., 8.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 47) Pressure at MSL
+  INDPAGE=01, NFL=3, INDFL=3, GRAFTYPE=2, NCONT=41, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=1000.,  4.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 51) U-component wind 10 m
+  INDPAGE=01, NFL=3, INDFL=1, GRAFTYPE=41,NCONT= 7, COLORPAL=4, INDFORMAT=2, TYPECONTDEF=2, ISMOOTH=0,
+  ATYPE='U',
+  CONTDEF=  11.3, 14.4, 17.5, 21.1, 24.7, 28.3, 31.4, 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 52) V-component wind 10 m
+  INDPAGE=01, NFL=3, INDFL=2, GRAFTYPE=41,NCONT= 2, COLORPAL=4, INDFORMAT=1, TYPECONTDEF=2, ISMOOTH=0,
+  ATYPE='V',
+  CONTDEF=  1., 10.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 53) T air 2 m
+  INDPAGE=02, NFL=1, INDFL=1, GRAFTYPE=11, NCONT=39, COLORPAL=13, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=   4.,  2.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 54) RH 2 m
+  INDPAGE=03, NFL=1, INDFL=1, GRAFTYPE=1, NCONT=7, COLORPAL=15, INDFORMAT=1, TYPECONTDEF=2, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=  20., 40., 60., 80., 90., 100., 120.,
+  0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 55) Tskin 
+  INDPAGE=14, NFL=1, INDFL=1, GRAFTYPE=11, NCONT=33, COLORPAL=2, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=   6.,  2., 
+          0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 56) Total cloud cover
+  INDPAGE=04, NFL=1, INDFL=1, GRAFTYPE=11, NCONT=11, COLORPAL=5, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=  50., 10.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  !TITLE_DEF='########################################################################################################################'
+  TITLE_DEF='Cloud cover (%)                                                                                                         '
+&END
+
+&GRAPH_DEF
+  ! 60) Snow depth (eq. water) mm
+  INDPAGE=05, NFL=1, INDFL=1, GRAFTYPE=11, NCONT=15, COLORPAL=4, INDFORMAT=1, TYPECONTDEF=2, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=  1., 2., 5., 10., 15., 20., 50., 75., 100., 150.,
+  200., 300., 500., 750., 1000., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 02) T 850
+  INDPAGE=06, NFL=4, INDFL=1, GRAFTYPE=1, NCONT=39, COLORPAL=13, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=  -2.,  2.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 03) U 850 hPa
+  INDPAGE=06, NFL=4, INDFL=3, GRAFTYPE=4, NCONT= 2, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='U',
+  CONTDEF=25., 1.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='Vento su 850                                                                                                            '
+&END
+
+&GRAPH_DEF
+  ! 04) V 850 hPa
+  INDPAGE=06, NFL=4, INDFL=4, GRAFTYPE=4, NCONT= 2, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=2, ISMOOTH=0,
+  ATYPE='V',
+  CONTDEF=25., 1.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='Vento su 850                                                                                                            '
+&END
+
+&GRAPH_DEF
+  ! 07) U 700 hPa
+  INDPAGE=09, NFL=3, INDFL=2, GRAFTYPE=4, NCONT= 2, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='U',
+  CONTDEF=30., 1.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 08) V 700 hPa
+  INDPAGE=09, NFL=3, INDFL=3, GRAFTYPE=4, NCONT= 2, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=2, ISMOOTH=0,
+  ATYPE='V',
+  CONTDEF=30., 1.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 09) RH 700 hPa
+  INDPAGE=09, NFL=3, INDFL=1, GRAFTYPE=1, NCONT=7, COLORPAL=15, INDFORMAT=1, TYPECONTDEF=2, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=  20., 40., 60., 80., 90., 100., 120.,
+  0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 10) GPH 500
+  INDPAGE=06, NFL=4, INDFL=2, GRAFTYPE=2, NCONT=41, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=540., 4.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  TITLE_DEF='########################################################################################################################'
+  !TITLE_DEF='                                                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 02) T 850 
+  INDPAGE=15, NFL=1, INDFL=1, GRAFTYPE=1, NCONT=33, COLORPAL=2, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=   6.,  2., 
+          0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  !TITLE_DEF='########################################################################################################################'
+  TITLE_DEF='Temperature (deg. C) at 850 hPa                                                                                         '
+&END
+
+&GRAPH_DEF
+  ! 09) RH 700
+  INDPAGE=16, NFL=1, INDFL=1, GRAFTYPE=1, NCONT=11, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=  50., 10.,
+  0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  !TITLE_DEF='########################################################################################################################'
+  TITLE_DEF='Relative Humidity (%) at 700 hPa                                                                                        '
+&END
+
+&GRAPH_DEF
+  ! 10) GPH 500
+  INDPAGE=17, NFL=1, INDFL=1, GRAFTYPE=1, NCONT=29, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=552., 3.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  !TITLE_DEF='########################################################################################################################'
+  TITLE_DEF='Geopotential height (dam) at 500 hPa                                                                                   '
+&END
+
+&GRAPH_DEF
+  ! 16) U 250 hPa
+  INDPAGE=19, NFL=2, INDFL=1, GRAFTYPE=51,NCONT=13, COLORPAL=4, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='U',
+  CONTDEF= 70., 10., 0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  !TITLE_DEF='########################################################################################################################'
+  TITLE_DEF='Wind (m s-1) at 250 hPa                                                                                                 '
+&END
+
+&GRAPH_DEF
+  ! 17) V 250 hPa
+  INDPAGE=19, NFL=2, INDFL=2, GRAFTYPE=51,NCONT= 2, COLORPAL=4, INDFORMAT=1, TYPECONTDEF=2, ISMOOTH=0,
+  ATYPE='V',
+  CONTDEF= 5., 30.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  !TITLE_DEF='########################################################################################################################'
+  TITLE_DEF='Wind (m s-1) at 250 hPa                                                                                                 '
+&END
+
+&GRAPH_DEF
+  ! 18) GPH 50
+  INDPAGE=20, NFL=1, INDFL=1, GRAFTYPE=1, NCONT=23, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=1976., 12.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  !TITLE_DEF='########################################################################################################################'
+  TITLE_DEF='Geopotential height (dam) at 50 hPa                                                                                    '
+&END
+
+&GRAPH_DEF
+  ! 47) Pressure at MSL
+  INDPAGE=13, NFL=1, INDFL=1, GRAFTYPE=1, NCONT=35, COLORPAL=1, INDFORMAT=1, TYPECONTDEF=1, ISMOOTH=0,
+  ATYPE='S',
+  CONTDEF=1008.,  2.,
+          0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+  !TITLE_DEF='########################################################################################################################'
+  TITLE_DEF='M.S.L. Pressure (hPa)                                                                                                   '
+&END

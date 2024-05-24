@@ -260,7 +260,7 @@ IDHOUTPUT_ADD_GLOBO=$(($IDMINOUTPUT_ADD/60))
 # for coding of grib2 format in postprocessing and convertion of shf to grib2
 
 SAMPLE="${DIR_SOURCES}/common/grib_sample.inp"
-FILE_INP="./grib_sample.inp"
+FILE_INP="grib_sample.inp"
 
 sed -e "s/DIR_GRIB_LIB/${DIR_GRIB_LIB}/" $SAMPLE > $FILE_INP
 
@@ -271,22 +271,22 @@ echo "     ${FILE_INP}"
 echo " "
 rm -f ./bolam/run_postmodel/grib_sample.inp
 rm -f ./bolam/run_convert_shf_to_grib2/grib_sample.inp
-COM="ln -sf $FILE_INP ./bolam/run_postmodel"; echo $COM; $COM
-COM="ln -sf $FILE_INP ./bolam/run_convert_shf_to_grib2"; echo $COM; $COM
+COM="ln -sf ../../$FILE_INP ./bolam/run_postmodel"; echo $COM; $COM
+COM="ln -sf ../../$FILE_INP ./bolam/run_convert_shf_to_grib2"; echo $COM; $COM
 echo " "
 rm -f ./moloch/run_postmodel/grib_sample.inp
 rm -f ./moloch/run_convert_shf_to_grib2/grib_sample.inp
-COM="ln -sf $FILE_INP ./moloch/run_postmodel"; echo $COM; $COM
-COM="ln -sf $FILE_INP ./moloch/run_convert_shf_to_grib2"; echo $COM; $COM
+COM="ln -sf ../../$FILE_INP ./moloch/run_postmodel"; echo $COM; $COM
+COM="ln -sf ../../$FILE_INP ./moloch/run_convert_shf_to_grib2"; echo $COM; $COM
 echo " "
 rm -f ./globo/run_postmodel/grib_sample.inp
 rm -f ./globo/run_postmodel_zoom/grib_sample.inp
 rm -f ./globo/run_convert_shf_to_grib2/grib_sample.inp
 rm -f ./globo/run_convert_shf_const_to_grib2/grib_sample.inp
-COM="ln -sf $FILE_INP ./globo/run_postmodel"; echo $COM; $COM
-COM="ln -sf $FILE_INP ./globo/run_postmodel_zoom"; echo $COM; $COM
-COM="ln -sf $FILE_INP ./globo/run_convert_shf_to_grib2"; echo $COM; $COM
-COM="ln -sf $FILE_INP ./globo/run_convert_shf_const_to_grib2"; echo $COM; $COM
+COM="ln -sf ../../$FILE_INP ./globo/run_postmodel"; echo $COM; $COM
+COM="ln -sf ../../$FILE_INP ./globo/run_postmodel_zoom"; echo $COM; $COM
+COM="ln -sf ../../$FILE_INP ./globo/run_convert_shf_to_grib2"; echo $COM; $COM
+COM="ln -sf ../../$FILE_INP ./globo/run_convert_shf_const_to_grib2"; echo $COM; $COM
 
 # Definition of some parameters of models chain implementation in model_chain_launch.script
 

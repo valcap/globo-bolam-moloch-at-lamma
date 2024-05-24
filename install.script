@@ -15,6 +15,9 @@ DIR_SOURCES="${DIR_START}/sources" # Not change this pass
 
 DIR_GRIB_LIB="\/home\/oxana\/eccodes\/eccodes_gfortran" # Complete path to grib_api or eccodes libraries for coding/decoding of grib2 format
 
+COM="mkdir -p ${DIR_START}/log"; echo $COM; $COM
+COM="mkdir -p ${DIR_START}/log/current"; echo $COM; $COM
+
 # -------- Bolam ---------- 
 
 # Domain and grid parameters definition:

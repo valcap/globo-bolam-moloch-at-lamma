@@ -279,39 +279,39 @@ if [ $FLAG_MOLOCH_PLGRIBFA == 1 ]; then
   export DIR_ECCODES
   export DIR_SOURCES_PLGRIBFA
 
-#  cd ${DIR_START}/moloch/run_plgribfa_inst_atm_1
-#
-#  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_ints_atm_1 2>&1 &
-#
-#  cd ${DIR_START}/moloch/run_plgribfa_inst_atm_2
-#
-#  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_ints_atm_2 2>&1 &
-#
-#  cd ${DIR_START}/moloch/run_plgribfa_inst_atm_3
-#
-#  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_ints_atm_3 2>&1 &
-#
-#  cd ${DIR_START}/moloch/run_plgribfa_inst_srf_1
-#
-#  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_ints_srf_1 2>&1 &
-#
-#  cd ${DIR_START}/moloch/run_plgribfa_inst_srf_2
-#
-#  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_ints_srf_2 2>&1 &
+  cd ${DIR_START}/moloch/run_plgribfa_inst_atm_1
 
-  cd ${DIR_START}/moloch/run_plgribfa_acc_06h
+  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_ints_atm_1 2>&1 &
 
-  export HACCUM=6
-  export H_UTC_ACCUM_FINISH_LIST="0 6 12 18" # List of instant (UTC hour) of accumulation termination 
+  cd ${DIR_START}/moloch/run_plgribfa_inst_atm_2
 
-  ./plgribfa_run_accum.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_acc_06h 2>&1 &
+  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_ints_atm_2 2>&1 &
 
-  cd ${DIR_START}/moloch/run_plgribfa_acc_24h
+  cd ${DIR_START}/moloch/run_plgribfa_inst_atm_3
 
-  export HACCUM=24
-  export H_UTC_ACCUM_FINISH_LIST="0" # List of instant (UTC hour) of accumulation termination 
+  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_ints_atm_3 2>&1 &
 
-  ./plgribfa_run_accum.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_acc_24h 2>&1 &
+  cd ${DIR_START}/moloch/run_plgribfa_inst_srf_1
+
+  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_ints_srf_1 2>&1 &
+
+  cd ${DIR_START}/moloch/run_plgribfa_inst_srf_2
+
+  ./plgribfa_run_instant.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_ints_srf_2 2>&1 &
+
+#  cd ${DIR_START}/moloch/run_plgribfa_acc_06h
+#
+#  export HACCUM=6
+#  export H_UTC_ACCUM_FINISH_LIST="0 6 12 18" # List of instant (UTC hour) of accumulation termination 
+#
+#  ./plgribfa_run_accum.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_acc_06h 2>&1 &
+#
+#  cd ${DIR_START}/moloch/run_plgribfa_acc_24h
+#
+#  export HACCUM=24
+#  export H_UTC_ACCUM_FINISH_LIST="0" # List of instant (UTC hour) of accumulation termination 
+#
+#  ./plgribfa_run_accum.script 1>${DIR_LOG}/stout_moloch_plgribfa_map_acc_24h 2>&1 &
 
 fi # Plgribfa
 

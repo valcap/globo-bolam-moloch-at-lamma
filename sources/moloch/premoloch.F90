@@ -944,16 +944,16 @@ logical :: nlbuco
     nlbuco = .false.
     if (inst > 1 ) nlbuco = .true.
 
-#ifdef oper
+!#ifdef oper
     if (inst_stop < 1) then
     inst_start = 1
     inst_stop = 1
     nlbuco = .true.
     endif
-#endif
+!#endif
 
-! poisk
-    nlbuco = .false.
+!!!! poisk
+!!!    nlbuco = .false.
 
     if (nlbuco) then
       surf_elaborate = .false.
@@ -4016,12 +4016,12 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
 
    endif
 
-! Definition of temperature and soil water content in the case of missing data over the sea,
+! Definition of temperature and soil water content in the case of missing data over the sea
 
    do k = 1,nlevg_inp
      do j = 1,nlat_inp
        do i = 1,nlon_inp
-         if (int(tg_inp(i,j,k))==int(val_missing).or.fmask_inp(i,j) >= 0.5) tg_inp(i,j,k) = tsurf_inp(i,j)
+         if (int(tg_inp(i,j,k))==int(val_missing).and.fmask_inp(i,j) >= 0.5) tg_inp(i,j,k) = tsurf_inp(i,j)
          if (int(qg_inp(i,j,k))==int(val_missing).or.fmask_inp(i,j) >= 0.5) qg_inp(i,j,k) = 0.50 ! to be used to define qg on small islands
        enddo
      enddo
@@ -6772,7 +6772,7 @@ real :: diftop, zhtop, zlapse, zzh1, zzh2, ztlake, twater, fhard, topcr, &
       enddo
     endif
 
-! Glaciers: T must remain below 0°C.
+! Glaciers: T must remain below 0 deg.C
 ! (NST-1=14, but NST-1 used here in case new soil types are introduced)
 
    if (fmask(i,j) <= 0.5.and.soil_map(i,j,1) == nst-1) then
@@ -6845,6 +6845,8 @@ real :: diftop, zhtop, zlapse, zzh1, zzh2, ztlake, twater, fhard, topcr, &
 
 ! Denition of snow variables at snow levels
 ! 1-st level is snow top, bottom level is soil surface
+
+   if (int(soil_map(i,j,1)) == nst-1) snow(i,j)=0.03 ! minimum 30 cm snow layer over a glacier
 
    snow(i,j)=snow(i,j)*1.e3
    call snow_lev_def(snow(i,j), nlsnow, snow_lev(i,j,:))

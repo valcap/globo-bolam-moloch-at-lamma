@@ -14,7 +14,7 @@
 #FILE_FLAG_INPUT="../../ifs_moloch_data_problem.txt"
 #FILE_FLAG_PREMODEL_FINISH="../../premoloch_finish.txt"
 #MODEL_LOWER="moloch"
-#DIR_BIN="/home/strade/eccodes/eccodes_gfortran/bin"
+#DIR_ECCODES="/home/strade/eccodes/eccodes_gfortran/bin"
 
 FC_INP=1 # Input data are analysis and forecast data
 ###FC_INP=0 # Input data are analysis forecast data only (reanalysis case ofr hindcast case, etc.)
@@ -35,7 +35,7 @@ FILE_CONST_INP_LOC="${MODEL_INP_LOWER}_const.grib2"
 if [ ! -s $FILE_CONST_INP_REM ] && [ -s $FILE_CONST_INP_REM0 ]; then
 # Conversion of grib format to grib2 format
   echo " "
-  COM="${DIR_BIN}/grib_filter -o $FILE_CONST_INP_REM filter_rules_convert $FILE_CONST_INP_REM0"; echo $COM; $COM
+  COM="${DIR_ECCODES}/bin/grib_filter -o $FILE_CONST_INP_REM filter_rules_convert $FILE_CONST_INP_REM0"; echo $COM; $COM
   if [ ! -s $FILE_CONST_INP_REM ]; then
     echo "Conversion of $FILE_CONST_INP_REM0 to grib2 format failed => exit"
     exit
@@ -223,7 +223,7 @@ pause_execute_premoloch=$!
       if [ -s $FILE_INPUT_FULL_NAME0 ]; then
 # Conversion of grib format to grib2 format
         echo " "
-        COM="${DIR_BIN}/grib_filter -o ${FILE_INPUT_FULL_NAME} filter_rules_convert ${FILE_INPUT_FULL_NAME0}"; echo $COM; $COM
+        COM="${DIR_ECCODES}/bin/grib_filter -o ${FILE_INPUT_FULL_NAME} filter_rules_convert ${FILE_INPUT_FULL_NAME0}"; echo $COM; $COM
         if [ ! -s ${FILE_INPUT_FULL_NAME} ]; then
           echo "Conversion of ${FILE_INPUT_FULL_NAME0} to grib2 format failed, => exit"
           echo "Conversion of ${FILE_INPUT_FULL_NAME0} to grib2 format failed => exit" > $FILE_INPUT_LOC_NAME

@@ -12,8 +12,8 @@ DIR_ECCODES = $(DIR_ECCODES_GFORTRAN)
 FCFLAGS += -I $(DIR_PLPLOT)
 FCFLAGS_GRIB = $(FCFLAGS) -I $(DIR_ECCODES)/include
 
-###LDFLAGS += `pkg-config --libs plplot-fortran`
-LDFLAGS += `pkg-config --libs plplotd-f95`
+LDFLAGS += `pkg-config --libs plplot-fortran`
+###LDFLAGS += `pkg-config --libs plplotd-f95`
 
 LDFLAGS_GRIB = $(LDFLAGS) -L $(DIR_ECCODES)/lib -leccodes_f90 -leccodes
 

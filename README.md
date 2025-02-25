@@ -1,6 +1,6 @@
 # Package of Numerical Weather Prediction models: Bolam, Moloch, Globo.
 
-# Version 24.1, October 2024: Change of format of all internal input-output
+Version 24.1, October 2024: Change of format of all internal input-output
 files (unmormatted binary): mhf, shf, model_param_constant.bin,
 time consuming better for 10 %
 

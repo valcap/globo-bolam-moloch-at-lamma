@@ -1,4 +1,7 @@
-! Last update 10/05/2022
+! Last update 29/08/2024
+!
+! 2024.08: puting the not constant variables in order;
+! new variables in output: t_bottom, qrel_bottom, veg_qrel_surf, water_table_depth
 !
 ! May 2022: Correction of vegetation fraction in subroutine surfradpar,
 ! albedo of sea ice, emissivities of sea and sea ice
@@ -30,8 +33,9 @@
 !=======================================================================
 
 subroutine physiographic_param (nlon, nlat, nst, nvt, nlevel_soil, &
- alon0, alat0, dlon, dlat, x0, y0, alon, alat, tsurf, soil_lev, jday, flag_variable, &
- htop, htopvar, fmask, index_lev_tbottom, index_lev_qbottom, tsoil, qsoil, &
+ alon0, alat0, dlon, dlat, x0, y0, alon, alat, tsurf, soil_lev, jday, flag_variable_const, &
+ htop, htopvar, fmask, water_table, t_bottom, qrel_bottom, veg_qrel_surf, &
+ index_lev_tbottom, index_lev_qbottom, tsoil, qsoil_rel, &
  soil_map, veg_map, &
  soil_qmax, soil_qmin, soil_c, soil_rho, soil_psi, soil_k, &
  soil_par_b, soil_par_c, soil_qrel_wilt, soil_qrel_ref, &
@@ -60,19 +64,23 @@ subroutine physiographic_param (nlon, nlat, nst, nvt, nlevel_soil, &
 !      tsurf: surface temperature (K), may be replaced by air temperatureat 2 m;
 !      level_soil: soil levels values (m);
 !      jday: Julian day minus 1 (0-364).;
-!      flag_variable: flag for definition of variable parameters only (veg. LAI, veg. fraction): 
-!                 0 - definition of all output variables,
-!                 1 - definition of variable parameters only.
+!      flag_variable_const: flag for definition of variable in time parameters only (veg. LAI, veg. fraction, tsoil and qsoil_rel profiles): 
+!                 1 - definition of all output variables,
+!             not 1 - definition of variable parameters only.
 
 ! Output variables:
 
+!      fmask: land-sea franction: 1-sea, 0-land (proportion);
 !      htop: orography height (m);
 !      htopvar: orography variance (later, std. dev.) (m);
+!      water_table: depth of water table (m);
+!      t_bottom: temperature at soil bottom depth for heat precesses (K);
+!      qrel_bottom: relative soil water content at soil bottom depth for water precesses (proportion);
+!      veg_qrel_surf: relative soil water content at soil surface (proportion);
 !      index_lev_tbottom: index of bottom soil level for heat trasport at each grid point;
 !      index_lev_qbottom: index of bottom soil level for water trasport at each grid point;
 !      tsoil: soil temperature at all soil levels (K);
-!      qsoil: specific volumetric soil water content at all soil levels (m3/m3); 
-!      fmask: land-sea franction: 1-sea, 0-land (proportion);
+!      qsoil_rel: relative soil water content at all soil levels (proportion); 
 !      soil_map:  soil types (classification FAO, 31 types) defined on the grid points, 3D array,
 !                1-st and 2-nd array index are grid point index, 3-rd index is soil type number plus 1,
 !                if 3-rd index has value 1, then the variable means dominate soil type,
@@ -115,14 +123,14 @@ implicit none
 
 ! Input:
 
-integer :: nlon, nlat, nst, nvt, nlevel_soil, jday, flag_variable
+integer :: nlon, nlat, nst, nvt, nlevel_soil, jday, flag_variable_const
 real :: alon0, alat0, dlon, dlat, x0, y0
 real, dimension(nlon,nlat) :: alon, alat, tsurf
 real, dimension(nlevel_soil) :: soil_lev
 
 ! Ouput:
 
-real, dimension(nlon,nlat) :: htop, htopvar, fmask 
+real, dimension(nlon,nlat) :: htop, htopvar, fmask, water_table, t_bottom, qrel_bottom, veg_qrel_surf
 real, dimension(nlon,nlat,nst+1) :: soil_map
 real, dimension(nlon,nlat,nvt+1) :: veg_map
 real, dimension(nlon,nlat,nlevel_soil) :: soil_qmax, soil_qmin, soil_c, soil_rho, &
@@ -132,14 +140,13 @@ real, dimension(nlon,nlat) :: soil_albedo_dry, soil_albedo_wet, &
  veg_lai, veg_frac, veg_root_depth, veg_roughness, veg_albedo, veg_emiss1, veg_emiss2, snow_dirt
 real :: veg_lai_max
 integer, dimension(nlon,nlat) :: index_lev_tbottom, index_lev_qbottom
-real, dimension(nlon,nlat,nlevel_soil) :: tsoil, qsoil
+real, dimension(nlon,nlat,nlevel_soil) :: tsoil, qsoil_rel
 
 ! Internal:
 
 integer, parameter :: nvt_old=14
 real, dimension(nlon,nlat) :: fmask1, fmask_ecmwf, t_climate, t_amplitude, &
- soil_water_table, veg_water_table, water_table, &
- veg_qrel_surf, depth_bottom, t_bottom, q_bottom, qrel_bottom
+ soil_water_table, veg_water_table, depth_bottom, q_bottom
 real, dimension(nlon,nlat,nvt_old+1) :: veg_map_old
 real, dimension(nlon,nlat,nlevel_soil) :: qrel
 real :: val_missing=-9999., pi, x, xx, t1, dt_work
@@ -170,8 +177,6 @@ integer, dimension(12) :: imon=(/31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31/
  a0(:)=a0(:)*pi
  b0(:)=b0(:)*pi
 
- snow_dirt(:,:)=1. ! Snow may be dirty (snow albedo is low) due to vegetation waste, aerosol deposition, etc.
-
  flag_glob=0
  if (abs(x0) < 0.1.and.abs(y0) < 0.1) then
    if (abs(alon0) < dlon.and.alat0 < -90.+dlat.and.&
@@ -201,7 +206,7 @@ alon0+float(nlon-1)*dlon > 360.-dlon*2..and.alat0+float(nlat-1)*dlat > 90.-dlat)
 ! Reading of geographical files, in case they are pre-computed - if they do not exist, the same
 ! quantities are then computed below
 
- if (flag_variable == 0) then
+ if (flag_variable_const == 1) then
 
    open (10,file=fl_land,form='unformatted',status='old',iostat=iopen_err)
 
@@ -217,7 +222,7 @@ alon0+float(nlon-1)*dlon > 360.-dlon*2..and.alat0+float(nlat-1)*dlat > 90.-dlat)
      read (10) veg_map_old
      close (10)
 
-   else ! File with phisiographic parameters do not exist, and thia parameters must be definded
+   else ! File with phisiographic parameters do not exist, and this parameters must be definded
 
 
 ! Reading of global orography dataset and definition of orography
@@ -294,24 +299,24 @@ alon0+float(nlon-1)*dlon > 360.-dlon*2..and.alat0+float(nlat-1)*dlat > 90.-dlat)
 
    endif ! File with phisiographic parameters exists or do not exist
 
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,  0,  1, 1, 0,idate0(1:5),iperiod(1:3),fmask(:,:),1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_map(:,:,1),1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,195,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_map(:,:,1),1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,194,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_map_old(:,:,1),1.,0.)
 
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,  0,  1, 1, 0,idate0(1:5),iperiod(1:3),fmask(:,:),1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,  7,  1, 1, 0,idate0(1:5),iperiod(1:3),htop(:,:),1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,  7,  1, 1, 0,idate0(1:5),iperiod(1:3),htopvar(:,:),1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 0, 0,  0,  1, 1, 0,idate0(1:5),iperiod(1:3),t_climate(:,:),1.,-273.15)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 0, 0,  0,  1, 1, 0,idate0(1:5),iperiod(1:3),t_amplitude(:,:),1.,0.)
 
 ! Definition of physical parameters of soil using soil types (FAO classification) defined on the model grid
@@ -320,29 +325,29 @@ alon0+float(nlon-1)*dlon > 360.-dlon*2..and.alat0+float(nlat-1)*dlat > 90.-dlat)
  soil_qmax, soil_qmin, soil_c, soil_rho, soil_psi, soil_k, soil_par_b, soil_par_c, soil_qrel_wilt, soil_qrel_ref, &
  soil_water_table, soil_albedo_dry, soil_albedo_wet, soil_emiss1_dry, soil_emiss1_wet, soil_emiss2_dry, soil_emiss2_wet)
 
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,  0,  1, 1, 0,idate0(1:5),iperiod(1:3),fmask(:,:),1.,0.)
 !do k=1,nlevel_soil
-!   call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+!   call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_psi(:,:,k),1.,0.)
 ! print *,k,maxval(soil_psi(:,:,k)),minval(soil_psi(:,:,k))
 !enddo
 
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,  0,  1, 1, 0,idate0(1:5),iperiod(1:3),fmask(:,:),1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_emiss1_dry,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_emiss1_wet,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_emiss2_dry,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_emiss2_wet,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_albedo_dry,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_albedo_wet,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_water_table,1.,0.)
 !print *,maxval(soil_emiss1_dry),minval(soil_emiss1_dry)
 !print *,maxval(soil_emiss1_wet),minval(soil_emiss1_wet)
@@ -358,6 +363,8 @@ alon0+float(nlon-1)*dlon > 360.-dlon*2..and.alat0+float(nlat-1)*dlat > 90.-dlat)
 
 ! Definition of constant physical parameters of vegetation using vegetation
 ! types GLC2000 defined on the model map
+
+ snow_dirt(:,:)=1. ! Snow may be dirty (snow albedo is low) due to vegetation waste, aerosol deposition, etc.
 
  call definition_veg2_const_phys_param(veg_map, t_climate, t_amplitude, nlon, nlat, &
  veg_water_table, veg_qrel_surf, veg_root_depth, veg_roughness, &
@@ -379,7 +386,14 @@ alon0+float(nlon-1)*dlon > 360.-dlon*2..and.alat0+float(nlat-1)*dlat > 90.-dlat)
  enddo
  enddo
 
- endif ! flag_variable 
+! Definition of soil bottom condition
+
+ call definition_soil_bottom(soil_map, veg_map, t_amplitude, t_climate, htop, veg_water_table, soil_water_table, water_table, &
+ veg_qrel_surf, soil_qmax, soil_qmin, soil_c, soil_rho, soil_psi, soil_par_b, &
+ alat, soil_lev, nlon, nlat, nst, nvt, nlevel_soil, &
+ index_lev_tbottom, index_lev_qbottom, depth_bottom, t_bottom, q_bottom, qrel_bottom)
+
+ endif ! flag_variable_const
 
 ! Definition of physical parameters, that have season cycle,
 ! of vegetation, using vegetation types GLC2000 defined on the model map
@@ -397,24 +411,25 @@ alon0+float(nlon-1)*dlon > 360.-dlon*2..and.alat0+float(nlat-1)*dlat > 90.-dlat)
    endif
  enddo
  enddo
-
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+!
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,  0,  1, 1, 0,idate0(1:5),iperiod(1:3),fmask(:,:),1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_lai,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_frac,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_root_depth,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_roughness,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_emiss1,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_emiss2,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_albedo,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_water_table,1.,0.)
 !print *,maxval(veg_lai),minval(veg_lai)
 !print *,veg_lai_max
@@ -426,27 +441,27 @@ alon0+float(nlon-1)*dlon > 360.-dlon*2..and.alat0+float(nlat-1)*dlat > 90.-dlat)
 !print *,maxval(veg_albedo),minval(veg_albedo)
 
 !! All surface radiation parameters:
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,  0,  1, 1, 0,idate0(1:5),iperiod(1:3),fmask(:,:),1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_emiss1_dry,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_emiss1_wet,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_emiss2_dry,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_emiss2_wet,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_emiss1,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_emiss2,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_albedo_dry,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_albedo_wet,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_albedo,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),snow_dirt,1.,0.)
 !print *,maxval(soil_emiss1_dry),minval(soil_emiss1_dry)
 !print *,maxval(soil_emiss1_wet),minval(soil_emiss1_wet)
@@ -457,45 +472,36 @@ alon0+float(nlon-1)*dlon > 360.-dlon*2..and.alat0+float(nlat-1)*dlat > 90.-dlat)
 !print *,maxval(soil_albedo_dry),minval(soil_albedo_dry)
 !print *,maxval(veg_albedo),minval(veg_albedo)
 
- if (flag_variable == 0) then
-
-! Definition of soil bottom condition
-
-   call definition_soil_bottom(soil_map, veg_map, t_amplitude, t_climate, htop, veg_water_table, soil_water_table, water_table, &
- veg_qrel_surf, soil_qmax, soil_qmin, soil_c, soil_rho, soil_psi, soil_par_b, &
- alat, soil_lev, nlon, nlat, nst, nvt, nlevel_soil, &
- index_lev_tbottom, index_lev_qbottom, depth_bottom, t_bottom, q_bottom, qrel_bottom)
-
 !! All constant variables 2d:
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,  0,  1, 1, 0,idate0(1:5),iperiod(1:3),fmask(:,:),1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,  7,  1, 1, 0,idate0(1:5),iperiod(1:3),htop(:,:),1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,  7,  1, 1, 0,idate0(1:5),iperiod(1:3),htopvar(:,:),1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),t_climate,1.,-273.15)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),t_amplitude,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),soil_water_table,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_water_table,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),water_table,1.,0.)
-!! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+!! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 !! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_qrel_surf,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),depth_bottom,1.,0.)
-!! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+!! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 !! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),t_bottom,1.,-273.15)
-!! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+!! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 !! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),q_bottom,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),qrel_bottom,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_root_depth,1.,0.)
-! call outgraph(80102,1,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
+! call outgraph(80102,2,nlon,nlat,x0,y0,alon0,alat0,dlon,dlat,&
 ! 2, 0,193,  1, 1, 0,idate0(1:5),iperiod(1:3),veg_roughness,1.,0.)
 !print *,maxval(htop),minval(htop)
 !print *,maxval(htopvar),minval(htopvar)
@@ -511,6 +517,12 @@ alon0+float(nlon-1)*dlon > 360.-dlon*2..and.alat0+float(nlat-1)*dlat > 90.-dlat)
 !print *,maxval(veg_root_depth),minval(veg_root_depth)
 !print *,maxval(veg_roughness),minval(veg_roughness)
 
+! Variables NOT constant in time: temperature soil and water content soil
+! vertical profiles, using the following variables:
+! jday, soil_lev, fmask, alat, soil_map, soil_qmax, soil_qmin,
+! t_bottom, tsurf, index_lev_tbottom,
+! qrel_bottom, veg_qrel_surf, index_lev_qbottom
+
 ! Definition of temperature at all soil levels using temperature at surface,
 ! bottom level temperature and analytical hypotetical vertical profile
 
@@ -519,92 +531,92 @@ alon0+float(nlon-1)*dlon > 360.-dlon*2..and.alat0+float(nlat-1)*dlat > 90.-dlat)
 
 ! North hemisphere
   
-   jday_work(1)=float(jday)
+ jday_work(1)=float(jday)
   
-   call near(jday_work(1:1), 1, jday0, 5, iv(1:1))
+ call near(jday_work(1:1), 1, jday0, 5, iv(1:1))
   
-   call interp_spline_1d(a(1:1), jday_work(1:1), 1, a0, jday0, 5, iv(1:1), 1., 0., 0.)
-   call interp_spline_1d(b(1:1), jday_work(1:1), 1, b0, jday0, 5, iv(1:1), 1., 0., 0.)
-   call interp_spline_1d(c(1:1), jday_work(1:1), 1, c0, jday0, 5, iv(1:1), 1., 0., 0.)
-   call interp_spline_1d(d(1:1), jday_work(1:1), 1, d0, jday0, 5, iv(1:1), 1., 0., 0.)
-   call interp_spline_1d(dt(1:1), jday_work(1:1), 1, dt0, jday0, 5, iv(1:1), 1., 0., 0.)
+ call interp_spline_1d(a(1:1), jday_work(1:1), 1, a0, jday0, 5, iv(1:1), 1., 0., 0.)
+ call interp_spline_1d(b(1:1), jday_work(1:1), 1, b0, jday0, 5, iv(1:1), 1., 0., 0.)
+ call interp_spline_1d(c(1:1), jday_work(1:1), 1, c0, jday0, 5, iv(1:1), 1., 0., 0.)
+ call interp_spline_1d(d(1:1), jday_work(1:1), 1, d0, jday0, 5, iv(1:1), 1., 0., 0.)
+ call interp_spline_1d(dt(1:1), jday_work(1:1), 1, dt0, jday0, 5, iv(1:1), 1., 0., 0.)
   
 ! South hemisphere
   
-   jday_work_sh(1)=jday_work(1)+183.
-   if (jday_work_sh(1) >= 365.) jday_work_sh(1)=jday_work_sh(1)-365.
+ jday_work_sh(1)=jday_work(1)+183.
+ if (jday_work_sh(1) >= 365.) jday_work_sh(1)=jday_work_sh(1)-365.
   
-   call near(jday_work_sh(1:1), 1, jday0, 5, iv(1:1))
+ call near(jday_work_sh(1:1), 1, jday0, 5, iv(1:1))
   
-   call interp_spline_1d(a_sh(1:1), jday_work(1:1), 1, a0, jday0, 5, iv(1:1), 1., 0., 0.)
-   call interp_spline_1d(b_sh(1:1), jday_work(1:1), 1, b0, jday0, 5, iv(1:1), 1., 0., 0.)
-   call interp_spline_1d(c_sh(1:1), jday_work(1:1), 1, c0, jday0, 5, iv(1:1), 1., 0., 0.)
-   call interp_spline_1d(d_sh(1:1), jday_work(1:1), 1, d0, jday0, 5, iv(1:1), 1., 0., 0.)
-   call interp_spline_1d(dt_sh(1:1), jday_work(1:1), 1, dt0, jday0, 5, iv(1:1), 1., 0., 0.)
+ call interp_spline_1d(a_sh(1:1), jday_work(1:1), 1, a0, jday0, 5, iv(1:1), 1., 0., 0.)
+ call interp_spline_1d(b_sh(1:1), jday_work(1:1), 1, b0, jday0, 5, iv(1:1), 1., 0., 0.)
+ call interp_spline_1d(c_sh(1:1), jday_work(1:1), 1, c0, jday0, 5, iv(1:1), 1., 0., 0.)
+ call interp_spline_1d(d_sh(1:1), jday_work(1:1), 1, d0, jday0, 5, iv(1:1), 1., 0., 0.)
+ call interp_spline_1d(dt_sh(1:1), jday_work(1:1), 1, dt0, jday0, 5, iv(1:1), 1., 0., 0.)
   
 ! Definition of soil temperature profile at each grid point
   
-   do j=1,nlat
-   do i=1,nlon
+ do j=1,nlat
+ do i=1,nlon
   
-     if (fmask(i,j) < 0.5 ) then
+   if (fmask(i,j) < 0.5 ) then
   
-       tsoil(i,j,:)=t_bottom(i,j)
+     tsoil(i,j,:)=t_bottom(i,j)
   
-       nbottom=index_lev_tbottom(i,j)
+     nbottom=index_lev_tbottom(i,j)
   
-       do k=1,nbottom
+     do k=1,nbottom
   
 ! Scale of depth is the variable of analytic function
   
-         x=(soil_lev(k)-soil_lev(1))/(soil_lev(nbottom)-soil_lev(1))
+       x=(soil_lev(k)-soil_lev(1))/(soil_lev(nbottom)-soil_lev(1))
   
 ! Analytical function of temperature profile form as a function of depth scale
   
-         if (alat (i,j) >= 0.) then
-           xx=x*a(1)+b(1)
-           func(k)=cos(xx)*c(1)+d(1)
-         else
-           xx=x*a_sh(1)+b_sh(1)
-           func(k)=cos(xx)*c_sh(1)+d_sh(1)
-         endif
-  
-       enddo
-  
-       if (alat(i,j) >= 0.) then
-         dt_work=dt(1)
+       if (alat (i,j) >= 0.) then
+         xx=x*a(1)+b(1)
+         func(k)=cos(xx)*c(1)+d(1)
        else
-         dt_work=dt_sh(1)
+         xx=x*a_sh(1)+b_sh(1)
+         func(k)=cos(xx)*c_sh(1)+d_sh(1)
        endif
   
-       t1=tsurf(i,j) ! Temperature at soil top level
+     enddo
   
-       if (dt_work >= 0.) then
-         if (t1 < t_bottom(i,j)) t1=t_bottom(i,j)
-       else
-         if (t1 > t_bottom(i,j)) t1=t_bottom(i,j)
-       endif
-  
-       do k=1,nbottom-1
-         tsoil(i,j,k)=func(k)*(t_bottom(i,j)-t1)/(func(nbottom)-func(1))+t_bottom(i,j)
-       enddo
-
-! Glacier
-       if (soil_map(i,j,1) == nst-1) then
-         do k=1,nlevel_soil
-           tsoil(i,j,k)=min(tsoil(i,j,k), 272.)
-         enddo
-       endif
-
+     if (alat(i,j) >= 0.) then
+       dt_work=dt(1)
      else
-  
-       tsoil(i,j,:)=t_bottom(i,j)
-       tsoil(i,j,1)=tsurf(i,j)
-  
+       dt_work=dt_sh(1)
      endif
   
-   enddo
-   enddo
+     t1=tsurf(i,j) ! Temperature at soil top level
+  
+     if (dt_work >= 0.) then
+       if (t1 < t_bottom(i,j)) t1=t_bottom(i,j)
+     else
+       if (t1 > t_bottom(i,j)) t1=t_bottom(i,j)
+     endif
+  
+     do k=1,nbottom-1
+       tsoil(i,j,k)=func(k)*(t_bottom(i,j)-t1)/(func(nbottom)-func(1))+t_bottom(i,j)
+     enddo
+
+! Glacier
+     if (soil_map(i,j,1) == nst-1) then
+       do k=1,nlevel_soil
+         tsoil(i,j,k)=min(tsoil(i,j,k), 272.)
+       enddo
+     endif
+
+   else
+  
+     tsoil(i,j,:)=t_bottom(i,j)
+     tsoil(i,j,1)=tsurf(i,j)
+  
+   endif
+  
+ enddo
+ enddo
   
 ! Definition of relative and specific volumentric soil water content at all grid point at all soil levels
   
@@ -626,24 +638,20 @@ alon0+float(nlon-1)*dlon > 360.-dlon*2..and.alat0+float(nlat-1)*dlat > 90.-dlat)
        qrel(i,j,k)=min( max( qrel(i,j,k), 0.), 1.)
      enddo
 
-     do k=1,nbottom
-       qsoil(i,j,k)=qrel(i,j,k)*(soil_qmax(i,j,k)-soil_qmin(i,j,k))+soil_qmin(i,j,k)
-     enddo
+     qsoil_rel(i,j,1:nbottom) = qrel(i,j,1:nbottom)
 
-     qsoil(i,j,nbottom+1:nlevel_soil)=qsoil(i,j,nbottom)
+     qsoil_rel(i,j,nbottom+1:nlevel_soil)=qsoil_rel(i,j,nbottom)
 
    else
 
 ! Water body or Glacier
 
-     qsoil(i,j,:)=1.
+     qsoil_rel(i,j,:)=0.
 
    endif
 
  enddo
  enddo
-
- endif ! flag_variable
 
 return
 end subroutine physiographic_param
@@ -2760,15 +2768,29 @@ INTEGER, DIMENSION(1) :: IARRAY
  PRINT *
  PRINT *,"Reading the global vegetation dataset from ",FILEINPUT
 
+ LON_GEO_MIN=MINVAL(ALON)
+ LON_GEO_MAX=MAXVAL(ALON)
+
  LAT_GEO(:,:)=ALAT(:,:)
  LON_GEO(:,:)=ALON(:,:)
+
+ IF (LON_GEO_MIN >= 0..AND.LON_GEO_MAX > 0.) THEN
+   LON_GEO(:,:)=ALON(:,:)
+ ELSE
+   DO J=1,NLAT
+   DO I=1,NLON
+     IF (ALON(I,J) < -180.) LON_GEO(I,J) = ALON(I,J)+360.
+     IF (ALON(I,J) >  180.) LON_GEO(I,J) = ALON(I,J)-360.
+   ENDDO
+   ENDDO
+ ENDIF
+
  DO J=1,NLAT
  DO I=1,NLON
    IF (ABS(ABS(LAT_GEO(I,J))-90.) < 1.e-10) LAT_GEO(I,J) = SIGN(89.999999, LAT_GEO(I,J))
-   IF (ALON(I,J) < -180.) LON_GEO(I,J) = ALON(I,J)+360.
-   IF (ALON(I,J) >  180.) LON_GEO(I,J) = ALON(I,J)-360.
  ENDDO
  ENDDO
+
 ! Dataset longitude: 0..360
  IF (FLAG_GLOB == 1.AND.ABS(LONINI-LONINI_READ) < 10.) THEN
    LON_GEO(:,:)=ALON(:,:)
@@ -3218,6 +3240,8 @@ INTEGER, DIMENSION(1) :: IARRAY
 
  ENDIF ! Correlation between dataset resolution and model grid resolution
 
+RETURN
+
 END SUBROUTINE DATASET_VEGETATION_CYCLOPES
 !=======================================================================
 subroutine dataset_t_climate(nlon, nlat, alon, alat, flag_glob, t_climate, t_amplitude)
@@ -3352,8 +3376,7 @@ integer, dimension(nx_part) :: iini, ifin
        jini = 1
        jfin = ny_read
        if (abs(jstart) /= 90.or.abs(jfinish) /= 90) then
-         print *,' Caution: ECMWF ERA-Interim climate temperature dataset'
-         print *,' does not cover the north and south parts of the model domain'
+         print *,' Caution: ECMWF ERA-Interim climate temperature dataset does not cover the north and south parts of the model domain'
          print *,' Model grid latitude extremes',float(jstart),float(jfinish)
          print *,' Dataset grid latitude extremes',latini_read,latfin_read
        endif
@@ -3621,15 +3644,29 @@ REAL :: LON_GEO_MIN, LON_GEO_MAX, LAT_GEO_MIN, LAT_GEO_MAX, LON_START_READ, LAT_
 
 ! Definition of parameters of input data grid
 
+ LON_GEO_MIN=MINVAL(ALON)
+ LON_GEO_MAX=MAXVAL(ALON)
+
  LAT_GEO(:,:)=ALAT(:,:)
  LON_GEO(:,:)=ALON(:,:)
+
+ IF (LON_GEO_MIN >= 0..AND.LON_GEO_MAX > 0.) THEN
+   LON_GEO(:,:)=ALON(:,:)
+ ELSE
+   DO J=1,NLAT
+   DO I=1,NLON
+     IF (ALON(I,J) < -180.) LON_GEO(I,J) = ALON(I,J)+360.
+     IF (ALON(I,J) >  180.) LON_GEO(I,J) = ALON(I,J)-360.
+   ENDDO
+   ENDDO
+ ENDIF
+
  DO J=1,NLAT
  DO I=1,NLON
    IF (ABS(ABS(LAT_GEO(I,J))-90.) < 1.e-10) LAT_GEO(I,J) = SIGN(89.999999, LAT_GEO(I,J))
-   IF (ALON(I,J) < -180.) LON_GEO(I,J) = ALON(I,J)+360.
-   IF (ALON(I,J) >  180.) LON_GEO(I,J) = ALON(I,J)-360.
  ENDDO
  ENDDO
+
 ! Dataset longitude: 0..360
  IF (FLAG_GLOB == 1.AND.ABS(LONINI-LONINI_READ) < 10.) THEN
    LON_GEO(:,:)=ALON(:,:)
@@ -3810,7 +3847,7 @@ REAL :: LON_GEO_MIN, LON_GEO_MAX, LAT_GEO_MIN, LAT_GEO_MAX, LON_START_READ, LAT_
    IF (FLAG_PERIOD == 3) LON_START_READ = LON_START_READ-DLON_READ
  ENDIF
 
- IF (LON_START_READ > 180.) LON_START_READ=LON_START_READ-360.
+ IF (LON_START_READ > 180..AND.LON_GEO_MIN < 180.) LON_START_READ=LON_START_READ-360.
 
  ALLOCATE(LAI_READ(NLON_READ,NLAT_READ,3))
  ALLOCATE(FVEG_READ(NLON_READ,NLAT_READ,3))
@@ -3873,7 +3910,7 @@ REAL :: LON_GEO_MIN, LON_GEO_MAX, LAT_GEO_MIN, LAT_GEO_MAX, LON_START_READ, LAT_
                  LAI_READ(I,J,IFILE)=FLOAT(VALUE_READ(III))+256.
                ENDIF
                LON_READ_GEO(I,J)=LON_START_READ+FLOAT(I-1)*DLON_READ
-               IF (FLAG_GLOB == 0.AND.LON_READ_GEO(I,J)>180.) LON_READ_GEO(I,J)=LON_READ_GEO(I,J)-360. !???
+               IF (FLAG_GLOB == 0.AND.LON_READ_GEO(I,J)>180..AND.LON_GEO_MIN < 180.) LON_READ_GEO(I,J)=LON_READ_GEO(I,J)-360. !???
              ENDDO
            ENDDO ! IX_PART
            IF (FLAG_PERIOD == 2.OR.FLAG_PERIOD == 3) THEN
@@ -3882,8 +3919,8 @@ REAL :: LON_GEO_MIN, LON_GEO_MAX, LAT_GEO_MIN, LAT_GEO_MAX, LON_START_READ, LAT_
              LON_READ_GEO(1,J)=LON_START_READ
              LON_READ_GEO(NLON_READ,J)=LON_START_READ+FLOAT(NLON_READ-1)*DLON_READ
              IF (FLAG_GLOB == 0) THEN
-               IF (LON_READ_GEO(1,J)>180.) LON_READ_GEO(1,J)=LON_READ_GEO(1,J)-360. !???
-               IF (LON_READ_GEO(NLON_READ,J)>180.) LON_READ_GEO(NLON_READ,J)=LON_READ_GEO(NLON_READ,J)-360. !???
+               IF (LON_READ_GEO(1,J)>180..AND.LON_GEO_MIN < 180.) LON_READ_GEO(1,J)=LON_READ_GEO(1,J)-360. !???
+               IF (LON_READ_GEO(NLON_READ,J)>180..AND.LON_GEO_MIN < 180.) LON_READ_GEO(NLON_READ,J)=LON_READ_GEO(NLON_READ,J)-360. !???
              ENDIF
            ENDIF
         
@@ -4437,6 +4474,8 @@ real :: lat_geo_min, zfmax
    enddo
 
  endif ! Antarctic area
+! <---
+
 
 ! --------------------------------------------------------------------------
 

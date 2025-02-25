@@ -1,6 +1,12 @@
 ! Preglobo
 ! Input data GFS-NOAA or IFS-ECMWF in grib2 format
 !
+! Sett. 2024: 
+! Cambiamento in subroutine physiographic_param (def_soil.F90) e scrittura
+! di model_param_constant.bin - piu' ordine, eliminazione dei passaggi 
+! inutile. 
+! Nuovo formato mhf (scrittura e lettura di mhf di Bolam record non 1d ma 2d)
+!
 ! Feb. 2019:
 ! Nuovo schema del suolo (pochva), i nuovi dataset fisiografici (nuovo def_soil.F90),
 ! parametri del suolo sono diversi su vari livelli,
@@ -164,11 +170,12 @@ module mod_fields
  real, dimension(:,:,:), allocatable :: u, v, t, q, qc
  real, dimension(:,:), allocatable   :: phig, fmask, tskin, qvsurf, ps, cloud, totpre, &
                                         conpre, snfall, snow, fice, rgm, rgq, tice, iceth, fmaski, &
- tgsurf, qgsurf, albedo, emismap1, emismap2, snow_albedo, &
+ tgsurf, qgsurf, water_table_depth, tg_bottom, qg_rel_bottom, qg_rel_surf_approx, &
+ albedo, emismap1, emismap2, snow_albedo, &
  soil_albedo_dry, soil_albedo_wet, soil_emiss1_dry, soil_emiss1_wet, soil_emiss2_dry, soil_emiss2_wet, &
  veg_lai, veg_frac, veg_root_depth, veg_roughness, veg_albedo, veg_emiss1, veg_emiss2, snow_dirt, fice_soil_surf
 
- real, dimension(:,:,:), allocatable :: tg, qg, fice_soil, &
+ real, dimension(:,:,:), allocatable :: tg, qg, tg_first_guess, qg_rel_first_guess, fice_soil, &
  soil_map, veg_map, &
  soil_qmax, soil_qmin, soil_c, soil_rho, soil_psi, soil_k, soil_par_b, soil_par_c, soil_qrel_wilt, soil_qrel_ref, &
  snow_lev, snow_t, snow_fice, snow_age, snow_melt_age, snow_dens
@@ -238,7 +245,7 @@ real, dimension(:,:), allocatable :: pst, psu, psv
 ! work matrix used for vertical interpolation
 
 real, dimension(:), allocatable :: uk, vk, tk, qk, upk, vpk, qpk, tvk, pl2, &
-                                    zsoile, tsoile, qsoile, zsoil, tsoili, qsoili
+                                    tsoile, qsoile, zsoil, zsoil_work, tsoili, qsoili
 
 integer, dimension(:), allocatable :: iv, ivg
 
@@ -253,7 +260,7 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
         psig, zqs, zqsw, zqsi, zes, zesw, zesi, qsat, wsat, w, rh, wm, ztlake,         &
         ws, topcr, tland, zfsnow, zterm, zterq, wf, ztland, ttme,  zqgmin, zqgmax,     &
         zlon, zlat, zdelt, zp, qgav1, qgav2, qgav3, qgav4, zeskw, zdq,                 &
-        zrgm, fatt, zeski, zqsat, zqtrue, zcaz, zzh1, zzh2, z1
+        zrgm, fatt, zeski, zqsat, zqtrue, zcaz, zzh1, zzh2, z1, z2
 
    pi  = abs(acos(-1.))
    eps = rd/rv
@@ -450,9 +457,11 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
  allocate(fice_soil_surf    (nlon,nlat))
  allocate(fice_soil_surf_frc(nlon,nlat))
 
+ allocate(tg_first_guess    (nlon,nlat,nlevg))
  allocate(tg           (nlon,nlat,nlevg))
  allocate(tg_copy      (nlon,nlat,nlevg))
  allocate(tg_frc       (nlon,nlat,nlevg))
+ allocate(qg_rel_first_guess(nlon,nlat,nlevg))
  allocate(qg           (nlon,nlat,nlevg))
  allocate(qg_frc       (nlon,nlat,nlevg))
  allocate(fice_soil    (nlon,nlat,nlevg))
@@ -474,6 +483,11 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
 
  allocate(ind_lev_soil_h_bottom(nlon,nlat))
  allocate(ind_lev_soil_w_bottom(nlon,nlat))
+
+ allocate(water_table_depth  (nlon,nlat))
+ allocate(tg_bottom          (nlon,nlat))
+ allocate(qg_rel_bottom      (nlon,nlat))
+ allocate(qg_rel_surf_approx (nlon,nlat))
 
  allocate(soil_map (nlon,nlat,nst+1))
  allocate(veg_map  (nlon,nlat,nvt+1))
@@ -544,12 +558,12 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
  allocate(tvk    (2*nlev_atm_inp_max-1))
  allocate(pl2    (nlev_atm_inp_max))
 
- allocate(zsoile (nlev_soil_inp_max))
- allocate(tsoile (nlev_soil_inp_max))
- allocate(qsoile (nlev_soil_inp_max))
- allocate(zsoil  (nlevg))
- allocate(tsoili (nlevg))
- allocate(qsoili (nlevg))
+ allocate(tsoile (nlev_soil_inp_max+1))
+ allocate(qsoile (nlev_soil_inp_max+1))
+ allocate(zsoil      (nlevg))
+ allocate(zsoil_work (nlevg))
+ allocate(tsoili     (nlevg))
+ allocate(qsoili     (nlevg))
 
  allocate(iv     (nlev))
  allocate(ivg    (nlevg))
@@ -788,6 +802,8 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
 
    do k = 1, nlev_soil_inp
    call interp_spline_2d (tge(1,1,k), iana, jana, xe, ye, xxt, yyt, ntot, tgii(1,1,k), al)
+! qge - relative (!) soil water content (proportion) in input data;
+! qgii - relative (!) soil water content (proportion) interpolated at model grid
    call interp_spline_2d (qge(1,1,k), iana, jana, xe, ye, xxt, yyt, ntot, qgii(1,1,k), al)
    enddo
 
@@ -806,25 +822,32 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
 
 ! -----------------------------------------------------------------------
 
-! Definition of all constant (in time) model physiographical parameters
+! Definition of all model physiographical parameters: land-sea fraction,
+! orography parameters, soil and vegetation parameters
 
-! If model_param_constant.bin exists, then reads constant model
+! If model_param_constant.bin exists (flag_constant_fields=0), then reads constant model
 ! physiographical parameters from this file,
-! else parameters are defined using def_soil.F90 procedures
+! else (flag_constant_fields/=0) parameters are defined using 
+! subroutine physiographic_param (in def_soil.F90)
 
-   call read_param_const(x0, y0, alon0, alat0-dlat*0.5, zhtopvar, flag_constant_fields)
+! Physiographical parameters variable in time (LAI, vegetation frac,
+! soil temperature and soil water content vertical approximated profies)
+! are difined by subroutine physiographic_param (in def_soil.F90)
+
+   call read_param_const(x0, y0, alon0, alat0, htopi, zhtopvar, flag_constant_fields)
 
    nlon_limit=nlon-2
 
    print *
-   if (flag_constant_fields == 0) then
 
-     call physiographic_param (nlon_limit, nlat, nst, nvt, nlevg, &
+   call physiographic_param (nlon_limit, nlat, nst, nvt, nlevg, &
  alon0, alat0, dlon, dlat, x0, y0, xxtg(1:nlon_limit,:), yytg(1:nlon_limit,:), &
- tskini(1:nlon_limit,:), soil_lev, ndayr, 0, &
+ tskini(1:nlon_limit,:), soil_lev, ndayr, flag_constant_fields, &
  htopi(1:nlon_limit,:), zhtopvar(1:nlon_limit,:), fmask(1:nlon_limit,:), &
+ water_table_depth(1:nlon_limit,:), tg_bottom(1:nlon_limit,:), &
+ qg_rel_bottom(1:nlon_limit,:), qg_rel_surf_approx(1:nlon_limit,:), &
  ind_lev_soil_h_bottom(1:nlon_limit,:), ind_lev_soil_w_bottom(1:nlon_limit,:), &
- tgi(1:nlon_limit,:,:), qg(1:nlon_limit,:,:), &
+ tg_first_guess(1:nlon_limit,:,:), qg_rel_first_guess(1:nlon_limit,:,:), &
  soil_map(1:nlon_limit,:,:), veg_map(1:nlon_limit,:,:), &
  soil_qmax(1:nlon_limit,:,:), soil_qmin(1:nlon_limit,:,:), soil_c(1:nlon_limit,:,:), &
  soil_rho(1:nlon_limit,:,:), soil_psi(1:nlon_limit,:,:), soil_k(1:nlon_limit,:,:), &
@@ -837,11 +860,16 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
  veg_root_depth(1:nlon_limit,:), veg_roughness(1:nlon_limit,:), &
  veg_albedo(1:nlon_limit,:), veg_emiss1(1:nlon_limit,:), veg_emiss2(1:nlon_limit,:), veg_lai_max, &
  snow_dirt(1:nlon_limit,:))
-print *,'poisk snow_dirt preglobo 1 ',minval(snow_dirt),minloc(snow_dirt),maxval(snow_dirt),maxloc(snow_dirt)
+
+   if (flag_constant_fields == 1 ) then ! Definition of constant parameters
 
      htopi(nlon-1:nlon,:) = htopi(1:2,:)
      zhtopvar(nlon-1:nlon,:) = zhtopvar(1:2,:)
      fmask(nlon-1:nlon,:) = fmask(1:2,:)
+     tg_bottom(nlon-1:nlon,:) = tg_bottom(1:2,:)
+     qg_rel_bottom(nlon-1:nlon,:) = qg_rel_bottom(1:2,:)
+     qg_rel_surf_approx(nlon-1:nlon,:) = qg_rel_surf_approx(1:2,:)
+     water_table_depth(nlon-1:nlon,:) = water_table_depth(1:2,:)
      ind_lev_soil_h_bottom(nlon-1:nlon,:) = ind_lev_soil_h_bottom(1:2,:)
      ind_lev_soil_w_bottom(nlon-1:nlon,:) = ind_lev_soil_w_bottom(1:2,:)
      soil_map(nlon-1:nlon,:,:) = soil_map(1:2,:,:)
@@ -870,27 +898,22 @@ print *,'poisk snow_dirt preglobo 1 ',minval(snow_dirt),minloc(snow_dirt),maxval
      veg_emiss1(nlon-1:nlon,:) = veg_emiss1(1:2,:)
      veg_emiss2(nlon-1:nlon,:) = veg_emiss2(1:2,:)
      snow_dirt(nlon-1:nlon,:) = snow_dirt(1:2,:)
-
-     phig(:,:) = htopi(:,:)*g0
-
+  
+     tg_first_guess(nlon-1:nlon,:,:) = tg_first_guess(1:2,:,:)
+     qg_rel_first_guess(nlon-1:nlon,:,:) = qg_rel_first_guess(1:2,:,:)
+     veg_lai(nlon-1:nlon,:) = veg_lai(1:2,:)
+     veg_frac(nlon-1:nlon,:) = veg_frac(1:2,:)
+ 
      call polavert (phig, nlon, nlat, npolcap)
      call polavert (zhtopvar, nlon, nlat, npolcap)
      zhtopvar(:,:) = max (zhtopvar(:,:), 0.)
      call polavert (veg_roughness, nlon, nlat, npolcap)
      veg_roughness(:,:) = max (veg_roughness(:,:), 1.e-8)
 
-   else
+   endif ! Definition of constant parameters
 
-! Definition of variable (in time) parameters only (vegetation LAI and fraction)
+   phig(:,:) = htopi(:,:)*g0
 
-     call veget_param_time_series (nlon_limit, nlat, xxtg(1:nlon_limit,:), xxtg(1:nlon_limit,:), &
- x0, y0, dlon, dlat, alon0, alat0+dlat*0.5, 1, ndayr, &
- veg_lai(1:nlon_limit,:), veg_lai_max, veg_frac(1:nlon_limit,:), -9999.) 
-
-     veg_lai(nlon-1:nlon,:) = veg_lai(1:2,:)
-     veg_frac(nlon-1:nlon,:) = veg_frac(1:2,:)
-
-   endif
    print *
 
 ! -----------------------------------------------------------------------
@@ -912,33 +935,137 @@ print *,'poisk snow_dirt preglobo 1 ',minval(snow_dirt),minloc(snow_dirt),maxval
    call landtemp (qgii(1,1,k), fmask, nlon, nlat, 4, 0, .8)
    enddo
 
-! --------------------------------------------------------------------------------------------------------
-! vertical interpolation of soil parameters (temp. and water cont.) from input data to model soil levels
-! lev_list_soil: soil levels of the input model
-! zsoil: levels of output model
-! --------------------------------------------------------------------------------------------------------
+! --------------------------------------------------
+! Vertical interpolation of soil parameters (temp. and water cont.)
+! --------------------------------------------------
 
-   zsoile(1:nlev_soil_inp) = sqrt(lev_list_soil(1:nlev_soil_inp)) ! to make the depth coordinate more linear
+! LEV_LIST_SOIL: levels of input model soil
+! ZSOILI and SLT: levels and depths of output model soil layers
+
    zsoil(1:nlevg) = sqrt(soil_lev(1:nlevg)) ! to make the depth coordinate more linear
-   call near (zsoil, nlevg, zsoile, nlev_soil_inp, ivg)
 
-! vertical interpolation of soil variables
+! Vertical interpolation of soil variables from input to output model levels
 
-   alf=.8
-   ex1=.2
-   ex2=.2
-   do j = 1, nlat
-   do i = 1, nlon
-   tsoile(:) = tgii(i,j,:)
-   qsoile(:) = qgii(i,j,:)
-   call interp_spline_1d (tsoili, zsoil, nlevg, tsoile, zsoile, nlev_soil_inp, ivg, alf,ex1,ex2)
-   call interp_spline_1d (qsoili, zsoil, nlevg, qsoile, zsoile, nlev_soil_inp, ivg, alf,ex1,ex2)
-   tgi(i,j,1:nlevg) = tsoili(1:nlevg)
-   qgi(i,j,1:nlevg) = qsoili(1:nlevg)
-   enddo
-   enddo
+  alf = 0.
+  ex1 = 1.
+  ex2 = 1.
+  z1=sum(lev_list_soil(1:nlev_soil_inp))
+  z2=sum(soil_lev(1:nlevg))
 
-   zsoil = zsoil**2
+  if (abs(z1-z2)>1.e-1.or.nlev_soil_inp<nlevg) then  ! case vertical interpolation is needed
+
+    zsoil(1:nlevg) = sqrt(soil_lev(1:nlevg))
+    zsoil_work(1:nlev_soil_inp) = sqrt(lev_list_soil(1:nlev_soil_inp))
+
+    do j = 1, nlat
+    do i = 1, nlon
+  
+! Temperature of soil and sea water
+
+     tsoile(1:nlev_soil_inp) = tgii(i,j,1:nlev_soil_inp)
+
+     if (fmask(i,j) < 0.5.or.fice(i,j) >= 0.8) then
+
+! Soil or thick sea ice
+
+        tgi(i,j,1:nlevg) = tg_first_guess(i,j,1:nlevg)
+  
+        nk = ind_lev_soil_h_bottom(i,j)
+
+        if (soil_lev(nk) >= lev_list_soil(nlev_soil_inp)+0.5) then
+
+! The bottom temperature soil level is below the bottom soil level in input data:
+! temperature at upper soil levels is defined by vertical interpolation of
+! input data and temperature at lower soil level is defined by first guess temperature
+
+          do jklev = 1,nk
+            if (soil_lev(jklev) >= lev_list_soil(nlev_soil_inp)+0.5) exit
+          enddo
+          nk = jklev
+          zsoil_work(nlev_soil_inp+1) = zsoil(nk)
+          tsoile(nlev_soil_inp+1) = tg_first_guess(i,j,nk)
+          call near (zsoil(1:nk), nk, zsoil_work(1:nlev_soil_inp+1), nlev_soil_inp+1, ivg(1:nk))
+          call interp_spline_1d (tsoili(1:nk), zsoil(1:nk), nk, tsoile(1:nlev_soil_inp+1), zsoil_work(1:nlev_soil_inp+1), &
+   nlev_soil_inp+1, ivg(1:nk), alf, ex1, ex2)
+          tgi(i,j,1:nk) = tsoili(1:nk)
+
+        else
+
+! The bottom temperature soil level is upper then bottom soil level in input data:
+! temperature at all soil levels is defined by vertical interpolation of input data
+
+          call near (zsoil(1:nk), nk, zsoil_work(1:nlev_soil_inp), nlev_soil_inp, ivg(1:nk))
+          call interp_spline_1d (tsoili(1:nk), zsoil(1:nk), nk, tsoile(1:nlev_soil_inp), zsoil_work(1:nlev_soil_inp), &
+   nlev_soil_inp, ivg(1:nk), alf, ex1, ex2)
+          tgi(i,j,1:nk) = tsoili(1:nk)
+
+        endif
+
+      else
+
+! Sea water
+
+        call near (zsoil(1:nlevg), nlevg, zsoil_work(1:nlev_soil_inp), nlev_soil_inp, ivg(1:nlevg))
+        call interp_spline_1d (tsoili(1:nlevg), zsoil(1:nlevg), nlevg, tsoile(1:nlev_soil_inp), zsoil_work(1:nlev_soil_inp), &
+   nlev_soil_inp, ivg(1:nlevg), alf, ex1, ex2)
+        tgi(i,j,1:nlevg) = tsoili(1:nlevg)
+
+      endif
+
+! Relative soil water content
+
+      qsoile(1:nlev_soil_inp) = qgii(i,j,1:nlev_soil_inp)
+
+      nk = ind_lev_soil_w_bottom(i,j)
+
+      if (nk > 0) then ! No water body, no glacier
+    
+        qgi(i,j,1:nlevg) = qg_rel_first_guess(i,j,1:nlevg)
+
+        if (soil_lev(nk) >= lev_list_soil(nlev_soil_inp)+0.5) then
+  
+! The bottom soil water content level is below the bottom soil level in input data:
+! water content at upper soil levels is defined by vertical interpolation of
+! input data and water content at lower soil level is defined by first guess temperature
+  
+          do jklev = 1,nk
+            if (soil_lev(jklev) >= lev_list_soil(nlev_soil_inp)+0.5) exit
+          enddo
+          nk = jklev
+          zsoil_work(nlev_soil_inp+1) = zsoil(nk)
+          qsoile(nlev_soil_inp+1) = qg_rel_first_guess(i,j,nk)
+          call near (zsoil(1:nk), nk, zsoil_work(1:nlev_soil_inp+1), nlev_soil_inp+1, ivg(1:nk))
+          call interp_spline_1d (qsoili(1:nk), zsoil(1:nk), nk, qsoile(1:nlev_soil_inp+1), zsoil_work(1:nlev_soil_inp+1), &
+     nlev_soil_inp+1, ivg(1:nk), alf, ex1, ex2)
+          qgi(i,j,1:nk) = qsoili(1:nk)
+  
+        else
+  
+! The bottom soil water content level is upper then bottom soil level in input data:
+! water content at all soil levels is defined by vertical interpolation of input data
+  
+          call near (zsoil(1:nk), nk, zsoil_work(1:nlev_soil_inp), nlev_soil_inp, ivg(1:nk))
+          call interp_spline_1d (qsoili(1:nk), zsoil(1:nk), nk, qsoile(1:nlev_soil_inp), zsoil_work(1:nlev_soil_inp), &
+     nlev_soil_inp, ivg(1:nk), alf, ex1, ex2)
+          qgi(i,j,1:nk) = qsoili(1:nk)
+    
+        endif
+
+      else
+        
+        qgi(i,j,1:nlevg) = 0.
+
+      endif ! No water body, no glacier
+  
+    enddo
+    enddo
+
+  else
+
+    tgi(:,:,1:nlevg) = tgii(:,:,1:nlevg)
+    qgi(:,:,1:nlevg) = qgii(:,:,1:nlevg)
+
+  endif
 
 ! reset of possible unfeasible values
 
@@ -947,6 +1074,48 @@ print *,'poisk snow_dirt preglobo 1 ',minval(snow_dirt),minloc(snow_dirt),maxval
    fice(:,:)   = min (fice(:,:), fmask(:,:))
    tice(:,:)   = min (tice(:,:), 271.4)
    qgi(:,:,:)  = min (max(qgi(:,:,:),0.), 1.) ! relative value
+
+i=2; j=588
+i=552; j=890
+print *
+print *,'poisk fmask',fmask(i,j)
+print *,'poisk htopi',phig(i,j)/g0
+print *,'poisk zhtopvar',zhtopvar(i,j)
+print *,'poisk tg_bottom, qg_rel_bottom, qg_rel_surf_approx, water_table_depth',&
+ tg_bottom(i,j), qg_rel_bottom(i,j), qg_rel_surf_approx(i,j), water_table_depth(i,j)
+print *,'poisk ind_lev_soil_h_bottom ind_lev_soil_w_bottom',ind_lev_soil_h_bottom(i,j),ind_lev_soil_w_bottom(i,j)
+print *,'poisk soil_map',soil_map(i,j,:)
+print *,'poisk veg_map',veg_map(i,j,:)
+print *,'poisk soil_qmax',soil_qmax(i,j,:)
+print *,'poisk soil_qmin',soil_qmin(i,j,:)
+print *,'poisk soil_c',soil_c(i,j,:)
+print *,'poisk soil_rho',soil_rho(i,j,:)
+print *,'poisk soil_psi',soil_psi(i,j,:)
+print *,'poisk soil_k',soil_k(i,j,:)
+print *,'poisk soil_par_b',soil_par_b(i,j,:)
+print *,'poisk soil_qrel_wilt',soil_qrel_wilt(i,j,:)
+print *,'poisk soil_qrel_ref',soil_qrel_ref(i,j,:)
+print *,'poisk soil_albedo_dry',soil_albedo_dry(i,j)
+print *,'poisk soil_albedo_dry',soil_albedo_dry(i,j)
+print *,'poisk soil_albedo_wet',soil_albedo_wet(i,j)
+print *,'poisk soil_emiss1_dry',soil_emiss1_dry(i,j)
+print *,'poisk soil_emiss1_wet',soil_emiss1_wet(i,j)
+print *,'poisk soil_emiss2_dry',soil_emiss2_dry(i,j)
+print *,'poisk soil_emiss2_wet',soil_emiss2_wet(i,j)
+print *,'poisk veg_root_depth',veg_root_depth(i,j)
+print *,'poisk veg_roughness',veg_roughness(i,j)
+print *,'poisk veg_albedo',veg_albedo(i,j)
+print *,'poisk veg_emiss1',veg_emiss1(i,j)
+print *,'poisk veg_emiss2',veg_emiss2(i,j)
+print *,'poisk snow_dirt',snow_dirt(i,j)
+print *,'poisk veg_lai_max',veg_lai_max
+print *,'poisk tg_first_guess',tg_first_guess(i,j,:)
+print *,'poisk qg_rel_first_guess',qg_rel_first_guess(i,j,:)
+print *,'poisk veg_lai',veg_lai(i,j)
+print *,'poisk veg_frac',veg_frac(i,j)
+print *,'poisk tgi',tgi(i,j,:)
+print *,'poisk qgi',qgi(i,j,:)
+print *
 
 ! --------------------------------------------------
 !  only in the case of hybrid levels: horizontal interpolation of surface pressure
@@ -1798,11 +1967,6 @@ print *,'poisk snow_dirt preglobo 1 ',minval(snow_dirt),minloc(snow_dirt),maxval
 !  call read_forecast_mhf_soil_access_direct(iflag_soil_snow_frc)
 !  call read_forecast_mhf_ascii_soil(iflag_soil_snow_frc)
 
-!  write (31,*) snow(:,30)
-!print *
-!print *,'poisk',fmask (3,nlat-3),fice(3,nlat-3),fice_frc(3,nlat-3),snow(3,nlat-3)
-!print *
-
   write (*,*)
   if (iflag_soil_snow_frc == 1) then
 
@@ -1852,12 +2016,6 @@ print *,'poisk snow_dirt preglobo 1 ',minval(snow_dirt),minloc(snow_dirt),maxval
           snow_melt_age(i,j,1:nk) = snow_melt_age_frc(i,j,1:nk)
           snow_dens(i,j,1:nk) = snow_dens_frc(i,j,1:nk)
           snow(i,j) = snow_lev(i,j,nk)*1.e-3
-!! poisk
-!if (nk>=10.and.fmask(i,j)<0.01) then
-!  if (maxval(snow_t(i,j,1:nk)) > 273.00) then
-!    write (32,*) i,j,xxtg(i,j),yytg(i,j),nk,snow_lev(i,j,nk),snow_t(i,j,1:nk)
-!  endif
-!endif
         else
           snow(i,j) = 0.
         endif
@@ -1947,48 +2105,6 @@ print *,'poisk snow_dirt preglobo 1 ',minval(snow_dirt),minloc(snow_dirt),maxval
     enddo
     enddo
 
-!! poisk --->
-!  do j=1,200
-!
-!    snow(1,j)=snow(2,j)
-!    snow_lev(1,j,:)=snow_lev(2,j,:)
-!    snow_t(1,j,:)=snow_t(2,j,:)
-!    snow_fice(1,j,:)=snow_fice(2,j,:)
-!    snow_age(1,j,:)=snow_age(2,j,:)
-!    snow_melt_age(1,j,:)=snow_melt_age(2,j,:)
-!    snow_dens(1,j,:)=snow_dens(2,j,:)
-!
-!    snow(nlon-1,j)=snow(nlon,j)
-!    snow_lev(nlon-1,j,:)=snow_lev(nlon,j,:)
-!    snow_t(nlon-1,j,:)=snow_t(nlon,j,:)
-!    snow_fice(nlon-1,j,:)=snow_fice(nlon,j,:)
-!    snow_age(nlon-1,j,:)=snow_age(nlon,j,:)
-!    snow_melt_age(nlon-1,j,:)=snow_melt_age(nlon,j,:)
-!    snow_dens(nlon-1,j,:)=snow_dens(nlon,j,:)
-!
-!    snow(nlon-2,j)=snow(nlon,j)
-!    snow_lev(nlon-2,j,:)=snow_lev(nlon,j,:)
-!    snow_t(nlon-2,j,:)=snow_t(nlon,j,:)
-!    snow_fice(nlon-2,j,:)=snow_fice(nlon,j,:)
-!    snow_age(nlon-2,j,:)=snow_age(nlon,j,:)
-!    snow_melt_age(nlon-2,j,:)=snow_melt_age(nlon,j,:)
-!    snow_dens(nlon-2,j,:)=snow_dens(nlon,j,:)
-!
-!    snow(nlon-3,j)=snow(nlon-4,j)
-!    snow_lev(nlon-3,j,:)=snow_lev(nlon-4,j,:)
-!    snow_t(nlon-3,j,:)=snow_t(nlon-4,j,:)
-!    snow_fice(nlon-3,j,:)=snow_fice(nlon-4,j,:)
-!    snow_age(nlon-3,j,:)=snow_age(nlon-4,j,:)
-!    snow_melt_age(nlon-3,j,:)=snow_melt_age(nlon-4,j,:)
-!    snow_dens(nlon-3,j,:)=snow_dens(nlon-4,j,:)
-!
-!  enddo
-!! <---
-!  write (32,*) snow(:,30)
-!print *
-!print *,'poisk',fmask (3,nlat-3),fice(3,nlat-3),fice_frc(3,nlat-3),snow(3,nlat-3)
-!print *
-    
     write (*,*) "Soil and snow prognostic parameters (temperature, water content, ect.) "
     write (*,*) "are initialisated with forecast data generated by a preceded model run"
 
@@ -2011,8 +2127,8 @@ print *,'poisk snow_dirt preglobo 1 ',minval(snow_dirt),minloc(snow_dirt),maxval
 ! Write mhf
 !--------------------------------------------------------------------------------------------
 
-   if (flag_constant_fields == 0) then
-     call write_param_const(x0, y0, alon0, alat0-dlat*0.5, zhtopvar)
+   if (flag_constant_fields == 1) then
+     call write_param_const(x0, y0, alon0, alat0, htopi, zhtopvar)
    endif
  
    call wrmhf_atm
@@ -2042,6 +2158,54 @@ print *,'poisk snow_dirt preglobo 1 ',minval(snow_dirt),minloc(snow_dirt),maxval
    stop
    end program preglobo
 !##################################################################################################
+subroutine wrec2 (kunit, nlon, nlat, vect)
+
+implicit none
+
+integer :: kunit, nlon, nlat
+real, dimension(nlon,nlat) :: vect
+
+ write(kunit) vect(1:nlon,1:nlat)
+
+return
+end subroutine wrec2
+!##################################################################################################
+subroutine wrec2_int (kunit, nlon, nlat, ivect)
+
+implicit none
+
+integer :: kunit, nlon, nlat
+integer, dimension(nlon,nlat) :: ivect
+
+ write(kunit) ivect(1:nlon,1:nlat)
+
+return
+end subroutine wrec2_int
+!##################################################################################################
+subroutine rrec2 (kunit, nlon, nlat, vect)
+
+implicit none
+
+integer :: kunit, nlon, nlat
+real, dimension(nlon,nlat) :: vect
+
+ read(kunit) vect(1:nlon,1:nlat)
+
+return
+end subroutine rrec2
+!##################################################################################################
+subroutine rrec2_int (kunit, nlon, nlat, ivect)
+
+implicit none
+
+integer :: kunit, nlon, nlat
+integer, dimension(nlon,nlat) :: ivect
+
+ read(kunit) ivect(1:nlon,1:nlat)
+
+return
+end subroutine rrec2_int
+!##################################################################################################
 subroutine wrmhf_atm
 
 ! Writes a MHF file of BOLAM with atmospheric variables
@@ -2052,7 +2216,7 @@ use mod_fields
 implicit none
 
 real, dimension(nlon,nlat) :: field2d_add
-integer :: iunit = 11, i, j, k
+integer :: nf, iunit = 11, i, j, k
 character(len=30) :: file_output='input_atm_01.mhf'
 
  open (iunit,file=file_output,form='unformatted')
@@ -2060,35 +2224,28 @@ character(len=30) :: file_output='input_atm_01.mhf'
  write(iunit) nfdr
  write(iunit) pdr
 
- do j = 1,nlat
-   write(iunit) (ps(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, ps(1:nlon,1:nlat))
+
  do k = 1,nlev
-   do j = 1,nlat
-     write(iunit) (u(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, u(1:nlon,1:nlat,k))
  enddo
+
  do k = 1,nlev
-   do j = 1,nlat
-     write(iunit) (v(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, v(1:nlon,1:nlat,k))
  enddo
+
  do k = 1,nlev
-   do j = 1,nlat
-     write(iunit) (t(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, t(1:nlon,1:nlat,k))
  enddo
+
  do k = 1,nlev
-   do j = 1,nlat
-     write(iunit) (q(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, q(1:nlon,1:nlat,k))
  enddo
+
  do k = 1,nlev
-   do j = 1,nlat
-     write(iunit) (qc(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, qc(1:nlon,1:nlat,k))
  enddo
- 
+
  close (iunit)
 
  write (*,*)
@@ -2118,132 +2275,99 @@ character(len=30) :: file_output='input_soil_01.mhf'
  write(iunit) nfdr
  write(iunit) pdr
 
- do j = 1,nlat
-   write(iunit) (veg_lai(i,j),i=1,nlon)
- enddo
- do j = 1,nlat
-   write(iunit) (veg_frac(i,j),i=1,nlon)
- enddo
- do j = 1,nlat
-   write(iunit) (rgm(i,j),i=1,nlon)
- enddo
- do j = 1,nlat
-   write(iunit) (rgq(i,j),i=1,nlon)
- enddo
- do j = 1,nlat
-   write(iunit) (iceth(i,j),i=1,nlon)
- enddo
- do j = 1,nlat
-   write(iunit) (fice(i,j),i=1,nlon)
- enddo
- do j = 1,nlat
-   write(iunit) (albedo(i,j),i=1,nlon)
- enddo
- do j = 1,nlat
-   write(iunit) (emismap1(i,j),i=1,nlon)
- enddo
- do j = 1,nlat
-   write(iunit) (emismap2(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, veg_lai(1:nlon,1:nlat))
+
+ call wrec2 (iunit, nlon, nlat, veg_frac(1:nlon,1:nlat))
+
+ call wrec2 (iunit, nlon, nlat, rgm(1:nlon,1:nlat))
+
+ call wrec2 (iunit, nlon, nlat, rgq(1:nlon,1:nlat))
+
+ call wrec2 (iunit, nlon, nlat, iceth(1:nlon,1:nlat))
+
+ call wrec2 (iunit, nlon, nlat, fice(1:nlon,1:nlat))
+
+ call wrec2 (iunit, nlon, nlat, albedo(1:nlon,1:nlat))
+
+ call wrec2 (iunit, nlon, nlat, emismap1(1:nlon,1:nlat))
+
+ call wrec2 (iunit, nlon, nlat, emismap2(1:nlon,1:nlat))
 
 ! cloud, totpre, conpre, snfall
 
- do iwr =1,4
-   do j = 1,nlat
-     write(iunit) (field2d_add(i,j),i=1,nlon)
-   enddo
+ do iwr = 1, 4
+   call wrec2 (iunit, nlon, nlat, field2d_add(1:nlon,1:nlat))
  enddo
 
- do j = 1,nlat
-   write(iunit) (tskin(i,j),i=1,nlon)
- enddo
- do j = 1,nlat
-   write(iunit) (tgsurf(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, tskin(1:nlon,1:nlat))
+
+ call wrec2 (iunit, nlon, nlat, tgsurf(1:nlon,1:nlat))
+
  do k = 1,nlevg
-   do j = 1,nlat
-     write(iunit) (tg(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, tg(1:nlon,1:nlat,k))
  enddo
- do j = 1,nlat
-   write(iunit) (qvsurf(i,j),i=1,nlon)
- enddo
- do j = 1,nlat
-   write(iunit) (qgsurf(i,j),i=1,nlon)
- enddo
+
+ call wrec2 (iunit, nlon, nlat, qvsurf(1:nlon,1:nlat))
+
+ call wrec2 (iunit, nlon, nlat, qgsurf(1:nlon,1:nlat))
+
  do k = 1,nlevg
-   do j = 1,nlat
-     write(iunit) (qg(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, qg(1:nlon,1:nlat,k))
  enddo
- do j = 1,nlat
-   write(iunit) (fice_soil_surf(i,j),i=1,nlon)
- enddo
+
+ call wrec2 (iunit, nlon, nlat, fice_soil_surf(1:nlon,1:nlat))
+
  do k = 1,nlevg
-   do j = 1,nlat
-     write(iunit) (fice_soil(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, fice_soil(1:nlon,1:nlat,k))
  enddo
- do j = 1,nlat
-   write(iunit) (snow(i,j),i=1,nlon)
- enddo
+
+ call wrec2 (iunit, nlon, nlat, snow(1:nlon,1:nlat))
+
  do k = 1,nlevsnow
-   do j = 1,nlat
-     write(iunit) (snow_lev(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, snow_lev(1:nlon,1:nlat,k))
  enddo
+
  do k = 1,nlevsnow
-   do j = 1,nlat
-     write(iunit) (snow_t(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, snow_t(1:nlon,1:nlat,k))
  enddo
+
  do k = 1,nlevsnow
-   do j = 1,nlat
-     write(iunit) (snow_fice(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, snow_fice(1:nlon,1:nlat,k))
  enddo
+
  do k = 1,nlevsnow
-   do j = 1,nlat
-     write(iunit) (snow_age(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, snow_age(1:nlon,1:nlat,k))
  enddo
+
  do k = 1,nlevsnow
-   do j = 1,nlat
-     write(iunit) (snow_melt_age(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, snow_melt_age(1:nlon,1:nlat,k))
  enddo
+
  do k = 1,nlevsnow
-   do j = 1,nlat
-     write(iunit) (snow_dens(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, snow_dens(1:nlon,1:nlat,k))
  enddo
- do j = 1,nlat
-   write(iunit) (snow_albedo(i,j),i=1,nlon)
- enddo
+
+ call wrec2 (iunit, nlon, nlat, snow_albedo(1:nlon,1:nlat))
 
 ! cswfl, clwfl, chflux, cqflux, t2min, t2max, runoff, runoff_tot
 
- do iwr =1,8
-   do j = 1,nlat
-     write(iunit) (field2d_add(i,j),i=1,nlon)
-   enddo
+ do iwr = 1, 8
+   call wrec2 (iunit, nlon, nlat, field2d_add(1:nlon,1:nlat))
  enddo
 
 ! Writing of additional 2D fields
 
+ field2d_add(:,:) = 0.
  do iwr = 1,3
-   do j = 1,nlat
-     write(iunit) (field2d_add(i,j),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, field2d_add(1:nlon,1:nlat))
  enddo
 
-! flush (iunit)
  close (iunit)
 
  write (*,*)
  write (*,*) 'Output mhf file ',trim(file_output),' written' 
  write (*,*)
-
+ 
 return
 end
 !##################################################################################################
@@ -2771,13 +2895,14 @@ real :: tgav1,tgav2,tgav3,tgav4,qgav1,qgav2,qgav3,qgav4
    return
    end
 !=======================================================================
-subroutine read_param_const(x0, y0, alon0, alat0, htopvar, flag_data)
+subroutine read_param_const(x0, y0, alon0, alat0, htop, htopvar, flag_data)
 
 ! If model_param_constant.bin exists, then reads constant (in time) model
 ! physiographical parameters from this file
 
 use param
-use mod_fields, only : phig, fmask, rgm, rgq, soil_map, veg_map, &
+use mod_fields, only : fmask, rgm, rgq, soil_map, veg_map, &
+ water_table_depth, tg_bottom, qg_rel_bottom, qg_rel_surf_approx, &
  soil_qmax, soil_qmin, soil_c, soil_rho, soil_psi, soil_k, soil_par_b, soil_par_c, soil_qrel_wilt, soil_qrel_ref, &
  soil_albedo_dry, soil_albedo_wet, soil_emiss1_dry, soil_emiss1_wet, soil_emiss2_dry, soil_emiss2_wet, &
  veg_lai, veg_frac, veg_root_depth, veg_roughness, veg_albedo, veg_emiss1, veg_emiss2, &
@@ -2788,15 +2913,15 @@ implicit none
 integer :: flag_data, iunit=10, nlon_read, nlat_read, nlevg_read, nst_read, nvt_read, &
  ierr_open, flag, i, j, k
 real :: x0, y0, x0_read, y0_read, alon0, alat0, alon0_read, alat0_read, dlon_read, dlat_read
-real, dimension(nlon,nlat) :: htopvar
+real, dimension(nlon,nlat) :: htop, htopvar
 character(len=30) :: file_data="model_param_constant.bin"
 
- flag_data=1
+ flag_data=0
 
  open (iunit, file=trim(file_data), form="unformatted", status="old", iostat=ierr_open)
 
  if (ierr_open /= 0) then
-   flag_data=0
+   flag_data=1
    return
  endif
 
@@ -2811,7 +2936,7 @@ character(len=30) :: file_data="model_param_constant.bin"
  if (x0_read /= x0) flag=0
  if (y0_read /= y0) flag=0
  if (alon0_read /= alon0) flag=0
- if (alat0_read /= alat0+dlat*0.5) flag=0
+ if (alat0_read /= alat0) flag=0
 
  if (flag == 0) then
    write (*,*)
@@ -2819,154 +2944,103 @@ character(len=30) :: file_data="model_param_constant.bin"
    write (*,*) "Model nlon, nlat, nlevg, dlon, dlat, x0, y0, alon0, alat0 :", &
  nlon, nlat, nlevg, dlon, dlat, x0, y0, alon0, alat0
    write (*,*)"Read nlon, nlat, nlevg, dlon, dlat, x0, y0, alon0, alat0 :", &
- nlon_read, nlat_read, nlevg_read, dlon_read, dlat_read, x0_read, y0_read, alon0_read, alat0_read-dlat_read*0.5
+ nlon_read, nlat_read, nlevg_read, dlon_read, dlat_read, x0_read, y0_read, alon0_read, alat0_read
    write (*,*) "File with constant model parameter fields is erroneous and not will be used"
    write (*,*)
-   flag_data=0
+   flag_data=1
    return
  endif
 
- do j = 1,nlat
-   read(iunit) (fmask(i,j),i=1,nlon)
- enddo
+ call rrec2 (iunit, nlon, nlat, fmask(1:nlon,1:nlat))
 
- do j = 1,nlat
-   read(iunit) (phig(i,j),i=1,nlon)
- enddo
- phig(:,:)=phig(:,:)*g0
+ call rrec2 (iunit, nlon, nlat, htop(1:nlon,1:nlat))
 
- do j = 1,nlat
-   read(iunit) (htopvar(i,j),i=1,nlon)
- enddo
+ call rrec2 (iunit, nlon, nlat, htopvar(1:nlon,1:nlat))
+print *,'poisk htop preglobo 2 ',htop(552,890),htopvar(552,890)
 
  do k = 1,nst+1
-   do j = 1,nlat
-     read(iunit) (soil_map(i,j,k),i=1,nlon)
-   enddo
+   call rrec2 (iunit, nlon, nlat, soil_map(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nvt+1
-   do j = 1,nlat
-     read(iunit) (veg_map(i,j,k),i=1,nlon)
-   enddo
+   call rrec2 (iunit, nlon, nlat, veg_map(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     read(iunit) (soil_qmax(i,j,k),i=1,nlon)
-   enddo
+   call rrec2 (iunit, nlon, nlat, soil_qmax(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     read(iunit) (soil_qmin(i,j,k),i=1,nlon)
-   enddo
+   call rrec2 (iunit, nlon, nlat, soil_qmin(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     read(iunit) (soil_c(i,j,k),i=1,nlon)
-   enddo
+   call rrec2 (iunit, nlon, nlat, soil_c(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     read(iunit) (soil_rho(i,j,k),i=1,nlon)
-   enddo
+   call rrec2 (iunit, nlon, nlat, soil_rho(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     read(iunit) (soil_psi(i,j,k),i=1,nlon)
-   enddo
+   call rrec2 (iunit, nlon, nlat, soil_psi(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     read(iunit) (soil_k(i,j,k),i=1,nlon)
-   enddo
- enddo
-
-do k = 1,nlevg
-   do j = 1,nlat
-     read(iunit) (soil_par_b(i,j,k),i=1,nlon)
-   enddo
+   call rrec2 (iunit, nlon, nlat, soil_k(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     read(iunit) (soil_par_c(i,j,k),i=1,nlon)
-   enddo
+   call rrec2 (iunit, nlon, nlat, soil_par_b(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     read(iunit) (soil_qrel_wilt(i,j,k),i=1,nlon)
-   enddo
+   call rrec2 (iunit, nlon, nlat, soil_par_c(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     read(iunit) (soil_qrel_ref(i,j,k),i=1,nlon)
-   enddo
+   call rrec2 (iunit, nlon, nlat, soil_qrel_wilt(1:nlon,1:nlat,k))
  enddo
 
- do j = 1,nlat
-   read(iunit) (soil_albedo_dry(i,j),i=1,nlon)
+ do k = 1,nlevg
+   call rrec2 (iunit, nlon, nlat, soil_qrel_ref(1:nlon,1:nlat,k))
  enddo
 
- do j = 1,nlat
-   read(iunit) (soil_albedo_wet(i,j),i=1,nlon)
- enddo
+ call rrec2 (iunit, nlon, nlat, soil_albedo_dry(1:nlon,1:nlat))
 
- do j = 1,nlat
-   read(iunit) (soil_emiss1_dry(i,j),i=1,nlon)
- enddo
+ call rrec2 (iunit, nlon, nlat, soil_albedo_wet(1:nlon,1:nlat))
 
- do j = 1,nlat
-   read(iunit) (soil_emiss1_wet(i,j),i=1,nlon)
- enddo
+ call rrec2 (iunit, nlon, nlat, soil_emiss1_dry(1:nlon,1:nlat))
 
- do j = 1,nlat
-   read(iunit) (soil_emiss2_dry(i,j),i=1,nlon)
- enddo
+ call rrec2 (iunit, nlon, nlat, soil_emiss1_wet(1:nlon,1:nlat))
 
- do j = 1,nlat
-   read(iunit) (soil_emiss2_wet(i,j),i=1,nlon)
- enddo
+ call rrec2 (iunit, nlon, nlat, soil_emiss2_dry(1:nlon,1:nlat))
 
- do j = 1,nlat
-   read(iunit) (veg_root_depth(i,j),i=1,nlon)
- enddo
+ call rrec2 (iunit, nlon, nlat, soil_emiss2_wet(1:nlon,1:nlat))
 
- do j = 1,nlat
-   read(iunit) (veg_roughness(i,j),i=1,nlon)
- enddo
+ call rrec2 (iunit, nlon, nlat, veg_root_depth(1:nlon,1:nlat))
 
- do j = 1,nlat
-   read(iunit) (veg_albedo(i,j),i=1,nlon)
- enddo
+ call rrec2 (iunit, nlon, nlat, veg_roughness(1:nlon,1:nlat))
 
- do j = 1,nlat
-   read(iunit) (veg_emiss1(i,j),i=1,nlon)
- enddo
+ call rrec2 (iunit, nlon, nlat, veg_albedo(1:nlon,1:nlat))
 
- do j = 1,nlat
-   read(iunit) (veg_emiss2(i,j),i=1,nlon)
- enddo
+ call rrec2 (iunit, nlon, nlat, veg_emiss1(1:nlon,1:nlat))
 
- do j = 1,nlat
-   read(iunit) (ind_lev_soil_h_bottom(i,j),i=1,nlon)
- enddo
+ call rrec2 (iunit, nlon, nlat, veg_emiss2(1:nlon,1:nlat))
 
- do j = 1,nlat
-   read(iunit) (ind_lev_soil_w_bottom(i,j),i=1,nlon)
- enddo
+ call rrec2 (iunit, nlon, nlat, water_table_depth(1:nlon,1:nlat))
 
- do j = 1,nlat
-   read(iunit) (snow_dirt(i,j),i=1,nlon)
- enddo
-print *,'poisk snow_dirt preglobo 2 ',minval(snow_dirt),minloc(snow_dirt),maxval(snow_dirt),maxloc(snow_dirt)
+ call rrec2 (iunit, nlon, nlat, tg_bottom(1:nlon,1:nlat))
+
+ call rrec2 (iunit, nlon, nlat, qg_rel_bottom(1:nlon,1:nlat))
+
+ call rrec2 (iunit, nlon, nlat, qg_rel_surf_approx(1:nlon,1:nlat))
+
+ call rrec2_int (iunit, nlon, nlat, ind_lev_soil_h_bottom(1:nlon,1:nlat))
+
+ call rrec2_int (iunit, nlon, nlat, ind_lev_soil_w_bottom(1:nlon,1:nlat))
+
+ call rrec2 (iunit, nlon, nlat, snow_dirt(1:nlon,1:nlat))
 
  read(iunit) veg_lai_max
 
@@ -2979,12 +3053,13 @@ print *,'poisk snow_dirt preglobo 2 ',minval(snow_dirt),minloc(snow_dirt),maxval
 return
 end subroutine read_param_const
 !=======================================================================
-subroutine write_param_const(x0, y0, alon0, alat0, htopvar)
+subroutine write_param_const(x0, y0, alon0, alat0, htop, htopvar)
 
 ! Writes constant (in time) model physiographical parameters in model_param_constant.bin file
 
 use param
 use mod_fields, only : phig, fmask, rgm, rgq, soil_map, veg_map, &
+  water_table_depth, tg_bottom, qg_rel_bottom, qg_rel_surf_approx, &
  soil_qmax, soil_qmin, soil_c, soil_rho, soil_psi, soil_k, soil_par_b, soil_par_c, soil_qrel_wilt, soil_qrel_ref, &
  soil_albedo_dry, soil_albedo_wet, soil_emiss1_dry, soil_emiss1_wet, soil_emiss2_dry, soil_emiss2_wet, &
  veg_lai, veg_frac, veg_root_depth, veg_roughness, veg_albedo, veg_emiss1, veg_emiss2, &
@@ -2994,165 +3069,282 @@ use mod_fields, only : phig, fmask, rgm, rgq, soil_map, veg_map, &
 implicit none
 integer :: iunit=11, i, j, k
 real :: x0, y0, alon0, alat0
-real, dimension(nlon,nlat) :: htopvar
+real, dimension(nlon,nlat) :: htop, htopvar
 character(len=30) :: file_data="model_param_constant.bin"
 
  open (iunit, file=trim(file_data), form="unformatted", status="unknown")
 
- write (iunit) nlon, nlat, nlevg, dlon, dlat, x0, y0, alon0, alat0+dlat*0.5, nst, nvt
+ write (iunit) nlon, nlat, nlevg, dlon, dlat, x0, y0, alon0, alat0, nst, nvt
 
- do j = 1,nlat
-   write(iunit) (fmask(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, fmask(1:nlon,1:nlat))
 
- do j = 1,nlat
-   write(iunit) (phig(i,j)/g0,i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, htop(1:nlon,1:nlat))
 
- do j = 1,nlat
-   write(iunit) (htopvar(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, htopvar(1:nlon,1:nlat))
+print *,'poisk htop preglobo 1 ',htop(552,890),htopvar(552,890)
 
  do k = 1,nst+1
-   do j = 1,nlat
-     write(iunit) (soil_map(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, soil_map(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nvt+1
-   do j = 1,nlat
-     write(iunit) (veg_map(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, veg_map(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     write(iunit) (soil_qmax(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, soil_qmax(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     write(iunit) (soil_qmin(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, soil_qmin(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     write(iunit) (soil_c(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, soil_c(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     write(iunit) (soil_rho(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, soil_rho(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     write(iunit) (soil_psi(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, soil_psi(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     write(iunit) (soil_k(i,j,k),i=1,nlon)
-   enddo
- enddo
-
-do k = 1,nlevg
-   do j = 1,nlat
-     write(iunit) (soil_par_b(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, soil_k(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     write(iunit) (soil_par_c(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, soil_par_b(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     write(iunit) (soil_qrel_wilt(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, soil_par_c(1:nlon,1:nlat,k))
  enddo
 
  do k = 1,nlevg
-   do j = 1,nlat
-     write(iunit) (soil_qrel_ref(i,j,k),i=1,nlon)
-   enddo
+   call wrec2 (iunit, nlon, nlat, soil_qrel_wilt(1:nlon,1:nlat,k))
  enddo
 
- do j = 1,nlat
-   write(iunit) (soil_albedo_dry(i,j),i=1,nlon)
+ do k = 1,nlevg
+   call wrec2 (iunit, nlon, nlat, soil_qrel_ref(1:nlon,1:nlat,k))
  enddo
 
- do j = 1,nlat
-   write(iunit) (soil_albedo_wet(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, soil_albedo_dry(1:nlon,1:nlat))
 
- do j = 1,nlat
-   write(iunit) (soil_emiss1_dry(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, soil_albedo_wet(1:nlon,1:nlat))
 
- do j = 1,nlat
-   write(iunit) (soil_emiss1_wet(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, soil_emiss1_dry(1:nlon,1:nlat))
 
- do j = 1,nlat
-   write(iunit) (soil_emiss2_dry(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, soil_emiss1_wet(1:nlon,1:nlat))
 
- do j = 1,nlat
-   write(iunit) (soil_emiss2_wet(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, soil_emiss2_dry(1:nlon,1:nlat))
 
- do j = 1,nlat
-   write(iunit) (veg_root_depth(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, soil_emiss2_wet(1:nlon,1:nlat))
 
- do j = 1,nlat
-   write(iunit) (veg_roughness(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, veg_root_depth(1:nlon,1:nlat))
 
- do j = 1,nlat
-   write(iunit) (veg_albedo(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, veg_roughness(1:nlon,1:nlat))
 
- do j = 1,nlat
-   write(iunit) (veg_emiss1(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, veg_albedo(1:nlon,1:nlat))
 
- do j = 1,nlat
-   write(iunit) (veg_emiss2(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, veg_emiss1(1:nlon,1:nlat))
 
- do j = 1,nlat
-   write(iunit) (ind_lev_soil_h_bottom(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, veg_emiss2(1:nlon,1:nlat))
 
- do j = 1,nlat
-   write(iunit) (ind_lev_soil_w_bottom(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, water_table_depth(1:nlon,1:nlat))
 
- do j = 1,nlat
-   write(iunit) (snow_dirt(i,j),i=1,nlon)
- enddo
+ call wrec2 (iunit, nlon, nlat, tg_bottom(1:nlon,1:nlat))
+
+ call wrec2 (iunit, nlon, nlat, qg_rel_bottom(1:nlon,1:nlat))
+
+ call wrec2 (iunit, nlon, nlat, qg_rel_surf_approx(1:nlon,1:nlat))
+
+ call wrec2_int (iunit, nlon, nlat, ind_lev_soil_h_bottom(1:nlon,1:nlat))
+
+ call wrec2_int (iunit, nlon, nlat, ind_lev_soil_w_bottom(1:nlon,1:nlat))
+
+ call wrec2 (iunit, nlon, nlat, snow_dirt(1:nlon,1:nlat))
 
  write(iunit) veg_lai_max
 
  close (iunit)
 
  write (*,*)
- write (*,*) 'File with model constant parameter fields ',trim(file_data),' written'
+ write (*,*) 'Output file ',trim(file_data),' written' 
  write (*,*)
 
 return
 end subroutine write_param_const
 !=======================================================================
 subroutine read_forecast_mhf_soil(iflag)
+
+! Reads a MHF file of BOLAM with surface and soil variables 
+! simulated by a forecast run with siutable validity date and hour
+
+use param
+use mod_fields, only : iceth_frc, fice_frc, tskin_frc, tgsurf_frc, tg_frc, &
+ qvsurf_frc, qgsurf_frc, qg_frc, fice_soil_surf_frc, fice_soil_frc, &
+ snow_frc, snow_lev_frc, snow_t_frc, snow_fice_frc, snow_age_frc, snow_melt_age_frc, snow_dens_frc, snow_albedo
+
+implicit none
+
+integer :: iflag, iunit=11, iopen_err=0, ird, ierr=0, i, j, k, ndayr, &
+ year_frc, month_frc, day_frc, hour_frc, minute_frc
+character(len=30) :: file_inp="globo_forecast_soil.mhf",str_date0,str_frc_term,str_date_frc
+integer, dimension(50) :: nfdr_frc
+real, dimension(200)   :: pdr_frc
+real, dimension(nlon,nlat) :: field2d_add, snow_albedo_rfc, runoff_tot_frc
+
+ iflag=1
+
+ open (iunit,file=file_inp,form='unformatted',status='old',iostat=iopen_err)
+
+ if (iopen_err /= 0) then
+   write (*,*)
+   write (*,*) '   Not found file ',trim(file_inp),' with forecast surface, soil and snow data' 
+   write (*,*)
+   iflag=0
+   return
+ else
+   write (*,*)
+   write (*,*) '   Reading on unit ',iunit,' file ',trim(file_inp),&
+ ' with forecast surface, soil and snow data, variables redefinition' 
+   write (*,*)
+ endif
+
+ read(iunit) nfdr_frc
+ read(iunit) pdr_frc
+
+ ierr=0
+ if (nfdr_frc(2) /= nfdr(2)) ierr=ierr+1 ! nlon
+ if (nfdr_frc(3) /= nfdr(3)) ierr=ierr+1 ! nlat
+ if (abs(nfdr_frc(15)-nfdr(15)) > 1.e-4) ierr=ierr+1 ! nlevg
+ if (abs(pdr_frc(2)-pdr(2)) > 1.e-4) ierr=ierr+1 ! dlon
+ if (abs(pdr_frc(1)-pdr(1)) > 1.e-4) ierr=ierr+1 ! dlat
+ if (abs(pdr_frc(39)-pdr(39)) > 1.e-4) ierr=ierr+1 ! x0
+ if (abs(pdr_frc(38)-pdr(38)) > 1.e-4) ierr=ierr+1 ! y0
+ if (abs(pdr_frc(5)-pdr(5)) > 1.e-4) ierr=ierr+1 ! alon0
+ if (abs(pdr_frc(4)-pdr(4)) > 1.e-4) ierr=ierr+1 ! alat0
+
+ if (ierr /= 0) then
+   write (*,*)
+   write (*,*) "Error in header parameters in input file ,",trim(file_inp),", not coincident with defined parameters"
+   write (*,*) "Model nlon, nlat, nlevg, dlon, dlat, x0, y0, alon0, alat0 :", &
+ nfdr(2), nfdr(3), nfdr(15), pdr(2), pdr(1), pdr(39), pdr(38), pdr(5), pdr(4)
+   write (*,*)"Read nlon, nlat, nlevg, dlon, dlat, x0, y0, alon0, alat0 :", &
+ nfdr_frc(2), nfdr_frc(3), nfdr_frc(15), pdr_frc(2), pdr_frc(1), pdr_frc(39), pdr_frc(38), pdr_frc(5), pdr_frc(4)
+   write (*,*)
+   iflag=0
+   return
+ endif
+
+ call calendar (nfdr_frc(5), nfdr_frc(6), nfdr_frc(7), nfdr_frc(8), nfdr_frc(9), &
+ nfdr_frc(10), nfdr_frc(11), nfdr_frc(12), &
+ year_frc, month_frc, day_frc, hour_frc, minute_frc, ndayr)
+
+ ierr=0
+ if (year_frc /= nfdr(5)) ierr=ierr+1
+ if (month_frc /= nfdr(6)) ierr=ierr+1
+ if (day_frc /= nfdr(7)) ierr=ierr+1
+ if (hour_frc /= nfdr(8)) ierr=ierr+1
+ if (minute_frc /= nfdr(9)) ierr=ierr+1
+
+ if (ierr /= 0) then
+   write (*,*)
+   write (*,*) "Error in date and time parameters in input file ",trim(file_inp)
+   write (*,*) "Initialisation date and time (year, month, day, hour, minute): ", nfdr(5:9)
+   write (*,*) "Read data valid at followind date and time (year, month, day, hour, minute): ", & 
+ year_frc, month_frc, day_frc, hour_frc, minute_frc
+   write (*,*) "Read initial date and time (year, month, day, hour, minute): ", nfdr_frc(5:9)
+   print *,"Read forecast term (day, hour, minute): ",nfdr_frc(10:12)
+   write (*,*)
+   iflag=0
+   return
+ endif
+
+ write (str_date0,'(4(i2.2,a),i4.4)') nfdr_frc(8),':',nfdr_frc(9),' ',nfdr_frc(7),'/',nfdr_frc(6),'/',nfdr_frc(5)
+ write (str_frc_term,'(a,i3,a,2(i2,a))') '+',nfdr_frc(10),'day ',nfdr_frc(11),'hour ',nfdr_frc(12),'minute'
+ write (str_date_frc,'(4(i2.2,a),i4.4)') hour_frc,':',minute_frc,' ',day_frc,'/',month_frc,'/',year_frc
+
+ do ird=1,4 ! veg_lai, veg_frac, rgm, rgq
+   call rrec2 (iunit, nlon, nlat, field2d_add(1:nlon,1:nlat))
+ enddo
+
+ call rrec2 (iunit, nlon, nlat, iceth_frc(1:nlon,1:nlat))
+
+ call rrec2 (iunit, nlon, nlat, fice_frc(1:nlon,1:nlat))
+
+ do ird=1,7 ! albedo, emismap1, emismap2, cloud, totpre, conpre, snfall
+   call rrec2 (iunit, nlon, nlat, field2d_add(1:nlon,1:nlat))
+ enddo
+
+ call rrec2 (iunit, nlon, nlat, tskin_frc(1:nlon,1:nlat))
+
+ call rrec2 (iunit, nlon, nlat, tgsurf_frc(1:nlon,1:nlat))
+
+ do k = 1,nlevg
+   call rrec2 (iunit, nlon, nlat, tg_frc(1:nlon,1:nlat,k))
+ enddo
+
+ call rrec2 (iunit, nlon, nlat, qvsurf_frc(1:nlon,1:nlat))
+
+ call rrec2 (iunit, nlon, nlat, qgsurf_frc(1:nlon,1:nlat))
+
+ do k = 1,nlevg
+   call rrec2 (iunit, nlon, nlat, qg_frc(1:nlon,1:nlat,k))
+ enddo
+
+ call rrec2 (iunit, nlon, nlat, fice_soil_surf_frc(1:nlon,1:nlat))
+
+ do k = 1,nlevg
+   call rrec2 (iunit, nlon, nlat, fice_soil_frc(1:nlon,1:nlat,k))
+ enddo
+
+ call rrec2 (iunit, nlon, nlat, snow_frc(1:nlon,1:nlat))
+
+ do k = 1,nlevsnow
+   call rrec2 (iunit, nlon, nlat, snow_lev_frc(1:nlon,1:nlat,k))
+ enddo
+
+ do k = 1,nlevsnow
+   call rrec2 (iunit, nlon, nlat, snow_t_frc(1:nlon,1:nlat,k))
+ enddo
+
+ do k = 1,nlevsnow
+   call rrec2 (iunit, nlon, nlat, snow_fice_frc(1:nlon,1:nlat,k))
+ enddo
+
+ do k = 1,nlevsnow
+   call rrec2 (iunit, nlon, nlat, snow_age_frc(1:nlon,1:nlat,k))
+ enddo
+
+ do k = 1,nlevsnow
+   call rrec2 (iunit, nlon, nlat, snow_melt_age_frc(1:nlon,1:nlat,k))
+ enddo
+
+ do k = 1,nlevsnow
+   call rrec2 (iunit, nlon, nlat, snow_dens_frc(1:nlon,1:nlat,k))
+ enddo
+
+ call rrec2 (iunit, nlon, nlat, snow_albedo(1:nlon,1:nlat))
+
+! do ird=1,11 ! cswfl, clwfl, chflux, cqflux, t2min, t2max, runoff, runoff_tot, 3 additional 2D fields 
+!   call rrec2 (iunit, nlon, nlat, field2d_add(1:nlon,1:nlat))
+! enddo
+
+ close (iunit)
+
+ write (*,*)
+ write (*,*) "Soil and snow prognostic parameters (temperature, water content, ect.) values"
+ write (*,*) "are read from forecast output data of run start"
+ write (*,*) trim(str_date0)," forcast term ",trim(str_frc_term)," valid ",trim(str_date_frc)
+
+return
+end
+!=======================================================================
+subroutine read_forecast_mhf_soil_old(iflag)
 
 ! Reads a MHF file of BOLAM with surface and soil variables 
 ! simulated by a forecast run with siutable validity date and hour

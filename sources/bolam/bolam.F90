@@ -1,6 +1,10 @@
-! Last update 01/10/2023
+! Last update 29/07/2024
 
-! Version 23.2.0
+! Version 24.1.1
+
+! Sett. 2024: 
+! Cambiata la scrittura di model_param_constant.bin - piu' grandezze.
+! Nuovo formato mhf (scrittura record non 1d ma 2d)
 
 ! Ott. 2023: Option of compilation without ECMWF radiation scheme pachage,
 ! astronomical variables definition and aerosols and ozone content definitions
@@ -110,6 +114,7 @@
     real(4), dimension(nlevg)     :: d, lev_soil
     real(4), dimension(nlon,nlat) :: ps, pst, fmask, phig, orogvar, tskin, qskin, cloudt, albedo, rgm, rgq, rgmd, &
                                      snow, fsnow, raicon, snocon, rainls, snowls, alsn, tgclim, qgclim, &
+                                     water_table_depth, tg_bottom, qg_rel_bottom, qg_rel_surf_approx, &
                                      fveg, lai, proot, veg_rough, &
                                      roscd, qsat, fvegs, fwetl, cw1, cw2, cw3, qveg, deriv, hflux, qflux,  &
                                      frirr, frvis, emisg1, emisg2, fice, alont, alatt, fcorio, t2, &
@@ -381,7 +386,6 @@
     print model
     endif
     nstep  = hrun*3600./dtstep+.5
-    hbound = max(hbound, 0.1) ! to avoid dividing by zero, this variable is empty for globo
     ntsbou = hbound*3600./dtstep+.5
     nbc    = (nstep-1)/ntsbou+2
     nhist  = hist*3600./dtstep+.5
@@ -1030,8 +1034,8 @@
 !  save initial condition
 
     if (nlana.and.myid == 0) then
-      if (nhist > 0) imhf=imhf+1
-      if (nhist_zoom > 0) imhf_zoom=imhf_zoom+1
+      imhf=imhf+1
+      imhf_zoom=imhf_zoom+1
     endif
 
 #ifdef globo
@@ -1043,12 +1047,9 @@
         call wrmhf_soil(name_file_mhf, nfdr, pdr, 1, gnlon, 1, gnlat, 0, 0)
       endif
       if (nhist_zoom > 0) then
-        imhf_copy=imhf
-        imhf=imhf_zoom
         name_file_mhf="globo_zoom"
         call wrmhf_atm (name_file_mhf, nfdrb, pdrb, i_zoom_lon_ini, i_zoom_lon_fin, j_zoom_lat_ini, j_zoom_lat_fin, flag_joint)
         call wrmhf_soil(name_file_mhf, nfdrb, pdrb, i_zoom_lon_ini, i_zoom_lon_fin, j_zoom_lat_ini, j_zoom_lat_fin, flag_joint, 0)
-        imhf=imhf_copy
       endif
     endif
 #else
@@ -1069,12 +1070,11 @@
     call runout_b (nstep0)  ! run time diagnostics
 #endif
     if (myid == 0) print *,'---------------'
-    if (nhist > 0) imhf = (nstep0-1)/nhist
-    if (nhist_zoom > 0) imhf_zoom = (nstep0-1)/nhist_zoom
-    if (nhist_soil_full > 0) imhf = (nstep0-1)/nhist_soil_full
+    imhf = (nstep0-1)/nhist
+    imhf_zoom = (nstep0-1)/nhist_zoom
     if (nlana) then
-      if (nhist > 0) imhf = imhf+1
-      if (nhist_zoom > 0) imhf_zoom = imhf_zoom+1
+      imhf = imhf+1
+      imhf_zoom = imhf_zoom+1
     endif
     ishf = (nstep0-1)/ntswshf+1
     irf = nstep0/nrst
@@ -2498,8 +2498,7 @@ enddo
 #endif
 
 #ifdef globo
-    if (nhist < 0.and.nhist_soil_full > 0.and.mod(jstep,nhist_soil_full) == 0.and.jstep <= 7*jsday) then
-      if (myid == 0) imhf=imhf+1
+    if (nhist_soil_full > 0.and.mod(jstep,nhist_soil_full) == 0.and.jstep <= 5*jsday) then
       name_file_mhf="globo"
       call wrmhf_soil(name_file_mhf, nfdr, pdr, 1, gnlon, 1, gnlat, 0, 1)
     endif
@@ -3069,7 +3068,7 @@ real, dimension(1) :: z1
    if (ierr /= 0) then
      print *,"Error in header parameters in input file, ",trim(filerd),", not coincident with defined parameters"
      print *,"Model nlon, nlat, nlevg, dlon, dlat, x0, y0, alon0, alat0, nst, nvt :", &
- gnlon, gnlat, nlevg, pdr0(2), pdr0(1), pdr0(39), pdr0(38), pdr0(5), pdr0(4)+pdr0(1)*0.5, nst, nvt
+ gnlon, gnlat, nlevg, pdr0(2), pdr0(1), pdr0(39), pdr0(38), pdr0(5), pdr0(4), nst, nvt
      print *,"Read nlon, nlat, nlevg, dlon, dlat, x0, y0, alon0, alat0, nst, nvt :", &
  nlon_local, nlat_local, nlevg_local, dlon_local, dlat_local, x0_local, y0_local, &
  alon0_local, alat0_local, nst_local, nvt_local
@@ -3185,6 +3184,17 @@ do jklev = 1, nlevg
  if (myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
  call disperse (gfield, emiss2_veg)
 
+! soil top and bottom parameters
+
+ if (myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
+ call disperse (gfield, water_table_depth)
+ if (myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
+ call disperse (gfield, tg_bottom)
+ if (myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
+ call disperse (gfield, qg_rel_bottom)
+ if (myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
+ call disperse (gfield, qg_rel_surf_approx)
+
 !  soil level index of bottom contidion for heat transport and water transport schemes
 
  if (myid == 0) call rrec2_int (iunit, gnlon, gnlat, igfield)
@@ -3219,7 +3229,35 @@ end subroutine rd_param_const
 !##################################################################################################################
     subroutine rrec2 (kunit, nlon, nlat, vect)
 
-! Used by rdmhf
+! Used by rdmhf, rdrf
+
+    implicit none
+
+    integer :: kunit, nlon, nlat
+    real(4), dimension(nlon,nlat) :: vect
+
+    read(kunit) vect(1:nlon, 1:nlat)
+
+    return
+    end subroutine rrec2
+!##################################################################################################################
+    subroutine rrec2_int (kunit, nlon, nlat, ivect)
+
+! Used by rdmhf, rdrf
+
+    implicit none
+
+    integer :: kunit, nlon, nlat
+    integer, dimension(nlon,nlat) :: ivect
+
+    read(kunit) ivect(1:nlon, 1:nlat)
+
+    return
+    end subroutine rrec2_int
+!##################################################################################################################
+    subroutine rrec2_old (kunit, nlon, nlat, vect)
+
+! Used by rdmhf, rdrf
 
     real(4) vect(nlon,nlat)
 
@@ -3228,11 +3266,11 @@ end subroutine rd_param_const
     enddo
 
     return
-    end subroutine rrec2
+    end subroutine rrec2_old
 !##################################################################################################################
-    subroutine rrec2_int (kunit, nlon, nlat, ivect)
+    subroutine rrec2_int_old (kunit, nlon, nlat, ivect)
 
-! Used by rdmhf
+! Used by rdmhf, rdrf
 
     integer ivect(nlon,nlat)
 
@@ -3241,7 +3279,7 @@ end subroutine rd_param_const
     enddo
 
     return
-    end subroutine rrec2_int
+    end subroutine rrec2_int_old
 !##################################################################################################################
 subroutine wrmhf_atm(name, nfdr, pdr, ilon1, ilon2, jlat1, jlat2, flag_lon)
 
@@ -3583,6 +3621,7 @@ use mod_model, only : gnlon, gnlat, nlon, nlat, nlevg, nst, nvt, myid, gfield, &
                       albedo_soil_dry, albedo_soil_wet, &
                       emiss1_soil_dry, emiss1_soil_wet, emiss2_soil_dry, emiss2_soil_wet, &
                       proot, veg_rough, albedo_veg, emiss1_veg, emiss2_veg, &
+                      water_table_depth, tg_bottom, qg_rel_bottom, qg_rel_surf_approx, &
                       ind_lev_soil_h_bottom, ind_lev_soil_w_bottom, snow_dirt, lai_max 
 
 implicit none
@@ -3597,7 +3636,8 @@ character(len=50) :: file_out="model_param_constant_zoom.bin"
 
    open (iunit, file=trim(file_out), form='unformatted', status='unknown')
 
-! gnlon, gnlat, nlevg, dlon, dlat, x0, y0, alon0, alat0, nst, nvt
+! T-grid parameters: gnlon, gnlat, nlevg, dlon, dlat, x0, y0, alon0, alat0, nst, nvt
+
    write(iunit) nfdr(2), nfdr(3), nfdr(15), pdr(2), pdr(1), &
  pdr(39), pdr(38), pdr(5), pdr(4)+pdr(1)*0.5, nst, nvt
 
@@ -3704,6 +3744,17 @@ character(len=50) :: file_out="model_param_constant_zoom.bin"
  call collect (emiss2_veg, gfield)
  if(myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
 
+! soil top and bottom parameters
+
+ call collect (water_table_depth, gfield)
+ if(myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+ call collect (tg_bottom, gfield)
+ if(myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+ call collect (qg_rel_bottom, gfield)
+ if(myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+ call collect (qg_rel_surf_approx, gfield)
+ if(myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+
 !  soil level index of bottom contidion for heat transport and water transport schemes
 
  call collect_int (ind_lev_soil_h_bottom, igfield)
@@ -3739,6 +3790,74 @@ end subroutine wr_param_const
 
     implicit none
 
+    integer :: kunit, nlon, nlat, ilon1, ilon2, jlat, jlat1, jlat2, flag_lon, jlonf1, jlonf2
+    real(4), dimension(nlon,nlat) :: vect, vect2
+
+#ifdef globo
+    vect(1   ,jlat1:jlat2) = vect(nlon-1,jlat1:jlat2)
+    vect(nlon,jlat1:jlat2) = vect(2     ,jlat1:jlat2)
+#endif
+
+    if (flag_lon == 0) then
+
+      write(kunit) vect(ilon1:ilon2, jlat1:jlat2)
+
+    else
+       
+      do jlat = jlat1, jlat2
+        jlonf1 = nlon-ilon1
+        jlonf2 = nlon-ilon1+ilon2-1
+        vect2(1:jlonf1, jlat) = vect(ilon1:nlon-1, jlat)
+        vect2(jlonf1+1:jlonf2, jlat) = vect(2:ilon2, jlat)
+      enddo
+
+      write(kunit) vect2(1:jlonf2, jlat1:jlat2)
+
+    endif
+
+    return
+    end subroutine wrec2
+!##################################################################################################################
+    subroutine wrec2_int (kunit, nlon, nlat, ivect, ilon1, ilon2, jlat1, jlat2, flag_lon)
+
+! Used by wrrf
+
+    implicit none
+
+    integer :: kunit, nlon, nlat, ilon1, ilon2, jlat, jlat1, jlat2, flag_lon, jlonf1, jlonf2
+    integer, dimension(nlon,nlat) :: ivect, ivect2
+
+#ifdef globo
+    ivect(1   ,jlat1:jlat2) = ivect(nlon-1,jlat1:jlat2)
+    ivect(nlon,jlat1:jlat2) = ivect(2     ,jlat1:jlat2)
+#endif
+
+    if (flag_lon == 0) then
+
+      write(kunit) ivect(ilon1:ilon2, jlat1:jlat2)
+
+    else
+       
+      do jlat = jlat1, jlat2
+        jlonf1 = nlon-ilon1
+        jlonf2 = nlon-ilon1+ilon2-1
+        ivect2(1:jlonf1, jlat) = ivect(ilon1:nlon-1, jlat)
+        ivect2(jlonf1+1:jlonf2, jlat) = ivect(2:ilon2, jlat)
+      enddo
+
+      write(kunit) ivect2(1:jlonf2, jlat1:jlat2)
+
+    endif
+
+    return
+    end subroutine wrec2_int
+!##################################################################################################################
+    subroutine wrec2_old (kunit, nlon, nlat, vect, ilon1, ilon2, jlat1, jlat2, flag_lon)
+
+! Used by wrmhf_atm, wrmhf_soil, wrshf_b, wrshf_g
+
+    implicit none
+
     integer :: kunit, nlon, nlat, ilon1, ilon2, jlat1, jlat2, flag_lon, jlat, jlon
     real(4), dimension(nlon,nlat) :: vect
 
@@ -3762,9 +3881,9 @@ end subroutine wr_param_const
     endif
 
     return
-    end subroutine wrec2
+    end subroutine wrec2_old
 !##################################################################################################################
-    subroutine wrec2_int (kunit, nlon, nlat, ivect, ilon1, ilon2, jlat1, jlat2, flag_lon)
+    subroutine wrec2_int_old (kunit, nlon, nlat, ivect, ilon1, ilon2, jlat1, jlat2, flag_lon)
 
 ! Used by wrrf
 
@@ -3793,7 +3912,7 @@ end subroutine wr_param_const
     endif
 
     return
-    end subroutine wrec2_int
+    end subroutine wrec2_int_old
 !##################################################################################################################
     subroutine collect (lfield, gfield)
 
@@ -11109,13 +11228,16 @@ end subroutine surfradpar
     use mod_model
     implicit none
     integer :: iunit=26, iunit_work=29, jlon, jlat, jstep, j, jklev, &
- jklev1, jklev2, nlevint, nlevout, jlonm1, jlatp1, &
+ jklev1, jklev2, nlevint, nlevout, iplev, jlonm1, jlatp1, &
  ilon1=1, ilon2=gnlon, jlat1=1, jlat2=gnlat, flag_lon=0
+    integer, parameter :: nplev=3
     real zzpp, zzee, ztg, zt0t, zw, zesk, zqsat, ztbarv, zss, zalf, zalp1, zalp2, zalp3, zalp4, ze1, ze2
     real, dimension(nlevp1)    :: zlnp, zaux
     real, dimension(1)         :: zaux1
     real, dimension(100)       :: zaux2, zaux3
-    real, dimension(nlon,nlat) :: ztz0, slp, q2rel, z850, z500, t850
+    real, dimension(nlon,nlat) :: ztz0, slp, q2rel, z1000, z850, z500, t850
+    real, dimension(nplev) :: plev=(/1000.e2, 850.e2, 500.e2/), zalp
+    real, dimension(nlon,nlat,nplev) :: zplev, tplev
     character(len=15)          :: file_out
     integer, dimension(50)     :: grib2_descript = 0
     integer, parameter         :: ivalmiss = -9999
@@ -11238,52 +11360,54 @@ end subroutine surfradpar
 !-----------------------------------------------------------
 
     zalf = .7
-    zalp1 = log(500.e2)
-    zalp2 = log(850.e2)
 
-    do jlat = 1, nlat
-    do jlon = 1, nlon
+    do iplev = 1,nplev ! isobaric levels
 
-    do jklev = 1, nlev
-    zzpp = pzer*sigint(jklev)-(pzer-ps(jlon,jlat))*sigalf(jklev)
-    zlnp(jklev) = log(zzpp)
-    enddo
-    zlnp(nlevp1) = log(slp(jlon,jlat)) ! auxiliary sea level
+      zalp(iplev) = log(plev(iplev))
+
+      do jlat = 1, nlat
+      do jlon = 1, nlon
+
+        do jklev = 1, nlev
+          zzpp = pzer*sigint(jklev)-(pzer-ps(jlon,jlat))*sigalf(jklev)
+          zlnp(jklev) = log(zzpp)
+        enddo
+        zlnp(nlevp1) = log(slp(jlon,jlat)) ! auxiliary sea level
 
 ! In case zlnp(nlevp1) <= zlnp(nlev) (lowest model level below sea level) the auxiliary level
 ! at sea level pressure cannot be used - this concerns vert. interpolation of t and phi only
 
-    if (zlnp(nlevp1).le.zlnp(nlev)) then
-    nlevint = nlev
-    else
-    nlevint = nlevp1
-    endif
+        if (zlnp(nlevp1).le.zlnp(nlev)) then
+          nlevint = nlev
+        else
+          nlevint = nlevp1
+        endif
+
+        zaux1(1) = zalp(iplev)
 
 !  Interpolation of geopotential (converted to geopotential meters)
 
-    ze1 = 1.
-    ze2 = 1.
-    zaux(1:nlev) = phi(jlon,jlat,1:nlev)/9.8
-    zaux(nlevp1) = 0.
-    zaux1(1) = zalp1
-    call interp (zalf, ze1, ze2, nlevint, zlnp, zaux, zaux1, z500(jlon,jlat), 1)
-    zaux1(1) = zalp2
-    call interp (zalf, ze1, ze2, nlevint, zlnp, zaux, zaux1, z850(jlon,jlat), 1)
+        ze1 = 1.
+        ze2 = 1.
+        zaux(1:nlev) = phi(jlon,jlat,1:nlev)/9.8
+        zaux(nlevp1) = 0.
+        call interp (zalf, ze1, ze2, nlevint, zlnp, zaux, zaux1, zplev(jlon,jlat,iplev), 1)
 
 !  Interpolation of t (Kelvin)
 
-    ze1 = .4
-    ze2 = .4
-    zaux(1:nlev) = t(jlon,jlat,1:nlev)
-    zaux(nlevp1) = ztz0(jlon,jlat)
-    call interp (zalf, ze1, ze2, nlevint, zlnp, zaux, zaux1, t850(jlon,jlat), 1)
+        ze1 = .4
+        ze2 = .4
+        zaux(1:nlev) = t(jlon,jlat,1:nlev)
+        zaux(nlevp1) = ztz0(jlon,jlat)
+        call interp (zalf, ze1, ze2, nlevint, zlnp, zaux, zaux1, tplev(jlon,jlat,iplev), 1)
 
-    enddo
-    enddo
+      enddo
+      enddo
 
-    call filt2t1 (t850, 1.)
-    call filt2t1 (z850, 1.)
-    call filt2t1 (z500, 1.)
+      call filt2t1 (zplev(1:nlon,1:nlat,iplev), 1.)
+      call filt2t1 (tplev(1:nlon,1:nlat,iplev), 1.)
+
+    enddo ! isobaric levels
 
 !-----------------------------------------------------------------------------
 !  Interpolation of variables at constant geometric heigh (m) above the surface
@@ -11691,9 +11815,10 @@ end subroutine surfradpar
 !    grib2_descript(10) = 100 ! Isobaric surface  (Pa)
 !    grib2_descript(11:12) = 0
 !
-!    call collect (t850, gfield)
+!    iplev = 2
+!    call collect (tplev(1:nlon,1:nlat,2), gfield)
 !    if(myid.eq.0) then
-!      grib2_descript(11) = 850 ! 850 hPa
+!      grib2_descript(11) = nint(plev(iplev)*1.e-2) ! 850 hPa
 !      grib2_descript(12) =  -2
 !      grib2_descript(20) =   0 ! Discipline: Meteorological products
 !      grib2_descript(21) =   0 ! Category: Temperature
@@ -11701,10 +11826,24 @@ end subroutine surfradpar
 !      write (iunit) grib2_descript
 !      call wrec2 (iunit, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
 !    endif
+
+    iplev = 1
+    call collect (zplev(1:nlon,1:nlat,iplev), gfield)
+    if(myid.eq.0) then
+      grib2_descript(11) = nint(plev(iplev)*1.e-2) ! 1000 hPa
+      grib2_descript(12) =  -2
+      grib2_descript(20) =   0 ! Discipline: Meteorological products
+      grib2_descript(21) =   3 ! Category: Mass
+      grib2_descript(22) =   5 ! Parameter: Geopotential height (gpm)
+      write (iunit) grib2_descript
+      call wrec2 (iunit, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+    endif
+
 !
-!    call collect (z850, gfield)
+!    iplev = 2
+!    call collect (zplev(1:nlon,1:nlat,iplev), gfield)
 !    if(myid.eq.0) then
-!      grib2_descript(11) = 850 ! 850 hPa
+!      grib2_descript(11) = nint(plev(iplev)*1.e-2) ! 850 hPa
 !      grib2_descript(12) =  -2
 !      grib2_descript(20) =   0 ! Discipline: Meteorological products
 !      grib2_descript(21) =   3 ! Category: Mass
@@ -11713,9 +11852,10 @@ end subroutine surfradpar
 !      call wrec2 (iunit, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
 !    endif
 !
-!    call collect (z500, gfield)
+!    iplev = 3
+!    call collect (zplev(1:nlon,1:nlat,iplev), gfield)
 !    if(myid.eq.0) then
-!      grib2_descript(11) = 500 ! 500 hPa
+!      grib2_descript(11) = nint(plev(iplev)*1.e-2) ! 500 hPa
 !      grib2_descript(12) =  -2
 !      grib2_descript(20) =   0 ! Discipline: Meteorological products
 !      grib2_descript(21) =   3 ! Category: Mass

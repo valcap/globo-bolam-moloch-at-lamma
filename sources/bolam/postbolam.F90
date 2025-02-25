@@ -1,6 +1,10 @@
 !      program postbolam
 
-! Last update 02/05/2023
+! Last update 16/10/2024
+
+! Sett. 2024: Cambiata la scrittura di model_param_constant.bin - piu' grandezze
+
+! Ago. 2024: Nuovo formato mhf (scrittura record non 1d ma 2d)
 
 ! Mag. 2023: PS (Surface Pressure) in output in grib2 (per MeteoAosta)
 
@@ -1039,7 +1043,18 @@ real, dimension(nlon,nlat) :: zread
 return
 end
 !#######################################################################
-      subroutine rrec2 (kunit, nlon, nlat, vect)
+subroutine rrec2 (kunit, nlon, nlat, vect)
+implicit none
+
+ integer :: kunit, nlon, nlat
+ real(4), dimension(nlon,nlat) :: vect
+
+ read(kunit) vect(1:nlon, 1:nlat)
+
+return
+end
+!#######################################################################
+      subroutine rrec2_old (kunit, nlon, nlat, vect)
       real vect (nlon,nlat)
 
       do jlat = 1, nlat

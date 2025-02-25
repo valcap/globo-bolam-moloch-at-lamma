@@ -1,6 +1,10 @@
-! Last update 05/10/2023
+! Last update 16/10/2024
 
-! Version 23.1.0
+! Version 24.1.1
+
+! Sett. 2024: Cambiata la scrittura di model_param_constant.bin - piu' grandezze
+
+! Giu. 2024: Nuovo formato mhf (scrittura record non 1d ma 2d)
 
 ! Ott. 2023: Option of compilation without ECMWF radiation scheme pachage,
 ! astronomical variables definition and aerosols and ozone content definitions
@@ -165,7 +169,8 @@
                                      fl_heat_soil_bottom, fl_water_soil_bottom, fl_runoff, fl_runoff_tot, &
                                      cwvflux, cfl_heat_soil_bottom, cfl_water_soil_bottom, &
                                      tg_surf, qg_surf, fice_soil_surf, snow_dirt, &
-                                     tgclim, qgclim
+                                     tgclim, qgclim, &
+                                     water_table_depth, tg_bottom, qg_rel_bottom, qg_rel_surf_approx
     real, dimension(nlon,nlat,20)  :: kturb_surf_m_mem, kturb_surf_h_mem, kturb_surf_q_mem
     real, dimension(nlon,nlat,nlev_snow) :: snow_lev, snow_t, snow_fice, snow_age, snow_melt_age, snow_dens
     real(4), dimension(nlon,nlat,nlevg) :: qsoil_max, qsoil_min, c_soil, rho_soil, &
@@ -282,9 +287,9 @@
     real         :: zdlev, dlev_base=10., dlev_min=5.
     integer :: n_outpoint=0
     integer, dimension(10) :: &
- i_outpoint=    (/ -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1/), &
- j_outpoint=    (/ -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1/), &
- iproc_outpoint=(/ -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1/)
+ i_outpoint=    (/ 70,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1/), &
+ j_outpoint=    (/ 48,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1/), &
+ iproc_outpoint=(/280,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1/)
     character (len=30) :: file_outpoint
 ! <---
 
@@ -404,7 +409,7 @@
 
     nstep   = hrun *3600./dtstep+.5
     nhist   = hist *3600./dtstep+.5
-    nhist_full_res   = hist_full_res *3600./dtstep+.5 ! if negative, shf not written
+    nhist_full_res   = hist_full_res *3600./dtstep+.5
     ntsbou  = hbound *3600./dtstep+.5
     nbc     = (nstep-1)/ntsbou+2
     ndrunt  = max( int(hdiag*3600./dtstep+.5), 1)
@@ -2157,7 +2162,7 @@ enddo
 
     endif ! mod(jstep,nhist).eq.0
 
-    if (mhfr == 2.and.nhist_full_res > 0..and.mod(jstep,nhist_full_res) == 0) then
+    if (mhfr == 2.and.mod(jstep,nhist_full_res) == 0) then
       if (myid == 0) then
 !!!        write (*,'(a)') ' Check-point: writing on moloch mhf_atm and mhf_soil files with full resoltion '
         write (*,'(a)') ' Check-point: writing on moloch mhf_soil files with full resoltion '
@@ -2767,6 +2772,17 @@ do jklev = 1, nlevg
  if (myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
  call disperse (gfield, emiss2_veg)
 
+! top and bottom soil parameters
+
+ if (myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
+ call disperse (gfield, water_table_depth)
+ if (myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
+ call disperse (gfield, tg_bottom)
+ if (myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
+ call disperse (gfield, qg_rel_bottom)
+ if (myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
+ call disperse (gfield, qg_rel_surf_approx)
+
 !  soil level index of bottom contidion for heat transport and water transport schemes
 
  if (myid == 0) call rrec2_int (iunit, gnlon, gnlat, igfield)
@@ -2891,72 +2907,159 @@ do jklev = 1, nlevg
 !###############################################################################################################
     subroutine rrec2 (kunit, nlon, nlat, vect)
 
-    real vect(nlon,nlat)
+    implicit none
 
-    do jlat = 1, nlat
-    read(kunit) (vect(jlon,jlat), jlon = 1, nlon)
-    enddo
+    integer :: kunit, nlon, nlat
+    real, dimension(nlon, nlat) :: vect
+
+    read(kunit) vect(1:nlon,1:nlat)
 
     return
     end subroutine rrec2
 !###############################################################################################################
     subroutine rrec2_int (kunit, nlon, nlat, ivect)
 
-    integer ivect(nlon,nlat)
+    implicit none
 
-    do jlat = 1, nlat
-    read(kunit) (ivect(jlon,jlat), jlon = 1, nlon)
-    enddo
+    integer :: kunit, nlon, nlat
+    integer, dimension(nlon, nlat) :: ivect
+
+    read(kunit) ivect(1:nlon,1:nlat)
 
     return
     end subroutine rrec2_int
 !###############################################################################################################
+    subroutine rrec2_old (kunit, nlon, nlat, vect)
+
+    implicit none
+
+    integer :: kunit, nlon, nlat, jlat
+    real, dimension(nlon, nlat) :: vect
+
+    do jlat=1,nlat
+      read(kunit) vect(1:nlon,jlat)
+    enddo
+
+    return
+    end subroutine rrec2_old
+!###############################################################################################################
+    subroutine rrec2_int_old (kunit, nlon, nlat, ivect)
+
+    implicit none
+
+    integer :: kunit, nlon, nlat, jlat
+    integer, dimension(nlon, nlat) :: ivect
+
+    do jlat=1,nlat
+      read(kunit) ivect(1:nlon,jlat)
+    enddo
+
+    return
+    end subroutine rrec2_int_old
+!###############################################################################################################
     subroutine wrec2 (kunit, nlon, nlat, vect)
 
-    real vect(nlon,nlat)
+    implicit none
 
-    do jlat = 1, nlat
-    write(kunit) (vect(jlon,jlat), jlon = 1, nlon)
-    enddo
-    call flush (kunit)
+    integer :: kunit, nlon, nlat
+    real, dimension(nlon, nlat) :: vect
+
+    write(kunit) vect(1:nlon,1:nlat)
+
+!    call flush (kunit)
 
     return
     end subroutine wrec2
 !###############################################################################################################
     subroutine wrec2r (kunit, nlon, nlat, vect)
-    use mod_moloch, only: mhfr
-    real vect(nlon,nlat)
 
-    do jlat = 1, nlat, mhfr
-    write(kunit) (vect(jlon,jlat), jlon = 1, nlon, mhfr)
-    enddo
-    call flush (kunit)
+    use mod_moloch, only: mhfr
+
+    implicit none
+
+! mhfr - write every mhfr points
+
+    integer :: kunit, nlon, nlat
+    real, dimension(nlon, nlat) :: vect
+
+    write(kunit) vect(1:nlon:mhfr,1:nlat:mhfr)
+
+!    call flush (kunit)
 
     return
     end subroutine wrec2r
 !###############################################################################################################
-    subroutine wrec2_int (kunit, nlon, nlat, ivect)
-    integer ivect(nlon,nlat)
+    subroutine wrec2r_old (kunit, nlon, nlat, vect)
 
-    do jlat = 1, nlat
-    write(kunit) (ivect(jlon,jlat), jlon = 1, nlon)
+    use mod_moloch, only: mhfr
+
+    implicit none
+
+! mhfr - write every mhfr points
+
+    integer :: kunit, nlon, nlat, jlat
+    real, dimension(nlon, nlat) :: vect
+
+    do jlat=1,nlat,mhfr
+      write(kunit) vect(1:nlon:mhfr, jlat)
     enddo
-    call flush (kunit)
+
+!    call flush (kunit)
+
+    return
+    end subroutine wrec2r_old
+!###############################################################################################################
+    subroutine wrec2_int (kunit, nlon, nlat, ivect)
+
+    implicit none
+
+    integer :: kunit, nlon, nlat
+    integer, dimension(nlon, nlat) :: ivect
+
+    write(kunit) ivect(1:nlon,1:nlat)
+
+!    call flush (kunit)
 
     return
     end subroutine wrec2_int
 !###############################################################################################################
     subroutine wrec2r_int (kunit, nlon, nlat, ivect)
-    use mod_moloch, only: mhfr
-    integer ivect(nlon,nlat)
 
-    do jlat = 1, nlat, mhfr
-    write(kunit) (ivect(jlon,jlat), jlon = 1, nlon, mhfr)
-    enddo
-    call flush (kunit)
+    use mod_moloch, only: mhfr
+
+    implicit none
+
+! mhfr - write every mhfr points
+
+    integer :: kunit, nlon, nlat
+    integer, dimension(nlon, nlat) :: ivect
+
+    write(kunit) ivect(1:nlon:mhfr,1:nlat:mhfr)
+
+!    call flush (kunit)
 
     return
     end subroutine wrec2r_int
+!###############################################################################################################
+    subroutine wrec2r_int_old (kunit, nlon, nlat, ivect)
+
+    use mod_moloch, only: mhfr
+
+    implicit none
+
+! mhfr - write every mhfr points
+
+    integer :: kunit, nlon, nlat, jlat
+    integer, dimension(nlon, nlat) :: ivect
+
+    do jlat=1,nlat,mhfr
+      write(kunit) ivect(1:nlon:mhfr, jlat)
+    enddo
+
+!    call flush (kunit)
+
+    return
+    end subroutine wrec2r_int_old
 !###############################################################################################################
     subroutine filt2d (p, anu2)
 
@@ -3615,12 +3718,23 @@ do jklev = 1, nlevg
  call collect (emiss2_veg, gfield)
  if (myid == 0) call wrec2r (iunit, gnlon, gnlat, gfield)
 
+! soil top and bottom parameters
+
+ call collect (water_table_depth, gfield)
+ if (myid == 0) call wrec2r (iunit, gnlon, gnlat, gfield)
+ call collect (tg_bottom, gfield)
+ if (myid == 0) call wrec2r (iunit, gnlon, gnlat, gfield)
+ call collect (qg_rel_bottom, gfield)
+ if (myid == 0) call wrec2r (iunit, gnlon, gnlat, gfield)
+ call collect (qg_rel_surf_approx, gfield)
+ if (myid == 0) call wrec2r (iunit, gnlon, gnlat, gfield)
+
 !  soil level index of bottom contidion for heat transport and water transport schemes
 
  call collect_int (ind_lev_soil_h_bottom, igfield)
- if (myid == 0) call wrec2r_int (iunit, gnlon, gnlat, igfield)
+ if (myid == 0) call wrec2r_int_old (iunit, gnlon, gnlat, igfield)
  call collect_int (ind_lev_soil_w_bottom, igfield)
- if (myid == 0) call wrec2r_int (iunit, gnlon, gnlat, igfield)
+ if (myid == 0) call wrec2r_int_old (iunit, gnlon, gnlat, igfield)
 
 ! snow_dirt: snow "dirtibility", that is weight (proportion 0-1) of dirt
 ! growth of snow surface due to vegetation waste, aerosol deposition, etc., 
@@ -5711,6 +5825,7 @@ end subroutine radiat_init
       zhy  = .5*(hy(jlon,jlat) + hy(jlon,jlat+1))
       znorm= sqrt(1. + zhx**2+ zhy**2)
       slopeff(jlon,jlat) = (amuz - amux*zhx - amuy*zhy)/(amuz*znorm)
+      slopeff(jlon,jlat) = min (slopeff(jlon,jlat), 5.) ! 05/04/2024
       else
       slopeff(jlon,jlat) = 1.
       endif

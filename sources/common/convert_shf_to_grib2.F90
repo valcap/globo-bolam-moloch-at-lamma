@@ -3,7 +3,7 @@ PROGRAM CONVERT_SHF_TO_GRIB2
 ! Program reads in input a shf file: short model (Bolam, Moloch or Globo) history file
 ! and writes in output data in grib2 format using the ECMWF ECCODES library
 
-! Last update 15/03/2015
+! Last update 16/10/2024
 
 ! AUTHOR: Oxana Drofa, ISAC-CNR, ITALY (o.drofa@isac.cnr.it)
 
@@ -209,9 +209,8 @@ REAL*4, DIMENSION(:), ALLOCATABLE :: VERT_COORD_PAR
    IF (IERR /= 0) EXIT
 
    ALLOCATE (DATA(IFIELD) % FIELD(NX,NY))
-   DO J=1,NY
-     READ (INPUT_UNIT, IOSTAT=IERR) (DATA(IFIELD) % FIELD(I,J), I=1,NX)
-   ENDDO
+
+   CALL RREC2 (INPUT_UNIT, NX, NY, DATA(IFIELD) % FIELD(1:NX,1:NY))
 
 ! Grid parameters
 
@@ -285,3 +284,16 @@ REAL*4, DIMENSION(:), ALLOCATABLE :: VERT_COORD_PAR
 
 STOP
 END
+!---------------------------------------------------------------------------
+subroutine rrec2 (kunit, nlon, nlat, vect)
+
+implicit none
+
+integer :: kunit, nlon, nlat
+real, dimension(nlon,nlat) :: vect
+
+ read(kunit) vect(1:nlon,1:nlat)
+
+return
+end subroutine rrec2
+!---------------------------------------------------------------------------

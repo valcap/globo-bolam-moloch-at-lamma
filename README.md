@@ -1,5 +1,9 @@
 # Package of Numerical Weather Prediction models: Bolam, Moloch, Globo.
 
+# Version 24.1, October 2024: Change of format of all internal input-output
+files (unmormatted binary): mhf, shf, model_param_constant.bin,
+time consuming better for 10 %
+
 Bolam and Globo models are models based on hydrostatic approach for the dynamics, while Moloch is based on a non-hydrostatic approach.
 
 Bolam and Moloch are limited area models, and Globo covers the global domain.

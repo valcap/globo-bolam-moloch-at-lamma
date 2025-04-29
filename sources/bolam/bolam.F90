@@ -1,6 +1,15 @@
-! Last update 29/07/2024
+! Last update 27/02/2025
 
-! Version 24.1.1
+! Version 25.1.0
+
+! Feb. 2025: Nuova u_ghost: risparmio sulle memorizzazioni ridontante
+! dei vettori di scambio, la procedura e' devisa in 4 passi:
+! inizializzazione del buffer di scambio, memorizzazione delle cornici di
+! piu' campi in un singolo buffer di scambio (variante per 2d e per 1d),
+! scambio via un singolo buffere, memorizzazione della cornici ricevuti
+! su piu' cambi (variante per 2d e per 1d);
+! u_ghost ---> u_ghost_init, u_ghost_put_2d, u_ghost_put_1d,
+! u_ghost_transfer, u_ghost_get_2d, u_ghost_get_1d
 
 ! Sett. 2024: 
 ! Cambiata la scrittura di model_param_constant.bin - piu' grandezze.
@@ -147,7 +156,7 @@
 ! mpi veriables
 
     integer :: myid=0, iprocs=1, infx=1, infy=1, supx, supy, &
-               ip_e=-1, ip_n=-1, ip_s=-1, ip_w=-1, ip_null=-1
+               ip_e=-1, ip_n=-1, ip_s=-1, ip_w=-1, ip_oppo=-1, ip_null=-1
 
 ! pochva --->
 
@@ -201,7 +210,6 @@
 
 ! Globo variables and parameters
 
-    integer ip_oppo
     real(4) cpole
     integer, dimension(nlat)      :: nsweep
     real(4), dimension(nlon,nfou) :: snt, cst
@@ -226,9 +234,462 @@
 
     end module mod_model
 !##################################################################################################################
+
+module u_ghost
+
+! MPI smart application:
+! 1) initialization of the change buffer;
+! 2) memorisation of outgoing boundaries of multiple fields in the single change buffer;
+! 3) send-recieve of the single change buffer;
+! 4) memorisation of recieved boundaries from the single change buffer in multiple fields.
+
+use mod_model, only : nlon, nlat, nlev, ip_e, ip_n, ip_s, ip_w, ip_oppo, ip_null
+
+implicit none
+
+#ifdef mpi
+  include 'mpif.h'
+#endif
+
+! ndirect - number of exchage direction: 
+! 1 - send to north, recieve from south,
+! 2 - send to east, recieve from west,
+! 3 - send to south, recieve from north,
+! 4 - send to west, recieve from east,
+! 5 - send and recieve across the poles in the case of Globo (global domain).
+ integer, parameter :: ndirect = 5, &
+                       nrequest_tot = ndirect*2, &
+                       u_ghost_bufsiz = (max(nlon,nlat) +1) * (nlev+1) * 10
+! Attention: max number of field for the single mpi boundaries exchange
+! is 10!
+
+ integer, dimension(ndirect) :: ind_snd, ind_rcv
+ real, dimension(:,:), allocatable :: buffer_snd, buffer_rcv
+ integer :: use_comm, use_ierr
+ logical :: transfer
+
+contains
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_init(comm)
+
+! Point 1 of MPI smart application
+
+! Initialization of exchage buffers and other exchange service variables
+
+integer, intent(in) :: comm
+
+#ifdef mpi
+
+ use_comm = comm
+ ind_snd(:) = 0
+ ind_rcv(:) = 0
+ transfer = .false.
+
+ if (.not.allocated(buffer_snd)) then
+   allocate( buffer_snd( u_ghost_bufsiz, ndirect) )
+ endif
+
+ if (.not.allocated(buffer_rcv)) then
+   allocate( buffer_rcv( u_ghost_bufsiz, ndirect) )
+ endif
+
+#endif
+
+end subroutine u_ghost_init
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_put_2d(array, idirect)
+
+! Point 2 of MPI smart application for 2d array
+
+! Memorisation of outgoing boundaries of multiple fields in the single change buffer
+
+! idirect - index of exchage direction: 
+! 1 - send to north, recieve from south,
+! 2 - send to east, recieve from west,
+! 3 - send to south, recieve from north,
+! 4 - send to west, recieve from east,
+! 5 - send and recieve across the poles in the case of Globo (global domain).
+integer, intent(in) :: idirect
+real, dimension(:,:), intent(in) :: array
+
+integer ::  npoint_buff, ip_snd=-1, ip_rcv=-1
+
+#ifdef mpi
+
+ if (idirect == 1) then
+   ip_snd=ip_n
+   ip_rcv=ip_s
+ endif
+ if (idirect == 2) then
+   ip_snd=ip_e
+   ip_rcv=ip_w
+ endif
+ if (idirect == 3) then
+   ip_snd=ip_s
+   ip_rcv=ip_n
+ endif
+ if (idirect == 4) then
+   ip_snd=ip_w
+   ip_rcv=ip_e
+ endif
+ if (idirect == 5) then
+   ip_snd=ip_oppo
+   ip_rcv=ip_oppo
+ endif
+
+ npoint_buff = size(array)
+
+ if (ip_snd /= ip_null) then
+  buffer_snd(ind_snd(idirect)+1:ind_snd(idirect)+npoint_buff, idirect) = reshape(array, (/npoint_buff/))
+  ind_snd(idirect) = ind_snd(idirect) + npoint_buff
+ endif
+
+ if (ip_rcv /= ip_null) then
+   ind_rcv(idirect) = ind_rcv(idirect) + npoint_buff
+ endif
+
+#endif
+
+end subroutine u_ghost_put_2d
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_put_1d(array, idirect)
+
+! Point 2 of MPI smart application for 1d array
+
+! Memorisation of outgoing boundaries of multiple fields in the single change buffer
+
+! idirect - index of exchage direction: 
+! 1 - send to north, recieve from south,
+! 2 - send to east, recieve from west,
+! 3 - send to south, recieve from north,
+! 4 - send to west, recieve from east,
+! 5 - send and recieve across the poles in the case of Globo (global domain).
+integer, intent(in) :: idirect
+real, dimension(:), intent(in) :: array
+
+integer :: npoint_buff, ip_snd=-1, ip_rcv=-1
+
+#ifdef mpi
+
+ if (idirect == 1) then
+   ip_snd=ip_n
+   ip_rcv=ip_s
+ endif
+ if (idirect == 2) then
+   ip_snd=ip_e
+   ip_rcv=ip_w
+ endif
+ if (idirect == 3) then
+   ip_snd=ip_s
+   ip_rcv=ip_n
+ endif
+ if (idirect == 4) then
+   ip_snd=ip_w
+   ip_rcv=ip_e
+ endif
+ if (idirect == 5) then
+   ip_snd=ip_oppo
+   ip_rcv=ip_oppo
+ endif
+
+ npoint_buff = size(array)
+
+ if (ip_snd /= ip_null) then
+  buffer_snd(ind_snd(idirect)+1:ind_snd(idirect)+npoint_buff, idirect) = array(1:npoint_buff)
+  ind_snd(idirect) = ind_snd(idirect) + npoint_buff
+ endif
+
+ if (ip_rcv /= ip_null) then
+   ind_rcv(idirect) = ind_rcv(idirect) + npoint_buff
+ endif
+
+#endif
+
+end subroutine u_ghost_put_1d
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_put_0d(zvalue, idirect)
+
+! Point 2 of MPI smart application for 0d array
+
+! Memorisation of outgoing boundaries of multiple fields in the single change buffer
+
+! idirect - index of exchage direction: 
+! 1 - send to north, recieve from south,
+! 2 - send to east, recieve from west,
+! 3 - send to south, recieve from north,
+! 4 - send to west, recieve from east,
+! 5 - send and recieve across the poles in the case of Globo (global domain).
+integer, intent(in) :: idirect
+real, intent(in) :: zvalue
+
+integer :: ip_snd=-1, ip_rcv=-1
+
+#ifdef mpi
+
+ if (idirect == 1) then
+   ip_snd=ip_n
+   ip_rcv=ip_s
+ endif
+ if (idirect == 2) then
+   ip_snd=ip_e
+   ip_rcv=ip_w
+ endif
+ if (idirect == 3) then
+   ip_snd=ip_s
+   ip_rcv=ip_n
+ endif
+ if (idirect == 4) then
+   ip_snd=ip_w
+   ip_rcv=ip_e
+ endif
+ if (idirect == 5) then
+   ip_snd=ip_oppo
+   ip_rcv=ip_oppo
+ endif
+
+ if (ip_snd /= ip_null) then
+  buffer_snd(ind_snd(idirect)+1, idirect) = zvalue
+  ind_snd(idirect) = ind_snd(idirect) + 1
+ endif
+
+ if (ip_rcv /= ip_null) then
+   ind_rcv(idirect) = ind_rcv(idirect) + 1
+ endif
+
+#endif
+
+end subroutine u_ghost_put_0d
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_transfer
+
+! Point 3 of MPI smart application
+
+! Buffer data transfer: send-recieve of the single change buffer
+! for all defined directions
+
+integer, dimension(nrequest_tot) :: requests
+integer :: n_req
+
+ n_req = 0
+
+#ifdef mpi
+
+! Norh -> South transfer
+
+ if (ind_rcv(1) > 0) then
+  n_req = n_req + 1
+  call mpi_irecv (buffer_rcv(:,1), ind_rcv(1), mpi_real, ip_s, 1, use_comm, requests(n_req), use_ierr)
+ endif
+
+ if (ind_snd(1) > 0) then
+   n_req = n_req + 1
+   call mpi_isend (buffer_snd(:,1), ind_snd(1), mpi_real, ip_n, 1, use_comm, requests(n_req), use_ierr)
+ endif
+
+! Est -> West transfer
+
+ if (ind_rcv(2) > 0) then
+   n_req = n_req + 1
+   call mpi_irecv (buffer_rcv(:,2), ind_rcv(2), mpi_real, ip_w, 2, use_comm, requests(n_req), use_ierr)
+ endif
+
+ if (ind_snd(2) > 0) then
+   n_req = n_req + 1
+   call mpi_isend (buffer_snd(:,2), ind_snd(2), mpi_real, ip_e, 2, use_comm, requests(n_req), use_ierr)
+ endif
+
+! South -> North transfer
+
+ if (ind_rcv(3) > 0) then
+   n_req = n_req + 1
+   call mpi_irecv (buffer_rcv(:,3), ind_rcv(3), mpi_real, ip_n, 3, use_comm, requests(n_req), use_ierr)
+ endif
+
+ if (ind_snd(3) > 0) then
+   n_req = n_req + 1
+   call mpi_isend (buffer_snd(:,3), ind_snd(3), mpi_real, ip_s, 3, use_comm, requests(n_req), use_ierr)
+ endif
+
+! West -> East transfer
+
+ if (ind_rcv(4) > 0) then
+   n_req = n_req + 1
+   call mpi_irecv (buffer_rcv(:,4), ind_rcv(4), mpi_real, ip_e, 4, use_comm, requests(n_req), use_ierr)
+ endif
+
+ if (ind_snd(4) > 0) then
+   n_req = n_req + 1
+   call mpi_isend(buffer_snd(:,4), ind_snd(4), mpi_real, ip_w, 4, use_comm, requests(n_req), use_ierr)
+ endif
+
+! Across the poles transfer
+
+ if (ind_rcv(5) > 0) then
+   n_req = n_req + 1
+   call mpi_irecv (buffer_rcv(:,5), ind_rcv(5), mpi_real, ip_oppo, 5, use_comm, requests(n_req), use_ierr)
+ endif
+
+ if (ind_snd(5) > 0) then
+   n_req = n_req + 1
+   call mpi_isend(buffer_snd(:,5), ind_snd(5), mpi_real, ip_oppo, 5, use_comm, requests(n_req), use_ierr)
+ endif
+
+! Waiting of all launched transfers
+
+ call mpi_waitall(n_req, requests, mpi_statuses_ignore, use_ierr)
+
+ transfer = .true.
+
+ ind_rcv(:) = 0
+
+#endif
+
+end subroutine u_ghost_transfer
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_get_2d(array, idirect)
+
+! Point 4 of MPI smart application for 2d array
+
+! Memorisation of received boundaries of multiple fields from the single change buffer
+
+! idirect - index of exchage direction: 
+! 1 - send to north, recieve from south,
+! 2 - send to east, recieve from west,
+! 3 - send to south, recieve from north,
+! 4 - send to west, recieve from east,
+! 5 - send and recieve across the poles in the case of Globo (global domain).
+integer, intent(in) ::  idirect
+real, dimension(:,:), intent(out) :: array
+
+integer :: npoint_buff, ip_rcv=-1
+
+#ifdef mpi
+
+ if (idirect == 1) ip_rcv=ip_s
+ if (idirect == 2) ip_rcv=ip_w
+ if (idirect == 3) ip_rcv=ip_n
+ if (idirect == 4) ip_rcv=ip_e
+ if (idirect == 5) ip_rcv=ip_oppo
+
+ if (.not.transfer) then
+   call u_ghost_transfer
+ endif
+
+ npoint_buff = size(array)
+
+ if (ip_rcv /= ip_null) then
+   array(:,:) = reshape(buffer_rcv(ind_rcv(idirect)+1:ind_rcv(idirect)+npoint_buff, idirect), shape(array))
+   ind_rcv(idirect) = ind_rcv(idirect) + npoint_buff
+ endif
+
+#endif
+
+end subroutine u_ghost_get_2d
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_get_1d(array, idirect)
+
+! Point 4 of MPI smart application for 1d array
+
+! Memorisation of received boundaries of multiple fields from the single change buffer
+
+! idirect - index of exchage direction: 
+! 1 - send to north, recieve from south,
+! 2 - send to east, recieve from west,
+! 3 - send to south, recieve from north,
+! 4 - send to west, recieve from east,
+! 5 - send and recieve across the poles in the case of Globo (global domain).
+integer, intent(in) ::  idirect
+real, dimension(:), intent(out) :: array
+
+integer :: npoint_buff, ip_rcv=-1
+
+#ifdef mpi
+
+ if (idirect == 1) ip_rcv=ip_s
+ if (idirect == 2) ip_rcv=ip_w
+ if (idirect == 3) ip_rcv=ip_n
+ if (idirect == 4) ip_rcv=ip_e
+ if (idirect == 5) ip_rcv=ip_oppo
+
+ if (.not.transfer) then
+   call u_ghost_transfer
+ endif
+
+ npoint_buff = size(array)
+
+ if (ip_rcv /= ip_null) then
+   array(:) = buffer_rcv(ind_rcv(idirect)+1:ind_rcv(idirect)+npoint_buff, idirect)
+   ind_rcv(idirect) = ind_rcv(idirect) + npoint_buff
+ endif
+
+#endif
+
+end subroutine u_ghost_get_1d
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_get_0d(zvalue, idirect)
+
+! Point 4 of MPI smart application for 0d array
+
+! Memorisation of received boundaries of multiple fields from the single change buffer
+
+! idirect - index of exchage direction: 
+! 1 - send to north, recieve from south,
+! 2 - send to east, recieve from west,
+! 3 - send to south, recieve from north,
+! 4 - send to west, recieve from east,
+! 5 - send and recieve across the poles in the case of Globo (global domain).
+integer, intent(in) ::  idirect
+real, intent(out) :: zvalue
+
+integer :: ip_rcv=-1
+
+#ifdef mpi
+
+ if (idirect == 1) ip_rcv=ip_s
+ if (idirect == 2) ip_rcv=ip_w
+ if (idirect == 3) ip_rcv=ip_n
+ if (idirect == 4) ip_rcv=ip_e
+ if (idirect == 5) ip_rcv=ip_oppo
+
+ if (.not.transfer) then
+   call u_ghost_transfer
+ endif
+
+ if (ip_rcv /= ip_null) then
+   zvalue = buffer_rcv(ind_rcv(idirect)+1, idirect)
+   ind_rcv(idirect) = ind_rcv(idirect) + 1
+ endif
+
+#endif    ! ifdef mpi
+
+end subroutine u_ghost_get_0d
+
+!------------------------------------------------------------------------------
+
+end module u_ghost
+
+!##################################################################################################################
     program bolam
 
     use mod_model
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_put_1d, u_ghost_put_0d, &
+ u_ghost_get_2d, u_ghost_get_1d, u_ghost_get_0d
     use pochva_scheme, only : pochva
 
     implicit none
@@ -282,6 +743,7 @@
 
 #ifdef mpi
       comm = mpi_comm_world
+      use_comm = mpi_comm_world
       call mpi_init(ierr)
       if (ierr .ne. 0) then
         print *,'error starting mpi program.  terminating.'
@@ -367,6 +829,13 @@
 !      call system('hostname')
 
 #endif
+!--------------------------------------------------------------------------------------------------------
+    if (myid == 0) then
+      print *
+      print *,'    --- Bolam/Globo model Version 25.1.0 ---'
+      print *
+    endif
+!--------------------------------------------------------------------------------------------------------
 
 !------------------------------
 ! read parameters from namelist
@@ -1128,7 +1597,15 @@
 !  divergence of horizontal motion, vertical velocity and tendency of ps is made in sub. diverg
 
 #ifdef mpi
-      call u_ghost (v(:,2,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_2d(v(:,2,:), 3)    ! send to south
+
+      call u_ghost_get_2d(v(:,nlat,:), 3) ! receive from north
+
+!      call u_ghost_old (v(:,2,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
+
       if (nprocsx.eq.1) then
 
 #ifdef globo
@@ -1137,7 +1614,14 @@
 #endif
 
       else
-        call u_ghost (u(nlonm1,:,:), ip_e, u(1,:,:), ip_w, nlat*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(u(nlonm1,:,:), 2) ! send to est
+ 
+        call u_ghost_get_2d(u(1,:,:), 2)      ! receive from west
+
+!        call u_ghost_old (u(nlonm1,:,:), ip_e, u(1,:,:), ip_w, nlat*nlev)
       endif
 #else
 #ifdef globo
@@ -1160,10 +1644,23 @@
 
 #ifdef mpi
 
-      call u_ghost (ps(:,2     ), ip_s, ps(:,nlat), ip_n, nlon)
-      call u_ghost (ps(:,nlatm1), ip_n, ps(:,1   ), ip_s, nlon)
-      call u_ghost (tvirt(:,nlatm1,:), ip_n, tvirt(:,1,:), ip_s, nlon*nlev)
-      call u_ghost (div1 (:,nlatm1,:), ip_n, div1 (:,1,:), ip_s, nlon*nlev)
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_1d(ps(:,2), 3)           ! send to south
+      call u_ghost_put_1d(ps(:,nlatm1), 1)      ! send to north
+      call u_ghost_put_2d(tvirt(:,nlatm1,:), 1) ! send to north
+      call u_ghost_put_2d(div1(:,nlatm1,:), 1)  ! send to north
+
+      call u_ghost_get_1d(ps(:,nlat), 3)        ! receive from north
+      call u_ghost_get_1d(ps(:,1), 1)           ! receive from south
+      call u_ghost_get_2d(tvirt(:,1,:), 1)      ! receive from south
+      call u_ghost_get_2d(div1(:,1,:), 1)       ! receive from south
+
+!      call u_ghost_old (ps(:,2     ), ip_s, ps(:,nlat), ip_n, nlon)
+!      call u_ghost_old (ps(:,nlatm1), ip_n, ps(:,1   ), ip_s, nlon)
+!      call u_ghost_old (tvirt(:,nlatm1,:), ip_n, tvirt(:,1,:), ip_s, nlon*nlev)
+!      call u_ghost_old (div1 (:,nlatm1,:), ip_n, div1 (:,1,:), ip_s, nlon*nlev)
+
       if (nprocsx.eq.1) then
 
 #ifdef globo
@@ -1176,10 +1673,23 @@
 #endif
 
       else
-        call u_ghost (ps(2     ,:), ip_w, ps(nlon,:), ip_e, nlat)
-        call u_ghost (ps(nlonm1,:), ip_e, ps(1   ,:), ip_w, nlat)
-        call u_ghost (tvirt(2,:,:), ip_w, tvirt(nlon,:,:), ip_e, nlat*nlev)
-        call u_ghost (div1 (2,:,:), ip_w, div1 (nlon,:,:), ip_e, nlat*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(ps(2,:), 4)         ! send to west
+        call u_ghost_put_1d(ps(nlonm1,:), 2)    ! send to est
+        call u_ghost_put_2d(tvirt(2,:,:), 4)    ! send to west
+        call u_ghost_put_2d(div1(2,:,:), 4)     ! send to west
+
+        call u_ghost_get_1d(ps(nlon,:), 4)      ! receive from east
+        call u_ghost_get_1d(ps(1,:), 2)         ! receive from west
+        call u_ghost_get_2d(tvirt(nlon,:,:), 4) ! receive from east
+        call u_ghost_get_2d(div1(nlon,:,:), 4)  ! receive from east
+
+!        call u_ghost_old (ps(2     ,:), ip_w, ps(nlon,:), ip_e, nlat)
+!        call u_ghost_old (ps(nlonm1,:), ip_e, ps(1   ,:), ip_w, nlat)
+!        call u_ghost_old (tvirt(2,:,:), ip_w, tvirt(nlon,:,:), ip_e, nlat*nlev)
+!        call u_ghost_old (div1 (2,:,:), ip_w, div1 (nlon,:,:), ip_e, nlat*nlev)
       endif
 #else
 #ifdef globo
@@ -1452,9 +1962,20 @@
 #endif
 
       else
-        call u_ghost (corrdt(2,jlat,:), ip_w, corrdt(nlon,jlat,:), ip_e, nlev)
-        call u_ghost (corvis(2,jlat), ip_w, corvis(nlon,jlat), ip_e, 1)
-        call u_ghost (corirr(2,jlat), ip_w, corirr(nlon,jlat), ip_e, 1)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(corrdt(2,jlat,:), 4)    ! send to west
+        call u_ghost_put_0d(corvis(2,jlat), 4)      ! send to west
+        call u_ghost_put_0d(corirr(2,jlat), 4)      ! send to west
+
+        call u_ghost_get_1d(corrdt(nlon,jlat,:), 4) ! receive from est
+        call u_ghost_get_0d(corvis(nlon,jlat), 4)   ! receive from est
+        call u_ghost_get_0d(corirr(nlon,jlat), 4)   ! receive from est
+
+!        call u_ghost_old (corrdt(2,jlat,:), ip_w, corrdt(nlon,jlat,:), ip_e, nlev)
+!        call u_ghost_old (corvis(2,jlat), ip_w, corvis(nlon,jlat), ip_e, 1)
+!        call u_ghost_old (corirr(2,jlat), ip_w, corirr(nlon,jlat), ip_e, 1)
       endif
 #else
 #ifdef globo
@@ -1477,11 +1998,19 @@
 
 !  latitudinal interpolation
 
-#ifdef mpi
-      call u_ghost (corrdt(2:nlonm1,2,:), ip_s, corrdt(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
-      call u_ghost (corvis(2:nlonm1,2), ip_s, corvis(2:nlonm1,nlat), ip_n, nlon-2)
-      call u_ghost (corirr(2:nlonm1,2), ip_s, corirr(2:nlonm1,nlat), ip_n, nlon-2)
-#endif
+    call u_ghost_init(use_comm)
+
+    call u_ghost_put_2d(corrdt(2:nlonm1,2,:), 3)    ! send to south
+    call u_ghost_put_1d(corvis(2:nlonm1,2), 3)      ! send to south
+    call u_ghost_put_1d(corirr(2:nlonm1,2), 3)      ! send to south
+
+    call u_ghost_get_2d(corrdt(2:nlonm1,nlat,:), 3) ! receive from north
+    call u_ghost_get_1d(corvis(2:nlonm1,nlat), 3)   ! receive from north
+    call u_ghost_get_1d(corirr(2:nlonm1,nlat), 3)   ! receive from north
+
+!    call u_ghost_old (corrdt(2:nlonm1,2,:), ip_s, corrdt(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
+!    call u_ghost_old (corvis(2:nlonm1,2), ip_s, corvis(2:nlonm1,nlat), ip_n, nlon-2)
+!    call u_ghost_old (corirr(2:nlonm1,2), ip_s, corirr(2:nlonm1,nlat), ip_n, nlon-2)
 
     do jklev = 1, nlev
     do jlat = 3, nlatm1, 2
@@ -1638,10 +2167,16 @@
 
     call tofd
 
-#ifdef mpi
-      call u_ghost (v(:,2,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
-      call u_ghost (u(nlonm1,:,:), ip_e, u(1,:,:), ip_w, nlat*nlev)
-#endif
+       call u_ghost_init(use_comm)
+
+       call u_ghost_put_2d(v(:,2,:), 3)      ! send to south
+       call u_ghost_put_2d(u(nlonm1,:,:), 2) ! send to est
+
+       call u_ghost_get_2d(v(:,nlat,:), 3)   ! receive from north
+       call u_ghost_get_2d(u(1,:,:), 2)      ! receive from west
+
+!    call u_ghost_old (v(:,2,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
+!    call u_ghost_old (u(nlonm1,:,:), ip_e, u(1,:,:), ip_w, nlat*nlev)
 
 !!!    call vdiff_old (dtstep)
     call surface_layer (dtstep, jstep)
@@ -4310,6 +4845,7 @@ end subroutine wr_param_const
     use mod_model, only : nlon, gnlon, nlat, nlev, nlevp1, nlonm1, nlatm1, u, v,                       &
                           sigdot, hxt, hst, hxv, dsig, snt, cst, pi, dx, dy, a, dlon, dlat, ut,        &
                           vt, nsweep, nprocsy, nprocsx, myid, ip_e, ip_n, ip_s, ip_w, ip_null, ip_oppo, denomin
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_put_1d, u_ghost_get_2d, u_ghost_get_1d
     implicit none
 
     real(4), dimension(nlon)               :: zpbw1, zpbw2
@@ -4355,8 +4891,17 @@ end subroutine wr_param_const
     u(nlon,:,:) = u(2,:,:)
 #ifdef mpi
       else
-        call u_ghost (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
-        call u_ghost (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(u(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(u(2,:,:), 4)      ! send to west
+
+        call u_ghost_get_2d(u(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(u(nlon,:,:), 4)   ! receive from east
+
+!        call u_ghost_old (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
+!        call u_ghost_old (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
       endif
 #endif
 
@@ -4374,7 +4919,14 @@ end subroutine wr_param_const
     zut(:) = u(nlon-2,:,jklev)
 #ifdef mpi
       else
-        call u_ghost (u(nlon-2,:,jklev), ip_e, zut, ip_w, nlat)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(u(nlon-2,:,jklev), 2) ! send to est
+
+        call u_ghost_get_1d(zut, 2)               ! receive from west
+
+!        call u_ghost_old (u(nlon-2,:,jklev), ip_e, zut, ip_w, nlat)
       endif
 #endif
     do jlat = 2, nlatm1
@@ -4384,17 +4936,31 @@ end subroutine wr_param_const
 
 #else ! no globo
 
-#ifdef mpi
-      call u_ghost (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
-      call u_ghost (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
-#endif
+    call u_ghost_init(use_comm)
+
+    call u_ghost_put_2d(u(2,:,:), 4)      ! send to west
+    call u_ghost_put_2d(u(nlonm1,:,:), 2) ! send to est
+
+    call u_ghost_get_2d(u(nlon,:,:), 4)   ! receive from east
+    call u_ghost_get_2d(u(1,:,:), 2)      ! receive from west
+
+!    call u_ghost_old (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
+!    call u_ghost_old (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
 
     do jlon = 3, nlonm1
     ut(jlon,:,:) = .5625*(u(jlon,:,:)+u(jlon-1,:,:)) -.0625*(u(jlon+1,:,:)+u(jlon-2,:,:))
     enddo
 
 #ifdef mpi
-      call u_ghost (u(nlon-2,:,:), ip_e, zutb, ip_w, nlat*nlev)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_2d(u(nlon-2,:,:), 2) ! send to est
+
+      call u_ghost_get_2d(zutb, 2)          ! receive from west
+
+!      call u_ghost_old (u(nlon-2,:,:), ip_e, zutb, ip_w, nlat*nlev)
+
       if (ip_w.eq.ip_null) then
 #endif
     ut(1,:,:) =  u(1,:,:)
@@ -4419,9 +4985,20 @@ end subroutine wr_param_const
 #ifdef globo
 
 #ifdef mpi
-      call u_ghost (v(2:nlonm1,nlatm1,:), ip_n, v  (2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
-      call u_ghost (v(2:nlonm1,2     ,:), ip_s, v  (2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
-      call u_ghost (v(2:nlonm1,3     ,:), ip_s, zvt(2:nlonm1,     :), ip_n, (nlon-2)*nlev)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_2d(v(2:nlonm1,nlatm1,:), 1) ! send to north
+      call u_ghost_put_2d(v(2:nlonm1,2,:), 3)      ! send to south
+      call u_ghost_put_2d(v(2:nlonm1,3,:), 3)      ! send to south
+
+      call u_ghost_get_2d(v(2:nlonm1,1,:), 1)      ! receive from south
+      call u_ghost_get_2d(v(2:nlonm1,nlat,:), 3)   ! receive from north
+      call u_ghost_get_2d(zvt(2:nlonm1,:), 3)      ! receive from north
+
+!      call u_ghost_old (v(2:nlonm1,nlatm1,:), ip_n, v  (2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
+!      call u_ghost_old (v(2:nlonm1,2     ,:), ip_s, v  (2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
+!      call u_ghost_old (v(2:nlonm1,3     ,:), ip_s, zvt(2:nlonm1,     :), ip_n, (nlon-2)*nlev)
 
       if (ip_s.eq.ip_null) then   ! row of processors including south pole
 
@@ -4435,7 +5012,11 @@ end subroutine wr_param_const
       enddo
 #ifdef mpi
         else
-          call u_ghost (-v(2:nlonm1,2,:), ip_oppo, v(2:nlonm1,1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(v(2:nlonm1,2,:), 5) ! send across the poles
+          call u_ghost_get_2d(v(2:nlonm1,1,:), 5) ! receive across the poles
+          v(2:nlonm1,1,:) = -v(2:nlonm1,1,:)
+!          call u_ghost_old (-v(2:nlonm1,2,:), ip_oppo, v(2:nlonm1,1,:), ip_oppo, (nlon-2)*nlev)
         endif
 #endif
 
@@ -4492,7 +5073,11 @@ end subroutine wr_param_const
       enddo
 #ifdef mpi
         else
-          call u_ghost (-v(2:nlonm1,nlat,:), ip_oppo, zvt(2:nlonm1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(v(2:nlonm1,nlat,:), 5) ! send across the poles
+          call u_ghost_get_2d(zvt(2:nlonm1,:), 5) ! receive across the poles
+          zvt(2:nlonm1,:) = -zvt(2:nlonm1,:)
+!          call u_ghost_old (-v(2:nlonm1,nlat,:), ip_oppo, zvt(2:nlonm1,:), ip_oppo, (nlon-2)*nlev)
         endif
 #endif
     zvi = 0.
@@ -4536,11 +5121,19 @@ end subroutine wr_param_const
 
 #else ! no globo
 
-#ifdef mpi
-      call u_ghost (v(:,nlatm1,:), ip_n, v(:,1   ,:), ip_s, nlon*nlev)
-      call u_ghost (v(:,2     ,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
-      call u_ghost (v(:,3     ,:), ip_s, zvt        , ip_n, nlon*nlev)
-#endif
+       call u_ghost_init(use_comm)
+
+       call u_ghost_put_2d(v(:,nlatm1,:), 1) ! send to north
+       call u_ghost_put_2d(v(:,2,:), 3)      ! send to south
+       call u_ghost_put_2d(v(:,3,:), 3)      ! send to south
+
+       call u_ghost_get_2d(v(:,1,:), 1)      ! receive from south
+       call u_ghost_get_2d(v(:,nlat,:), 3)   ! receive from north
+       call u_ghost_get_2d(zvt, 3)           ! receive from north
+
+!    call u_ghost_old (v(:,nlatm1,:), ip_n, v(:,1   ,:), ip_s, nlon*nlev)
+!    call u_ghost_old (v(:,2     ,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
+!    call u_ghost_old (v(:,3     ,:), ip_s, zvt        , ip_n, nlon*nlev)
 
     do jlat = 2, nlat-2
     vt(:,jlat,:) = .5625*(v(:,jlat+1,:)+v(:,jlat,:))-.0625*(v(:,jlat+2,:)+v(:,jlat-1,:))
@@ -4673,8 +5266,18 @@ end subroutine wr_param_const
     enddo
 #ifdef mpi
         else
-          call u_ghost (-wz1(2:nlonm1,2,:), ip_oppo, wz1(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
-          call u_ghost (-wz2(2:nlonm1,2,:), ip_oppo, wz2(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+
+          call u_ghost_put_2d(wz1(2:nlonm1,2,:), 5) ! send across the poles
+          call u_ghost_put_2d(wz2(2:nlonm1,2,:), 5) ! send across the poles
+
+          call u_ghost_get_2d(wz1(2:nlonm1,0,:), 5) ! receive across the poles
+          call u_ghost_get_2d(wz2(2:nlonm1,0,:), 5) ! receive across the poles
+          wz1(2:nlonm1,0,:) = -wz1(2:nlonm1,0,:)
+          wz2(2:nlonm1,0,:) = -wz2(2:nlonm1,0,:)
+
+!          call u_ghost_old (-wz1(2:nlonm1,2,:), ip_oppo, wz1(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
+!          call u_ghost_old (-wz2(2:nlonm1,2,:), ip_oppo, wz2(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -4691,8 +5294,18 @@ end subroutine wr_param_const
     enddo
 #ifdef mpi
         else
-          call u_ghost (-wz1(2:nlonm1,nlatm1,:), ip_oppo, wz1(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
-          call u_ghost (-wz2(2:nlonm1,nlatm1,:), ip_oppo, wz2(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+
+          call u_ghost_put_2d(wz1(2:nlonm1,nlatm1,:), 5) ! send across the poles
+          call u_ghost_put_2d(wz2(2:nlonm1,nlatm1,:), 5) ! send across the poles
+
+          call u_ghost_get_2d(wz1(2:nlonm1,nlat+1,:), 5) ! receive across the poles
+          call u_ghost_get_2d(wz2(2:nlonm1,nlat+1,:), 5) ! receive across the poles
+          wz1(2:nlonm1,nlat+1,:) = -wz1(2:nlonm1,nlat+1,:)
+          wz2(2:nlonm1,nlat+1,:) = -wz2(2:nlonm1,nlat+1,:)
+
+!          call u_ghost_old (-wz1(2:nlonm1,nlatm1,:), ip_oppo, wz1(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
+!          call u_ghost_old (-wz2(2:nlonm1,nlatm1,:), ip_oppo, wz2(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -4720,12 +5333,30 @@ end subroutine wr_param_const
 
 #endif ! globo
 
-#ifdef mpi
-      call u_ghost (wz1(2:nlonm1,2     :3     ,:), ip_s, wz1(2:nlonm1,nlat  :nlat+1,:), ip_n, 2*(nlon-2)*nlev)
-      call u_ghost (wz1(2:nlonm1,nlat-2:nlatm1,:), ip_n, wz1(2:nlonm1,0     :1     ,:), ip_s, 2*(nlon-2)*nlev)
-      call u_ghost (wz2(2:nlonm1,2     :3     ,:), ip_s, wz2(2:nlonm1,nlat  :nlat+1,:), ip_n, 2*(nlon-2)*nlev)
-      call u_ghost (wz2(2:nlonm1,nlat-2:nlatm1,:), ip_n, wz2(2:nlonm1,0     :1     ,:), ip_s, 2*(nlon-2)*nlev)
-#endif
+    call u_ghost_init(use_comm)
+
+    call u_ghost_put_2d(wz1(2:nlonm1,2,:), 3)      ! send to south
+    call u_ghost_put_2d(wz1(2:nlonm1,3,:), 3)      ! send to south
+    call u_ghost_put_2d(wz1(2:nlonm1,nlat-2,:), 1) ! send to north
+    call u_ghost_put_2d(wz1(2:nlonm1,nlatm1,:), 1) ! send to north
+    call u_ghost_put_2d(wz2(2:nlonm1,2,:), 3)      ! send to south
+    call u_ghost_put_2d(wz2(2:nlonm1,3,:), 3)      ! send to south
+    call u_ghost_put_2d(wz2(2:nlonm1,nlat-2,:), 1) ! send to north
+    call u_ghost_put_2d(wz2(2:nlonm1,nlatm1,:), 1) ! send to north
+
+    call u_ghost_get_2d(wz1(2:nlonm1,nlat,:), 3)   ! receive from north
+    call u_ghost_get_2d(wz1(2:nlonm1,nlat+1,:), 3) ! receive from north
+    call u_ghost_get_2d(wz1(2:nlonm1,0,:), 1)      ! receive from south
+    call u_ghost_get_2d(wz1(2:nlonm1,1,:), 1)      ! receive from south
+    call u_ghost_get_2d(wz2(2:nlonm1,nlat,:), 3)   ! receive from north
+    call u_ghost_get_2d(wz2(2:nlonm1,nlat+1,:), 3) ! receive from north
+    call u_ghost_get_2d(wz2(2:nlonm1,0,:), 1)      ! receive from south
+    call u_ghost_get_2d(wz2(2:nlonm1,1,:), 1)      ! receive from south
+
+!    call u_ghost_old (wz1(2:nlonm1,2     :3     ,:), ip_s, wz1(2:nlonm1,nlat  :nlat+1,:), ip_n, 2*(nlon-2)*nlev)
+!    call u_ghost_old (wz1(2:nlonm1,nlat-2:nlatm1,:), ip_n, wz1(2:nlonm1,0     :1     ,:), ip_s, 2*(nlon-2)*nlev)
+!    call u_ghost_old (wz2(2:nlonm1,2     :3     ,:), ip_s, wz2(2:nlonm1,nlat  :nlat+1,:), ip_n, 2*(nlon-2)*nlev)
+!    call u_ghost_old (wz2(2:nlonm1,nlat-2:nlatm1,:), ip_n, wz2(2:nlonm1,0     :1     ,:), ip_s, 2*(nlon-2)*nlev)
 
 !-----------------------
 !  Horizontal advections
@@ -4832,10 +5463,31 @@ end subroutine wr_param_const
 
 #ifdef mpi
       else
-        call u_ghost (p01(nlon-2:nlonm1,jlat,:), ip_e, p01(0:1        ,jlat,:), ip_w, 2*nlev)
-        call u_ghost (p01(2:3          ,jlat,:), ip_w, p01(nlon:nlon+1,jlat,:), ip_e, 2*nlev)
-        call u_ghost (p02(nlon-2:nlonm1,jlat,:), ip_e, p02(0:1        ,jlat,:), ip_w, 2*nlev)
-        call u_ghost (p02(2:3          ,jlat,:), ip_w, p02(nlon:nlon+1,jlat,:), ip_e, 2*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(p01(nlon-2,jlat,:), 2) ! send to est
+        call u_ghost_put_1d(p01(nlonm1,jlat,:), 2) ! send to est
+        call u_ghost_put_1d(p01(2,jlat,:), 4)      ! send to west
+        call u_ghost_put_1d(p01(3,jlat,:), 4)      ! send to west
+        call u_ghost_put_1d(p02(nlon-2,jlat,:), 2) ! send to est
+        call u_ghost_put_1d(p02(nlonm1,jlat,:), 2) ! send to est
+        call u_ghost_put_1d(p02(2,jlat,:), 4)      ! send to west
+        call u_ghost_put_1d(p02(3,jlat,:), 4)      ! send to west
+
+        call u_ghost_get_1d(p01(0,jlat,:), 2)      ! receive from west
+        call u_ghost_get_1d(p01(1,jlat,:), 2)      ! receive from west
+        call u_ghost_get_1d(p01(nlon,jlat,:), 4)   ! receive from east
+        call u_ghost_get_1d(p01(nlon+1,jlat,:), 4) ! receive from east
+        call u_ghost_get_1d(p02(0,jlat,:), 2)      ! receive from west
+        call u_ghost_get_1d(p02(1,jlat,:), 2)      ! receive from west
+        call u_ghost_get_1d(p02(nlon,jlat,:), 4)   ! receive from east
+        call u_ghost_get_1d(p02(nlon+1,jlat,:), 4) ! receive from east
+
+!        call u_ghost_old (p01(nlon-2:nlonm1,jlat,:), ip_e, p01(0:1        ,jlat,:), ip_w, 2*nlev)
+!        call u_ghost_old (p01(2:3          ,jlat,:), ip_w, p01(nlon:nlon+1,jlat,:), ip_e, 2*nlev)
+!        call u_ghost_old (p02(nlon-2:nlonm1,jlat,:), ip_e, p02(0:1        ,jlat,:), ip_w, 2*nlev)
+!        call u_ghost_old (p02(2:3          ,jlat,:), ip_w, p02(nlon:nlon+1,jlat,:), ip_e, 2*nlev)
       endif
 #endif
 
@@ -4911,8 +5563,19 @@ end subroutine wr_param_const
 
 #ifdef mpi
       else
-        call u_ghost (p01(nlonm1,2:nlatm1,:), ip_e, p01(1          ,2:nlatm1,:), ip_w,   (nlat-2)*nlev)
-        call u_ghost (p01(2:3   ,2:nlatm1,:), ip_w, p01(nlon:nlon+1,2:nlatm1,:), ip_e, 2*(nlat-2)*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(p01(nlonm1,2:nlatm1,:), 2) ! send to est
+        call u_ghost_put_2d(p01(2,2:nlatm1,:), 4)      ! send to west
+        call u_ghost_put_2d(p01(3,2:nlatm1,:), 4)      ! send to west
+
+        call u_ghost_get_2d(p01(1,2:nlatm1,:), 2)      ! receive from west
+        call u_ghost_get_2d(p01(nlon,2:nlatm1,:), 4)   ! receive from east
+        call u_ghost_get_2d(p01(nlon+1,2:nlatm1,:), 4)  ! receive from east
+
+!        call u_ghost_old (p01(nlonm1,2:nlatm1,:), ip_e, p01(1          ,2:nlatm1,:), ip_w,   (nlat-2)*nlev)
+!        call u_ghost_old (p01(2:3   ,2:nlatm1,:), ip_w, p01(nlon:nlon+1,2:nlatm1,:), ip_e, 2*(nlat-2)*nlev)
       endif
 #endif
 
@@ -4929,11 +5592,19 @@ end subroutine wr_param_const
 !  back to wind points: v (fourth order)
 !---------------------------------------
 
-#ifdef mpi
-      call u_ghost (p02(2:nlonm1,nlatm1,:), ip_n, p02(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
-      call u_ghost (p02(2:nlonm1,2     ,:), ip_s, p02(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
-      call u_ghost (p02(2:nlonm1,nlat-2,:), ip_n, zvt(2:nlonm1     ,:), ip_s, (nlon-2)*nlev)
-#endif
+    call u_ghost_init(use_comm)
+
+    call u_ghost_put_2d(p02(2:nlonm1,nlatm1,:), 1) ! send to north
+    call u_ghost_put_2d(p02(2:nlonm1,2,:), 3)      ! send to south
+    call u_ghost_put_2d(p02(2:nlonm1,nlat-2,:), 1) ! send to north
+
+    call u_ghost_get_2d(p02(2:nlonm1,1,:), 1)      ! receive from south
+    call u_ghost_get_2d(p02(2:nlonm1,nlat,:), 3)   ! receive from north
+    call u_ghost_get_2d(zvt(2:nlonm1,:), 1)        ! receive from south
+
+!    call u_ghost_old (p02(2:nlonm1,nlatm1,:), ip_n, p02(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
+!    call u_ghost_old (p02(2:nlonm1,2     ,:), ip_s, p02(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
+!    call u_ghost_old (p02(2:nlonm1,nlat-2,:), ip_n, zvt(2:nlonm1     ,:), ip_s, (nlon-2)*nlev)
 
 #ifdef globo
 
@@ -4953,7 +5624,11 @@ end subroutine wr_param_const
     enddo
 #ifdef mpi
         else
-          call u_ghost (-p02(2:nlonm1,2,:), ip_oppo, zvt(2:nlonm1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(p02(2:nlonm1,2,:), 5) ! send across the poles
+          call u_ghost_get_2d(zvt(2:nlonm1,:), 5)   ! receive across the poles
+          zvt(2:nlonm1,:) = -zvt(2:nlonm1,:)
+!          call u_ghost_old (-p02(2:nlonm1,2,:), ip_oppo, zvt(2:nlonm1,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -4974,7 +5649,11 @@ end subroutine wr_param_const
     enddo
 #ifdef mpi
         else
-          call u_ghost (-p02(2:nlonm1,nlatm1,:), ip_oppo, v(2:nlonm1,nlat,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(p02(2:nlonm1,nlatm1,:), 5) ! send across the poles
+          call u_ghost_get_2d(v(2:nlonm1,nlat,:), 5)     ! receive across the poles
+          v(2:nlonm1,nlat,:) = -v(2:nlonm1,nlat,:)
+!          call u_ghost_old (-p02(2:nlonm1,nlatm1,:), ip_oppo, v(2:nlonm1,nlat,:), ip_oppo, (nlon-2)*nlev)
         endif
 #endif
     v(2:nlonm1,nlat,:) = .5625*(p02(2:nlonm1,nlat,:)+p02(2:nlonm1,nlatm1,:)) &
@@ -5015,6 +5694,7 @@ end subroutine wr_param_const
 
     use mod_model, only : nlon, gnlon, nlat, nlev, nlevp1, nlonm1, nlatm1, u, v, sigdot, hxt, hxv, dsig, pi, &
             dx, dy, a, dlat, nprocsy, nprocsx, nsweep, myid, ip_e, ip_n, ip_s, ip_w, ip_null, ip_oppo, cpole, denomin
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_get_2d
 
     implicit none
     real(4), dimension(nlon,nlat,nlev)     :: var, dvarx
@@ -5137,10 +5817,21 @@ end subroutine wr_param_const
 #endif
 #endif
 
-#ifdef mpi
-      call u_ghost (wz(2:nlonm1,2     :3     ,:), ip_s, wz(2:nlonm1,nlat  :nlat+1,:), ip_n, 2*(nlon-2)*nlev)
-      call u_ghost (wz(2:nlonm1,nlat-2:nlatm1,:), ip_n, wz(2:nlonm1,0     :1     ,:), ip_s, 2*(nlon-2)*nlev)
-#endif
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_2d(wz(2:nlonm1,2,:), 3) ! send to south
+      call u_ghost_put_2d(wz(2:nlonm1,3     ,:), 3) ! send to south
+      call u_ghost_put_2d(wz(2:nlonm1,nlat-2,:), 1) ! send to north
+      call u_ghost_put_2d(wz(2:nlonm1,nlatm1,:), 1) ! send to north
+
+      call u_ghost_get_2d(wz(2:nlonm1,nlat,:), 3)   ! receive from north
+      call u_ghost_get_2d(wz(2:nlonm1,nlat+1,:), 3) ! receive from north
+      call u_ghost_get_2d(wz(2:nlonm1,0,:), 1)      ! receive from south
+      call u_ghost_get_2d(wz(2:nlonm1,1,:), 1)      ! receive from south
+
+!      call u_ghost_old (wz(2:nlonm1,2     :3     ,:), ip_s, wz(2:nlonm1,nlat  :nlat+1,:), ip_n, 2*(nlon-2)*nlev)
+!      call u_ghost_old (wz(2:nlonm1,nlat-2:nlatm1,:), ip_n, wz(2:nlonm1,0     :1     ,:), ip_s, 2*(nlon-2)*nlev)
 
 #ifdef globo
 
@@ -5157,7 +5848,10 @@ end subroutine wr_param_const
     enddo
 #ifdef mpi
         else
-          call u_ghost ( wz(2:nlonm1,2,:), ip_oppo, wz(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(wz(2:nlonm1,2,:), 5) ! send across the poles
+          call u_ghost_get_2d(wz(2:nlonm1,0,:), 5) ! receive across the poles
+!          call u_ghost_old ( wz(2:nlonm1,2,:), ip_oppo, wz(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -5173,7 +5867,10 @@ end subroutine wr_param_const
     enddo
 #ifdef mpi
         else
-          call u_ghost ( wz(2:nlonm1,nlatm1,:), ip_oppo, wz(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(wz(2:nlonm1,nlatm1,:), 5) ! send across the poles
+          call u_ghost_get_2d(wz(2:nlonm1,nlat+1,:), 5) ! receive across the poles
+!          call u_ghost_old ( wz(2:nlonm1,nlatm1,:), ip_oppo, wz(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -5313,8 +6010,21 @@ end subroutine wr_param_const
 
 #ifdef mpi
       else
-        call u_ghost (p0(nlon-2:nlonm1,:,:), ip_e, p0(0:1        ,:,:), ip_w, 2*nlat*nlev)
-        call u_ghost (p0(2:3          ,:,:), ip_w, p0(nlon:nlon+1,:,:), ip_e, 2*nlat*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(p0(nlon-2,:,:), 2) ! send to est
+        call u_ghost_put_2d(p0(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(p0(2,:,:), 4)      ! send to west
+        call u_ghost_put_2d(p0(3,:,:), 4)      ! send to west
+
+        call u_ghost_get_2d(p0(0,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(p0(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(p0(nlon,:,:), 4)   ! receive from east
+        call u_ghost_get_2d(p0(nlon+1,:,:), 4) ! receive from east
+
+!        call u_ghost_old (p0(nlon-2:nlonm1,:,:), ip_e, p0(0:1        ,:,:), ip_w, 2*nlat*nlev)
+!        call u_ghost_old (p0(2:3          ,:,:), ip_w, p0(nlon:nlon+1,:,:), ip_e, 2*nlat*nlev)
       endif
 #endif
 
@@ -8590,6 +9300,7 @@ end subroutine radiat_init
 !  Filter of 'T points' 3D fields  -  it is assumed that ghostlines are not updated
 
     use mod_model, only: nlon, nlat, nlev, nlonm1, nlatm1, nprocsx, ip_e, ip_n, ip_s, ip_w, ip_oppo, ip_null
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_get_2d
     real(4) p(nlon,nlat,nlev), p2(nlon,0:nlat+1,nlev)
 
     if (anu.lt.1.e-6) return
@@ -8607,8 +9318,17 @@ end subroutine radiat_init
 !------------------------
 
 #ifdef mpi
-      call u_ghost (p(2:nlonm1,nlatm1,:), ip_n, p(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
-      call u_ghost (p(2:nlonm1,2     ,:), ip_s, p(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_2d(p(2:nlonm1,nlatm1,:), 1) ! send to north
+      call u_ghost_put_2d(p(2:nlonm1,2,:), 3)      ! send to south
+
+      call u_ghost_get_2d(p(2:nlonm1,1,:), 1)      ! receive from south
+      call u_ghost_get_2d(p(2:nlonm1,nlat,:), 3)   ! receive from north
+
+!      call u_ghost_old (p(2:nlonm1,nlatm1,:), ip_n, p(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
+!      call u_ghost_old (p(2:nlonm1,2     ,:), ip_s, p(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
       if (nprocsx.eq.1) then
 #endif
 
@@ -8619,8 +9339,17 @@ end subroutine radiat_init
 
 #ifdef mpi
       else
-        call u_ghost (p(nlonm1,:,:), ip_e, p(1   ,:,:), ip_w, nlat*nlev)
-        call u_ghost (p(2     ,:,:), ip_w, p(nlon,:,:), ip_e, nlat*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(p(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(p(2,:,:), 4)      ! send to west
+
+        call u_ghost_get_2d(p(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(p(nlon,:,:), 4)   ! receive from east
+
+!        call u_ghost_old (p(nlonm1,:,:), ip_e, p(1   ,:,:), ip_w, nlat*nlev)
+!        call u_ghost_old (p(2     ,:,:), ip_w, p(nlon,:,:), ip_e, nlat*nlev)
       endif
 #endif
 
@@ -8649,7 +9378,10 @@ end subroutine radiat_init
     enddo
 #ifdef mpi
         else
-          call u_ghost (p2(2:nlonm1,2,:), ip_oppo, p2(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(p2(2:nlonm1,2,:), 5) ! send across the poles
+          call u_ghost_get_2d(p2(2:nlonm1,0,:), 5) ! receive across the poles
+!          call u_ghost_old (p2(2:nlonm1,2,:), ip_oppo, p2(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
       if (ip_n.eq.ip_null) then
@@ -8662,7 +9394,10 @@ end subroutine radiat_init
     enddo
 #ifdef mpi
         else
-          call u_ghost (p2(2:nlonm1,nlatm1,:), ip_oppo, p2(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(p2(2:nlonm1,nlatm1,:), 5) ! send across the poles
+          call u_ghost_get_2d(p2(2:nlonm1,nlat+1,:), 5) ! receive across the poles
+!          call u_ghost_old (p2(2:nlonm1,nlatm1,:), ip_oppo, p2(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -8685,6 +9420,7 @@ end subroutine radiat_init
 !  Filter of 'T-points' 2D fields  -  it is assumed that ghostlines are not updated
 
     use mod_model, only: nlon, nlat, nlonm1, nlatm1, nprocsx, ip_e, ip_n, ip_s, ip_w, ip_oppo, ip_null
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_1d, u_ghost_get_1d
     real(4) p(nlon,nlat), p2(nlon,0:nlat+1)
 
     if (anu.lt.1.e-6) return
@@ -8702,8 +9438,17 @@ end subroutine radiat_init
 !------------------------
 
 #ifdef mpi
-      call u_ghost (p(2:nlonm1,nlatm1), ip_n, p(2:nlonm1,1   ), ip_s, nlon-2)
-      call u_ghost (p(2:nlonm1,2     ), ip_s, p(2:nlonm1,nlat), ip_n, nlon-2)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_1d(p(2:nlonm1,nlatm1), 1) ! send to north
+      call u_ghost_put_1d(p(2:nlonm1,2), 3)      ! send to south
+
+      call u_ghost_get_1d(p(2:nlonm1,1), 1)      ! receive from south
+      call u_ghost_get_1d(p(2:nlonm1,nlat), 3)   ! receive from north
+
+!      call u_ghost_old (p(2:nlonm1,nlatm1), ip_n, p(2:nlonm1,1   ), ip_s, nlon-2)
+!      call u_ghost_old (p(2:nlonm1,2     ), ip_s, p(2:nlonm1,nlat), ip_n, nlon-2)
       if (nprocsx.eq.1) then
 #endif
 
@@ -8714,8 +9459,17 @@ end subroutine radiat_init
 
 #ifdef mpi
       else
-        call u_ghost (p(nlonm1,:), ip_e, p(1   ,:), ip_w, nlat)
-        call u_ghost (p(2     ,:), ip_w, p(nlon,:), ip_e, nlat)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(p(nlonm1,:), 2) ! send to est
+        call u_ghost_put_1d(p(2,:), 4)      ! send to west
+
+        call u_ghost_get_1d(p(1,:), 2)      ! receive from west
+        call u_ghost_get_1d(p(nlon,:), 4)   ! receive from east
+
+!        call u_ghost_old (p(nlonm1,:), ip_e, p(1   ,:), ip_w, nlat)
+!        call u_ghost_old (p(2     ,:), ip_w, p(nlon,:), ip_e, nlat)
       endif
 #endif
 
@@ -8742,7 +9496,10 @@ end subroutine radiat_init
     enddo
 #ifdef mpi
         else
-          call u_ghost (p2(2:nlonm1,2), ip_oppo, p2(2:nlonm1,0), ip_oppo, nlon-2)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_1d(p2(2:nlonm1,2), 5) ! send across the poles
+          call u_ghost_get_1d(p2(2:nlonm1,0), 5) ! receive across the poles
+!          call u_ghost_old (p2(2:nlonm1,2), ip_oppo, p2(2:nlonm1,0), ip_oppo, nlon-2)
         endif
       endif
       if (ip_n.eq.ip_null) then
@@ -8755,7 +9512,10 @@ end subroutine radiat_init
     enddo
 #ifdef mpi
         else
-          call u_ghost (p2(2:nlonm1,nlatm1), ip_oppo, p2(2:nlonm1,nlat+1), ip_oppo, nlon-2)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_1d(p2(2:nlonm1,nlatm1), 5) ! send across the poles
+          call u_ghost_get_1d(p2(2:nlonm1,nlat+1), 5) ! receive across the poles
+!          call u_ghost_old (p2(2:nlonm1,nlatm1), ip_oppo, p2(2:nlonm1,nlat+1), ip_oppo, nlon-2)
         endif
       endif
 #endif
@@ -8775,6 +9535,7 @@ end subroutine radiat_init
 
     use mod_model, only: nlon, nlat, nlev, nlonm1, nlatm1, nprocsx, nprocsy, dlon, pi, snt, cst, u, v, &
                          myid, ip_e, ip_n, ip_s, ip_w, ip_oppo, ip_null
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_get_2d
     real(4) zu2(nlon,nlat), zv2(nlon,nlat+1,nlev), zvi(2,nlev), zvo(2,nlev)
     integer :: ierr, comm, tag1=1, tag2=2
 
@@ -8799,10 +9560,23 @@ end subroutine radiat_init
 !------------------------
 
 #ifdef mpi
-      call u_ghost (u(2:nlonm1,nlatm1,:), ip_n, u(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
-      call u_ghost (u(2:nlonm1,2     ,:), ip_s, u(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
-      call u_ghost (v(2:nlonm1,nlatm1,:), ip_n, v(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
-      call u_ghost (v(2:nlonm1,2     ,:), ip_s, v(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_2d(u(2:nlonm1,nlatm1,:), 1) ! send to north
+      call u_ghost_put_2d(u(2:nlonm1,2,:), 3)      ! send to south
+      call u_ghost_put_2d(v(2:nlonm1,nlatm1,:), 1) ! send to north
+      call u_ghost_put_2d(v(2:nlonm1,2,:), 3)      ! send to south
+
+      call u_ghost_get_2d(u(2:nlonm1,1,:), 1)      ! receive from south
+      call u_ghost_get_2d(u(2:nlonm1,nlat,:), 3)   ! receive from north
+      call u_ghost_get_2d(v(2:nlonm1,1,:), 1)      ! receive from south
+      call u_ghost_get_2d(v(2:nlonm1,nlat,:), 3)   ! receive from north
+
+!      call u_ghost_old (u(2:nlonm1,nlatm1,:), ip_n, u(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
+!      call u_ghost_old (u(2:nlonm1,2     ,:), ip_s, u(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
+!      call u_ghost_old (v(2:nlonm1,nlatm1,:), ip_n, v(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
+!      call u_ghost_old (v(2:nlonm1,2     ,:), ip_s, v(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
 
       if (nprocsx.eq.1) then
 #endif
@@ -8814,14 +9588,25 @@ end subroutine radiat_init
     v(nlon,:,:) = v(2     ,:,:)
 #endif
 
-#ifdef mpi
       else
-        call u_ghost (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
-        call u_ghost (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
-        call u_ghost (v(nlonm1,:,:), ip_e, v(1   ,:,:), ip_w, nlat*nlev)
-        call u_ghost (v(2     ,:,:), ip_w, v(nlon,:,:), ip_e, nlat*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(u(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(u(2,:,:), 4)      ! send to west
+        call u_ghost_put_2d(v(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(v(2,:,:), 4)      ! send to west
+
+        call u_ghost_get_2d(u(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(u(nlon,:,:), 4)   ! receive from east
+        call u_ghost_get_2d(v(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(v(nlon,:,:), 4)   ! receive from east
+
+!        call u_ghost_old (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
+!        call u_ghost_old (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
+!        call u_ghost_old (v(nlonm1,:,:), ip_e, v(1   ,:,:), ip_w, nlat*nlev)
+!        call u_ghost_old (v(2     ,:,:), ip_w, v(nlon,:,:), ip_e, nlat*nlev)
       endif
-#endif
 
 !----------------------------------
 !  Second order diffusion of wind
@@ -8850,7 +9635,11 @@ end subroutine radiat_init
     enddo
 #ifdef mpi
         else
-          call u_ghost (-zv2(2:nlonm1,2,:), ip_oppo, zv2(2:nlonm1,1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(zv2(2:nlonm1,2,:), 5) ! send across the poles
+          call u_ghost_get_2d(zv2(2:nlonm1,1,:), 5) ! receive across the poles
+          zv2(2:nlonm1,1,:) = -zv2(2:nlonm1,1,:)
+!          call u_ghost_old (-zv2(2:nlonm1,2,:), ip_oppo, zv2(2:nlonm1,1,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -8866,7 +9655,11 @@ end subroutine radiat_init
     enddo
 #ifdef mpi
         else
-          call u_ghost (-zv2(2:nlonm1,nlat,:), ip_oppo, zv2(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(zv2(2:nlonm1,nlat,:), 5)   ! send across the poles
+          call u_ghost_get_2d(zv2(2:nlonm1,nlat+1,:), 5) ! receive across the poles
+          zv2(2:nlonm1,nlat+1,:) = -zv2(2:nlonm1,nlat+1,:)
+!          call u_ghost_old (-zv2(2:nlonm1,nlat,:), ip_oppo, zv2(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -8979,6 +9772,7 @@ end subroutine radiat_init
 ! Horizontal diffusion (5 points)
 
     use mod_model, only: nlon, nlat, nlev, nlonm1, nlatm1, ip_e, ip_n, ip_s, ip_w
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_1d, u_ghost_get_1d
     implicit none
 
     integer :: nt, jlon, jlat, k, ierr, comm, tag1=1, tag2=2, isend1, isend2, irecv1, irecv2
@@ -8994,23 +9788,39 @@ end subroutine radiat_init
 !  Update all ghostlines
 !------------------------
 
-#ifdef mpi
-      do k = 1, nt
-!  qui non uso la u_ghost perche' perde un sacco di tempo... perche'?
-!        call u_ghost (p(2:nlonm1,nlatm1,k), ip_n, p(2:nlonm1,1   ,k), ip_s, nlon-2)
-!        call u_ghost (p(2:nlonm1,2     ,k), ip_s, p(2:nlonm1,nlat,k), ip_n, nlon-2)
-        call mpi_isend (p(2:nlonm1,nlatm1,k), nlon-2, mpi_real, ip_n, tag1, comm, isend1, ierr)
-        call mpi_isend (p(2:nlonm1,2     ,k), nlon-2, mpi_real, ip_s, tag2, comm, isend2, ierr)
-        call mpi_irecv (p(2:nlonm1,1     ,k), nlon-2, mpi_real, ip_s, tag1, comm, irecv1, ierr)
-        call mpi_irecv (p(2:nlonm1,nlat  ,k), nlon-2, mpi_real, ip_n, tag2, comm, irecv2, ierr)
-        call mpi_wait  (isend1, status, ierr)
-        call mpi_wait  (isend2, status, ierr)
-        call mpi_wait  (irecv1, status, ierr)
-        call mpi_wait  (irecv2, status, ierr)
-        call u_ghost (p(nlonm1,:,k), ip_e, p(1   ,:,k), ip_w, nlat)
-        call u_ghost (p(2     ,:,k), ip_w, p(nlon,:,k), ip_e, nlat)
-      enddo
-#endif
+    do k = 1, nt
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_1d(p(2:nlonm1,nlatm1,k), 1) ! send to north
+      call u_ghost_put_1d(p(2:nlonm1,2,k), 3)      ! send to south
+
+      call u_ghost_get_1d(p(2:nlonm1,1,k), 1)      ! receive from south
+      call u_ghost_get_1d(p(2:nlonm1,nlat,k), 3)   ! receive from north
+
+!!  qui non uso la u_ghost perche' perde un sacco di tempo... perche'?
+!!      call u_ghost_old (p(2:nlonm1,nlatm1,k), ip_n, p(2:nlonm1,1   ,k), ip_s, nlon-2)
+!!      call u_ghost_old (p(2:nlonm1,2     ,k), ip_s, p(2:nlonm1,nlat,k), ip_n, nlon-2)
+!      call mpi_isend (p(2:nlonm1,nlatm1,k), nlon-2, mpi_real, ip_n, tag1, comm, isend1, ierr)
+!      call mpi_isend (p(2:nlonm1,2     ,k), nlon-2, mpi_real, ip_s, tag2, comm, isend2, ierr)
+!      call mpi_irecv (p(2:nlonm1,1     ,k), nlon-2, mpi_real, ip_s, tag1, comm, irecv1, ierr)
+!      call mpi_irecv (p(2:nlonm1,nlat  ,k), nlon-2, mpi_real, ip_n, tag2, comm, irecv2, ierr)
+!      call mpi_wait  (isend1, status, ierr)
+!      call mpi_wait  (isend2, status, ierr)
+!      call mpi_wait  (irecv1, status, ierr)
+!      call mpi_wait  (irecv2, status, ierr)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_1d(p(nlonm1,:,k), 2) ! send to est
+      call u_ghost_put_1d(p(2,:,k), 4)      ! send to west
+
+      call u_ghost_get_1d(p(1,:,k), 2)      ! receive from west
+      call u_ghost_get_1d(p(nlon,:,k), 4)   ! receive from east
+
+!      call u_ghost_old (p(nlonm1,:,k), ip_e, p(1   ,:,k), ip_w, nlat)
+!      call u_ghost_old (p(2     ,:,k), ip_w, p(nlon,:,k), ip_e, nlat)
+    enddo
 
 !-----------------------
 !  Horizontal diffusion
@@ -9298,6 +10108,7 @@ end subroutine surfradpar
 
     use mod_model, only : nlon, nlat, nlev, nlonm1, nlatm1, myid, nprocsx, nprocsy, ip_oppo, cpole, &
                           ip_e, ip_n, ip_s, ip_w, ip_null, ps, u, v, hxt, hxv, dx, dy, dt, div2, denomin
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_1d, u_ghost_get_1d
 
     real(4) denrx(nlon,nlat), denry(nlon,nlat), waflux(nlon,nlat), waflux1(nlon), psex(0:nlon+1,0:nlat+1)
     real(4) zzz(nlev)
@@ -9350,11 +10161,29 @@ end subroutine surfradpar
 
 #ifdef mpi
       else
-        call u_ghost (psex(nlon-2,1:nlat), ip_e, psex(0     ,1:nlat), ip_w, nlat)
-        call u_ghost (psex(3     ,1:nlat), ip_w, psex(nlon+1,1:nlat), ip_e, nlat)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(psex(nlon-2,1:nlat), 2) ! send to est
+        call u_ghost_put_1d(psex(3,1:nlat), 4)      ! send to west
+ 
+        call u_ghost_get_1d(psex(0,1:nlat), 2)      ! receive from west
+        call u_ghost_get_1d(psex(nlon+1,1:nlat), 4) ! receive from east
+
+!        call u_ghost_old (psex(nlon-2,1:nlat), ip_e, psex(0     ,1:nlat), ip_w, nlat)
+!        call u_ghost_old (psex(3     ,1:nlat), ip_w, psex(nlon+1,1:nlat), ip_e, nlat)
       endif
-      call u_ghost (psex(0:nlon+1,nlat-2), ip_n, psex(0:nlon+1,0     ), ip_s, nlon+2)
-      call u_ghost (psex(0:nlon+1,3     ), ip_s, psex(0:nlon+1,nlat+1), ip_n, nlon+2)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_1d(psex(0:nlon+1,nlat-2), 1)   ! send to north
+      call u_ghost_put_1d(psex(0:nlon+1,3), 3)        ! send to south
+
+      call u_ghost_get_1d(psex(0:nlon+1,0), 1)        ! receive from south
+      call u_ghost_get_1d(psex(0:nlon+1,nlat+1), 3)   ! receive from north
+
+!      call u_ghost_old (psex(0:nlon+1,nlat-2), ip_n, psex(0:nlon+1,0     ), ip_s, nlon+2)
+!      call u_ghost_old (psex(0:nlon+1,3     ), ip_s, psex(0:nlon+1,nlat+1), ip_n, nlon+2)
 #endif
 
 #ifdef globo
@@ -9370,7 +10199,10 @@ end subroutine surfradpar
     enddo
 #ifdef mpi
         else
-          call u_ghost (psex(0:nlon+1,2), ip_oppo, psex(0:nlon+1,0), ip_oppo, nlon+2)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_1d(psex(0:nlon+1,2), 5) ! send across the poles
+          call u_ghost_get_1d(psex(0:nlon+1,0), 5) ! receive across the poles
+!          call u_ghost_old (psex(0:nlon+1,2), ip_oppo, psex(0:nlon+1,0), ip_oppo, nlon+2)
         endif
       endif
 
@@ -9384,7 +10216,10 @@ end subroutine surfradpar
     enddo
 #ifdef mpi
         else
-          call u_ghost (psex(0:nlon+1,nlatm1), ip_oppo, psex(0:nlon+1,nlat+1), ip_oppo, nlon+2)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_1d(psex(0:nlon+1,nlatm1), 5) ! send across the poles
+          call u_ghost_get_1d(psex(0:nlon+1,nlat+1), 5) ! receive across the poles
+!          call u_ghost_old (psex(0:nlon+1,nlatm1), ip_oppo, psex(0:nlon+1,nlat+1), ip_oppo, nlon+2)
         endif
       endif
 #endif
@@ -10874,6 +11709,7 @@ end subroutine surfradpar
       use mod_model, only: nlon, nlat, nlev, nlevp1, nlonm1, nlatm1, phig, ps, u, v, hxt, phih, &
                            pzer, sigint, sigalf, dsig, dsigalf, rd, g, dtstep, dlon, dlat,      &
                            ip_e, ip_n, ip_s, ip_w, bvf, rich, tvirt, orogvar
+      use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_get_2d
       implicit none
       real, dimension(nlon,nlat,nlevp1) :: fmx, fmy
       real, dimension(nlon,nlat)        :: zorxx, zoryy, ordragx, ordragy
@@ -10940,10 +11776,16 @@ end subroutine surfradpar
 ! Brunt-Vaisala freq. (squared) bvf is computed in vdiff over the 3 lowest layers)
 ! zuav and zvav are averaged on T points
 
-#ifdef mpi
-        call u_ghost (u(nlonm1,:,:), ip_e, u(1,:,:), ip_w, nlat*nlev)
-        call u_ghost (v(:,2,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
-#endif
+       call u_ghost_init(use_comm)
+
+       call u_ghost_put_2d(u(nlonm1,:,:), 2) ! send to est
+       call u_ghost_put_2d(v(:,2,:), 3)      ! send to south
+
+       call u_ghost_get_2d(u(1,:,:), 2)      ! receive from west
+       call u_ghost_get_2d(v(:,nlat,:), 3)   ! receive from north
+
+!      call u_ghost_old (u(nlonm1,:,:), ip_e, u(1,:,:), ip_w, nlat*nlev)
+!      call u_ghost_old (v(:,2,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
 
       do jlat = 2, nlatm1
       do jlon = 2, nlonm1
@@ -11037,10 +11879,16 @@ end subroutine surfradpar
 !  5- Divergence of momentum flux and u,v update
 !-----------------------------------------------
 
-#ifdef mpi
-        call u_ghost (fmx(2,:,:), ip_w, fmx(nlon,:,:), ip_e, nlat*nlev)
-        call u_ghost (fmy(:,nlatm1,:), ip_n, fmy(:,1,:), ip_s, nlon*nlev)
-#endif
+       call u_ghost_init(use_comm)
+
+       call u_ghost_put_2d(fmy(:,nlatm1,:), 1) ! send to north
+       call u_ghost_put_2d(fmx(2,:,:), 4)      ! send to west
+
+       call u_ghost_get_2d(fmy(:,1,:), 1)      ! receive from south
+       call u_ghost_get_2d(fmx(nlon,:,:), 4)   ! receive from east
+
+!      call u_ghost_old (fmx(2,:,:), ip_w, fmx(nlon,:,:), ip_e, nlat*nlev)
+!      call u_ghost_old (fmy(:,nlatm1,:), ip_n, fmy(:,1,:), ip_s, nlon*nlev)
 
       do jlat = 2, nlatm1
       do jlon = 2, nlonm1
@@ -11070,6 +11918,7 @@ end subroutine surfradpar
       use mod_model, only: nlon, nlat, nlev, nlonm1, nlatm1, dlon, dlat, phig, ps, u, v, hxt, &
                            phi, rd, g, sigint, sigalf, dtstep, bvf, tvirt, orogvar, pzer,     &
                            ip_e, ip_n, ip_s, ip_w
+      use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_1d, u_ghost_get_1d
       implicit none
       real, dimension(nlon,nlat)    :: zorx, zory, zostdx, zostdy
       integer, dimension(nlon,nlat) :: iblmaskx, iblmasky
@@ -11113,10 +11962,16 @@ end subroutine surfradpar
 
       endif  ! end of computations at the first instant only
 
-#ifdef mpi
-        call u_ghost (bvf(2,     :), ip_w, bvf(nlon,:), ip_e, nlat)
-        call u_ghost (bvf(:,nlatm1), ip_n, bvf(:,1   ), ip_s, nlon)
-#endif
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_1d(bvf(:,nlatm1), 1) ! send to north
+      call u_ghost_put_1d(bvf(2,:), 4)      ! send to west
+
+      call u_ghost_get_1d(bvf(:,1), 1)      ! receive from south
+      call u_ghost_get_1d(bvf(nlon,:), 4)   ! receive from east
+
+!      call u_ghost_old (bvf(2,     :), ip_w, bvf(nlon,:), ip_e, nlat)
+!      call u_ghost_old (bvf(:,nlatm1), ip_n, bvf(:,1   ), ip_s, nlon)
 
 !----------------------------------------------------------------------------------
 !  Computation of momentum flux at the surface (bldragx, bldragy) on u and v points
@@ -11198,16 +12053,18 @@ end subroutine surfradpar
       return
       end subroutine blockdrag
 !##################################################################################################################
-#ifdef mpi
 
-      subroutine u_ghost (bufsend, ip_to, bufrecv, ip_from, nbuf)
+      subroutine u_ghost_old (bufsend, ip_to, bufrecv, ip_from, nbuf)
 
       use mod_model, only: nbuffer
       implicit none
+#ifdef mpi
       include 'mpif.h'
+#endif
       integer :: nbuf, ip_to, ip_from, ierr, comm, tag=1, status(mpi_status_size), isend, irecv
       real    :: bufsend(nbuf), bufrecv(nbuf)
       comm  = mpi_comm_world
+#ifdef mpi
 
       call mpi_isend (bufsend, nbuf, mpi_real, ip_to,   tag, comm, isend, ierr)
       call mpi_irecv (bufrecv, nbuf, mpi_real, ip_from, tag, comm, irecv, ierr)
@@ -11216,10 +12073,10 @@ end subroutine surfradpar
 !      call mpi_send (bufsend, nbuf, mpi_real, ip_to  , tag, comm,         ierr)
 !      call mpi_recv (bufrecv, nbuf, mpi_real, ip_from, tag, comm, status, ierr)
 
-      return
-      end subroutine u_ghost
-
 #endif
+      return
+      end subroutine u_ghost_old
+
 !##################################################################################################################
     subroutine wrshf_b (jstep)
 
@@ -15138,6 +15995,7 @@ endif
 
     use mod_model, only: gnlon, nlon, nlat, nlev, nlonm1, nlatm1, nprocsx, npolcap, filtt1,  &
                          hxt, myid, ip_e, ip_n, ip_s, ip_w, ip_null
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_put_1d, u_ghost_get_2d, u_ghost_get_1d
 
     real(4) p(nlon,nlat,nlev), p1(nlon,nlev)
     real, parameter :: zsq2 = (gnlon-2)/sqrt(2.)
@@ -15170,8 +16028,16 @@ endif
     p(nlon,:,:) = p(2,:,:)
 #ifdef mpi
       else
-        call u_ghost (p(nlonm1,:,:), ip_e, p(1   ,:,:), ip_w, nlat*nlev)
-        call u_ghost (p(2     ,:,:), ip_w, p(nlon,:,:), ip_e, nlat*nlev)
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(p(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(p(2,:,:), 4)      ! send to west
+
+        call u_ghost_get_2d(p(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(p(nlon,:,:), 4)   ! receive from east
+
+!        call u_ghost_old (p(nlonm1,:,:), ip_e, p(1   ,:,:), ip_w, nlat*nlev)
+!        call u_ghost_old (p(2     ,:,:), ip_w, p(nlon,:,:), ip_e, nlat*nlev)
       endif
 #endif
 
@@ -15192,8 +16058,16 @@ endif
     p1(nlon,1:nlev) = p1(2     ,1:nlev)
 #ifdef mpi
       else
-        call u_ghost (p1(nlonm1,1:nlev), ip_e, p1(1   ,1:nlev), ip_w, nlev)
-        call u_ghost (p1(2     ,1:nlev), ip_w, p1(nlon,1:nlev), ip_e, nlev)
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(p1(nlonm1,1:nlev), 2) ! send to est
+        call u_ghost_put_1d(p1(2,1:nlev), 4)      ! send to west
+
+        call u_ghost_get_1d(p1(1,1:nlev), 2)      ! receive from west
+        call u_ghost_get_1d(p1(nlon,1:nlev), 4)   ! receive from east
+
+!        call u_ghost_old (p1(nlonm1,1:nlev), ip_e, p1(1   ,1:nlev), ip_w, nlev)
+!        call u_ghost_old (p1(2     ,1:nlev), ip_w, p1(nlon,1:nlev), ip_e, nlev)
       endif
 #endif
     p(1:nlon,jlat,1:nlev) = p(1:nlon,jlat,1:nlev) + anu*p1(1:nlon,1:nlev)
@@ -15209,6 +16083,7 @@ endif
 
     use mod_model, only: gnlon, nlon, nlat, nlev, nlonm1, nlatm1, nprocsx, npolcap, u, v, filtu1, filtv1, &
                          hxt, myid, ip_e, ip_n, ip_s, ip_w, ip_null
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_put_1d, u_ghost_get_2d, u_ghost_get_1d
 
     real(4) p1(nlon,nlev)
     real, parameter :: zsq2 = (gnlon-2)/sqrt(2.)
@@ -15247,10 +16122,22 @@ endif
     v(nlon,:,:) = v(2     ,:,:)
 #ifdef mpi
       else
-        call u_ghost (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
-        call u_ghost (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
-        call u_ghost (v(nlonm1,:,:), ip_e, v(1   ,:,:), ip_w, nlat*nlev)
-        call u_ghost (v(2     ,:,:), ip_w, v(nlon,:,:), ip_e, nlat*nlev)
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(u(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(u(2,:,:), 4)      ! send to west
+        call u_ghost_put_2d(v(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(v(2,:,:), 4)      ! send to west
+
+        call u_ghost_get_2d(u(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(u(nlon,:,:), 4)   ! receive from east
+        call u_ghost_get_2d(v(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(v(nlon,:,:), 4)   ! receive from east
+
+!        call u_ghost_old (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
+!        call u_ghost_old (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
+!        call u_ghost_old (v(nlonm1,:,:), ip_e, v(1   ,:,:), ip_w, nlat*nlev)
+!        call u_ghost_old (v(2     ,:,:), ip_w, v(nlon,:,:), ip_e, nlat*nlev)
       endif
 #endif
 
@@ -15271,8 +16158,16 @@ endif
     p1(nlon,1:nlev) = p1(2     ,1:nlev)
 #ifdef mpi
       else
-        call u_ghost (p1(nlonm1,1:nlev), ip_e, p1(1   ,1:nlev), ip_w, nlev)
-        call u_ghost (p1(2     ,1:nlev), ip_w, p1(nlon,1:nlev), ip_e, nlev)
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(p1(nlonm1,1:nlev), 2) ! send to est
+        call u_ghost_put_1d(p1(2,1:nlev), 4)      ! send to west
+
+        call u_ghost_get_1d(p1(1,1:nlev), 2)      ! receive from west
+        call u_ghost_get_1d(p1(nlon,1:nlev), 4)   ! receive from east
+
+!        call u_ghost_old (p1(nlonm1,1:nlev), ip_e, p1(1   ,1:nlev), ip_w, nlev)
+!        call u_ghost_old (p1(2     ,1:nlev), ip_w, p1(nlon,1:nlev), ip_e, nlev)
       endif
 #endif
     u(1:nlon,jlat,1:nlev) = u(1:nlon,jlat,1:nlev) + anu*p1(1:nlon,1:nlev)
@@ -15294,8 +16189,16 @@ endif
     p1(nlon,1:nlev) = p1(2     ,1:nlev)
 #ifdef mpi
       else
-        call u_ghost (p1(nlonm1,1:nlev), ip_e, p1(1   ,1:nlev), ip_w, nlev)
-        call u_ghost (p1(2     ,1:nlev), ip_w, p1(nlon,1:nlev), ip_e, nlev)
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(p1(nlonm1,1:nlev), 2) ! send to est
+        call u_ghost_put_1d(p1(2,1:nlev), 4)      ! send to west
+
+        call u_ghost_get_1d(p1(1,1:nlev), 2)      ! receive from west
+        call u_ghost_get_1d(p1(nlon,1:nlev), 4)   ! receive from east
+
+!        call u_ghost_old (p1(nlonm1,1:nlev), ip_e, p1(1   ,1:nlev), ip_w, nlev)
+!        call u_ghost_old (p1(2     ,1:nlev), ip_w, p1(nlon,1:nlev), ip_e, nlev)
       endif
 #endif
     v(1:nlon,jlat,1:nlev) = v(1:nlon,jlat,1:nlev) + anu*p1(1:nlon,1:nlev)

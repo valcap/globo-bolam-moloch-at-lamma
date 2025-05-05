@@ -2234,11 +2234,15 @@ enddo
     character(len=30) :: filerd, anun
     integer :: comm, error
 
+    character*10 get_ctime, ctime1, ctime2
+
 #ifdef mpi
       include 'mpif.h'
 
       comm = mpi_comm_world
 #endif
+
+    ctime1 = get_ctime()
 
     istop = 2
     no_input = 0
@@ -2354,6 +2358,8 @@ enddo
 
     if (myid == 0) then
       close (iunit)
+      ctime2 = get_ctime()
+      if (myid.eq.0) write(*,*) 'MHF read from ', ctime1, ' to ', ctime2
       write (*,'(2a)') ' Read file ',trim(filerd)
       write (*,*)
     endif
@@ -2374,11 +2380,14 @@ enddo
     real, dimension(100) :: pdr_local
     real, dimension(nlon,nlat) :: field2d_add
     integer :: comm, error
+    character*10 get_ctime, ctime1, ctime2
 
 #ifdef mpi
       include 'mpif.h'
       comm = mpi_comm_world
 #endif
+
+    ctime1 = get_ctime()
 
     istop = 2
     no_input = 0
@@ -2586,6 +2595,8 @@ enddo
 
     if (myid == 0) then
       close (iunit)
+      ctime2 = get_ctime()
+      if (myid.eq.0) write(*,*) 'MHF read from ', ctime1, ' to ', ctime2
       write (*,'(2a)') ' Read file ',trim(filerd)
       write (*,*)
     endif
@@ -3291,6 +3302,9 @@ do jklev = 1, nlevg
 
  integer :: iunit=22, iunit_work=29, jklev
  character(len=30) file_out, amhf
+ character*10 get_ctime, ctime1, ctime2
+
+   ctime1 = get_ctime()
 
    if (myid == 0) then
 
@@ -3345,6 +3359,8 @@ do jklev = 1, nlevg
    if (myid == 0) then
      flush (iunit)
      close (iunit)
+     ctime2 = get_ctime()
+     if (myid.eq.0) write(*,*) 'MHF written from ', ctime1, ' to ', ctime2
 
 #ifdef oper
      open (iunit_work, file=trim(file_out)//'.txt', status='unknown')
@@ -3370,6 +3386,9 @@ do jklev = 1, nlevg
  integer :: iunit=23, iunit_work=29, jklev
  character(len=30) file_out, amhf
  real, dimension(nlon,nlat) :: zwork
+ character*10 get_ctime, ctime1, ctime2
+
+   ctime1 = get_ctime()
 
    if (myid == 0) then
 
@@ -3550,6 +3569,8 @@ do jklev = 1, nlevg
 
      flush (iunit)
      close (iunit)
+     ctime2 = get_ctime()
+     if (myid.eq.0) write(*,*) 'MHF written from ', ctime1, ' to ', ctime2
 
 #ifdef oper
      open (iunit_work, file=trim(file_out)//'.txt', status='unknown')
@@ -4133,7 +4154,8 @@ do jklev = 1, nlevg
       subroutine runout (jstep)
 
       use mod_moloch, only : nlon, nlat, nlev, nprocsx, nprocsy, u, v, w, p, tskin, dtstep, ip_e, ip_n, ip_s, ip_w, myid
-    integer :: ierr, comm
+      integer :: ierr, comm
+      character*10 get_ctime, ctime
 
 #ifdef mpi
       include 'mpif.h'
@@ -4143,6 +4165,8 @@ do jklev = 1, nlevg
 
       comm = mpi_comm_world
 #endif
+
+      ctime = get_ctime()
 
       umax=0.
       vmax=0.
@@ -4313,7 +4337,7 @@ do jklev = 1, nlevg
     if (myid == 0) then
 
       print*
-      write(*,'(a,i5,a,f8.3)') ' jstep',jstep, "   -   integration time (hours):", jstep*dtstep/3600.
+      write(*,'(a,i5,a,f8.3x,a)') ' jstep',jstep, "   -   integration time (hours):", jstep*dtstep/3600., ctime
       print 1010, umax, vmax, wmax, zpmin/100.
       print 1011, iumax, jumax, kumax, ivmax, jvmax, kvmax, iwmax, jwmax, kwmax
       write (*,'(2(a,f7.2))') ' Max tskin =    ',ztsmax-273.15,'   Min tskin = ',ztsmin-273.15
@@ -7056,6 +7080,8 @@ end subroutine radiat_init
     integer nmsg2
     real, dimension(nlev)  :: finp, xinp
     real, dimension(100)   :: fout, xout
+    character*10 get_ctime, ctime1, ctime2
+    ctime1 = get_ctime()
 
     nmsg2 = 24
     if (jstep.eq.1) qprectot = 0.
@@ -7621,6 +7647,8 @@ end subroutine radiat_init
   if(myid == 0) then
     flush (iunit)
     close (iunit)
+    ctime2 = get_ctime()
+    if (myid.eq.0) write(*,*) 'SMHF written from ', ctime1, ' to ', ctime2
 
 #ifdef oper
     open (iunit_work, file=file_out(1:14)//'.txt', status='unknown')
@@ -14381,3 +14409,11 @@ INTEGER, DIMENSION(NX_GLOB, NY_GLOB) ::  FIELD_GLOB_I
 RETURN
 END SUBROUTINE WRRF_POCHVA
 !###############################################################################################################
+
+! recupera il time in formato stringa HH:MM:SS.d (Davide e Paolo)
+character*10 function get_ctime()
+    integer :: values(8)
+    call date_and_time(values=values)
+    write (get_ctime, '(i2.2,a,i2.2,a,i2.2,a,i1)') values(5),":",values(6),":",values(7),".",int(values(8) / 100.)
+    return
+end

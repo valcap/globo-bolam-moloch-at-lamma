@@ -2614,12 +2614,15 @@ enddo
     integer :: nun, init_flag, iunit=12, iunit_work=19, &
  jlon, jlat, jklev, isleep, no_input, ierr_open, comm, error
     character(len=30) :: filerd, file_work="input_request.txt",anun
+    character*10 get_ctime, ctime1, ctime2
 
 #ifdef mpi
       include 'mpif.h'
 
       comm = mpi_comm_world
 #endif
+
+    ctime1 = get_ctime()
 
     no_input = 0
     isleep = 0
@@ -2755,6 +2758,9 @@ enddo
       write (*,*)
     endif
 
+    ctime2 = get_ctime()
+    if (myid.eq.0) write(*,*) 'MHF read from ', ctime1, ' to ', ctime2
+
     return
     end subroutine rdmhf_atm
 !##################################################################################################################
@@ -2770,11 +2776,15 @@ enddo
     real, dimension(200) :: pdr_local
     real, dimension(nlon,nlat) :: field2d_add
 
+    character*10 get_ctime, ctime1, ctime2
+
 #ifdef mpi
       include 'mpif.h'
 
       comm = mpi_comm_world
 #endif
+
+    ctime1 = get_ctime()
 
     no_input = 0
     isleep = 0
@@ -3006,6 +3016,9 @@ enddo
     endif
 
     if (nun >= 3) flag_pochva_par_change=1
+
+    ctime2 = get_ctime()
+    if (myid.eq.0) write(*,*) 'MHF read from ', ctime1, ' to ', ctime2
 
     return
     end subroutine rdmhf_soil
@@ -3292,6 +3305,9 @@ integer, dimension(50)  :: nfdr
 real(4), dimension(200) :: pdr
 real, dimension(nlon,nlat) :: zwork, zfrunoff
 character(len=50) :: file_out, amhf
+character*10 get_ctime, ctime1, ctime2
+
+ ctime1 = get_ctime()
 
  if(myid == 0) then
 
@@ -3369,6 +3385,9 @@ character(len=50) :: file_out, amhf
 
  endif
 
+  ctime2 = get_ctime()
+  if (myid.eq.0) write(*,*) 'MHF written from ', ctime1, ' to ', ctime2
+
 return
 end subroutine wrmhf_atm
 !##################################################################################################################
@@ -3393,6 +3412,9 @@ integer, dimension(50)  :: nfdr
 real(4), dimension(200) :: pdr
 real, dimension(nlon,nlat) :: zwork, zfrunoff
 character(len=50) :: file_out, amhf, aini, aterm
+character*10 get_ctime, ctime1, ctime2
+
+ ctime1 = get_ctime()
 
  if(myid == 0) then
 
@@ -3588,6 +3610,9 @@ character(len=50) :: file_out, amhf, aini, aterm
    print *,'Output written on unit ',trim(file_out)
 
  endif
+
+ ctime2 = get_ctime()
+ if (myid.eq.0) write(*,*) 'MHF written from ', ctime1, ' to ', ctime2
 
 return
 end subroutine wrmhf_soil
@@ -6134,9 +6159,14 @@ end subroutine wr_param_const
       implicit none
       real(4) zpmin, zpmax, zumax, zvmax, ztsmin, ztsmax, zdummy, zday, zhour
       integer jstep, jlon, jlat, jklev, j1, j2, ierr
+
+      character*10 get_ctime, ctime
+
 #ifdef mpi
         include 'mpif.h'
 #endif
+
+      ctime = get_ctime()
 
       zpmin  =  1.e8
       zpmax  = -1.e8
@@ -6183,9 +6213,11 @@ end subroutine wr_param_const
         zday  = jstep*dtstep/86400.
         zhour = jstep*dtstep/3600.
 !!!        print 1010, jstep, zhour, zpmin/100., zpmax/100.
-        write (*,'(a,i8,a,f8.2,3(a,2f8.2))') ' jstep =', jstep,',   hour =', zhour, &
+
+        write (*,'(a,i8,a,f8.2,3(a,2f8.2),a,a)') ' jstep =', jstep,',   hour =', zhour, &
  ',   min/max ps =', zpmin/100., zpmax/100.,',   min/max tsurf=', ztsmin-273.15, ztsmax-273.15, &
- ',   max u,v=', zumax, zvmax
+ ',   max u,v=', zumax, zvmax,'   time = ', ctime
+
         print*
       endif
 
@@ -11226,6 +11258,9 @@ end subroutine surfradpar
     integer, dimension(50)     :: grib2_descript = 0
     integer, parameter         :: ivalmiss = -9999
 
+    character*10 get_ctime, ctime1, ctime2
+    ctime1 = get_ctime()
+
     if (jstep.eq.1) qprec   = 0.
     if (jstep.eq.1) qprecc  = 0.
     if (jstep.eq.1) qsnfall = 0.
@@ -11978,6 +12013,9 @@ end subroutine surfradpar
     shf_accum = 0.
     lhf_accum = 0.
     qf_accum  = 0.
+
+    ctime2 = get_ctime()
+    if (myid.eq.0) write(*,*) 'SMHF written from ', ctime1, ' to ', ctime2
 
     return
     end subroutine wrshf_b
@@ -17753,3 +17791,11 @@ INTEGER, DIMENSION(NX_GLOB, NY_GLOB) ::  FIELD_GLOB_I
 RETURN
 END SUBROUTINE WRRF_POCHVA
 !###############################################################################################################
+
+! recupera il time in formato stringa HH:MM:SS.d (Davide e Paolo)
+character*10 function get_ctime()
+      integer :: values(8)
+      call date_and_time(values=values)
+      write (get_ctime, '(i2.2,a,i2.2,a,i2.2,a,i1)') values(5),":",values(6),":",values(7),".",int(values(8) / 100.)
+      return
+end

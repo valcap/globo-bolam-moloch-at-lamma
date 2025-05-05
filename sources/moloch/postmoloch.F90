@@ -661,7 +661,7 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
 ! Readinf of constant (in time) model physiographical parameters
 ! (phig, fmask)
 
-      call rd_param_const(nlon, nlat, nlevg, x0, y0, alon0, alat0+dlat*0.5, dlon, dlat, phig, fmask, qgmax, qgmin)
+      call rd_param_const(nlon, nlat, nlevg, x0, y0, alon0, alat0+dlat*0.5, dlon, dlat, phig, fmask, qgmax, qgmin, mhfr)
 
  do while (.true.)
 
@@ -2812,7 +2812,7 @@ end
       return
       end
 !###############################################################################################################
-      subroutine rd_param_const(nlon, nlat, nlevg, x0, y0, alon0, alat0, dlon, dlat, phig, fmask, qgmax, qgmin)
+      subroutine rd_param_const(nlon, nlat, nlevg, x0, y0, alon0, alat0, dlon, dlat, phig, fmask, qgmax, qgmin, mhfr)
 
 ! Reads from additional input file
 ! all constant (in time) model physiographical parameters
@@ -2828,7 +2828,13 @@ end
       real, parameter                   :: g=9.807
       real, dimension(nlon,nlat)        :: phig, fmask, zread
       real, dimension(nlon,nlat,nlevg)  :: qgmax, qgmin
-      character(len=30) :: filerd="model_param_constant.bin"
+            integer           :: mhfr
+      character(len=50) :: filerd
+      if (mhfr /= 1) then
+        filerd="model_param_constant_not_full_res.bin"
+      else  
+        filerd="model_param_constant.bin"
+      endif
 
      open (iunit,file=trim(filerd),status='old',form='unformatted',iostat=ierr_open)
      if (ierr_open /= 0) then

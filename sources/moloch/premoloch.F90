@@ -334,7 +334,7 @@ logical :: nlbuco
      stop
    endif
    print *,"Waiting (sleep) 30 s"
-   call system ("sleep 30")
+   call sleep(30)
 #else
    stop
 #endif
@@ -750,7 +750,7 @@ logical :: nlbuco
      stop
    endif
    print *,"Waiting (sleep) 30 s"
-   call system ("sleep 30")
+   call sleep(30)
 #else
    stop
 #endif
@@ -5273,13 +5273,9 @@ character(len=30) :: file_output
  write (*,*)
 
 #ifdef oper
- call system("sync")
-!!! call system("ls -l -L "//file_output)
-!!! call system("date")
  open  (iunit, file=trim(file_output)//'.txt', status='unknown')
  write (iunit,'(2a)') trim(file_output),' is full and closed'
  close (iunit)
- call system("sync")
 #endif
 
 return
@@ -5412,13 +5408,9 @@ real, dimension(nlon,nlat) :: field2d_add, snow_albedo, runoff_tot
  write (*,*)
 
 #ifdef oper
- call system("sync")
-!!! call system("ls -l -L "//file_output)
-!!! call system("date")
  open  (iunit, file=trim(file_output)//'.txt', status='unknown')
  write (iunit,'(2a)') trim(file_output),' is full and closed'
  close (iunit)
- call system("sync")
 #endif
 
 return
@@ -5595,13 +5587,9 @@ character(len=30) :: file_output="model_param_constant.bin"
  write (*,*)
 
 #ifdef oper
- call system("sync")
-!!! call system("ls -l -L "//file_output)
-!!! call system("date")
  open  (iunit, file=trim(file_output)//'.txt', status='unknown')
  write (iunit,'(2a)') trim(file_output),' is full and closed'
  close (iunit)
- call system("sync")
 #endif
 
 return
@@ -5729,13 +5717,9 @@ character(len=30) :: file_output="model_param_constant.bin"
  write (*,*)
 
 #ifdef oper
- call system("sync")
-!!! call system("ls -l -L "//file_output)
-!!! call system("date")
  open  (iunit, file=trim(file_output)//'.txt', status='unknown')
  write (iunit,'(2a)') trim(file_output),' is full and closed'
  close (iunit)
- call system("sync")
 #endif
 
 return

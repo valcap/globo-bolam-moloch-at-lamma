@@ -383,7 +383,6 @@
       call mpi_comm_split (comm, row_color, iprocs, comm_row, ierr)
       call mpi_comm_split (comm, col_color, iprocs, comm_col, ierr)
 
-!      call system('hostname')
 #endif
 
 !--------------------------------------------------------------------------------------------------------
@@ -2256,12 +2255,6 @@ enddo
       do while (.true.)
         open (iunit, file=filerd, form='unformatted', status='old', iostat=ierr_open)
         if (ierr_open == 0) then
-#ifdef oper
-          call system("sync")
-          call system("ls -l -L "//filerd)
-          call system("date")
-          call system("sleep 1")
-#endif
           exit
         else
           print *,"Input file ",filerd," is not ready: wait - sleep 60 s..."
@@ -2273,7 +2266,7 @@ enddo
             exit
           endif
 #endif
-          call system ("sleep 60")
+          call sleep(60)
         endif
       enddo
 
@@ -2361,7 +2354,6 @@ enddo
 
     if (myid == 0) then
       close (iunit)
-!     call system("date")
       write (*,'(2a)') ' Read file ',trim(filerd)
       write (*,*)
     endif
@@ -2403,12 +2395,6 @@ enddo
       do while (.true.)
         open (iunit, file=filerd, form='unformatted', status='old', iostat=ierr_open)
         if (ierr_open == 0) then
-#ifdef oper   
-          call system("sync")
-          call system("ls -l -L "//filerd)
-          call system("date")
-          call system("sleep 1")
-#endif
           exit
         else
           print *,"Input file ",filerd," is not ready: wait - sleep 60 s..."
@@ -2420,7 +2406,7 @@ enddo
             exit
           endif
 #endif
-          call system ("sleep 60")
+          call sleep(60)
         endif
       enddo
 
@@ -2600,7 +2586,6 @@ enddo
 
     if (myid == 0) then
       close (iunit)
-!     call system("date")
       write (*,'(2a)') ' Read file ',trim(filerd)
       write (*,*)
     endif
@@ -3362,13 +3347,9 @@ do jklev = 1, nlevg
      close (iunit)
 
 #ifdef oper
-     call system("sync")
-!!!     call system("ls -l -L "//file_out)
-!!!     call system("date")
      open (iunit_work, file=trim(file_out)//'.txt', status='unknown')
      write (iunit_work,'(2a)') trim(file_out),' is full and closed'
      close (iunit_work)
-     call system("sync")
      print *,'Output written on file ', trim(file_out)
 #else
      print *, 'File moloch_atm.mhf written'
@@ -3571,13 +3552,9 @@ do jklev = 1, nlevg
      close (iunit)
 
 #ifdef oper
-     call system("sync")
-!!!     call system("ls -l -L "//file_out)
-!!!     call system("date")
      open (iunit_work, file=trim(file_out)//'.txt', status='unknown')
      write (iunit_work,'(2a)') trim(file_out),' is full and closed'
      close (iunit_work)
-     call system("sync")
      print *,'Output written on file ', trim(file_out)
 #else
      print *, 'File moloch_soil.mhf written'
@@ -3821,13 +3798,9 @@ do jklev = 1, nlevg
      close (iunit)
 
 #ifdef oper
-     call system("sync")
-!!!     call system("ls -l -L "//file_out)
-!!!     call system("date")
      open (iunit_work, file=trim(file_out)//'.txt', status='unknown')
      write (iunit_work,'(2a)') trim(file_out),' is full and closed'
      close (iunit_work)
-     call system("sync")
      print *,'Output written on file ', trim(file_out)
 #else
      print *, 'File moloch_atm.mhf written'
@@ -4031,13 +4004,9 @@ do jklev = 1, nlevg
      close (iunit)
 
 #ifdef oper
-     call system("sync")
-!!!     call system("ls -l -L "//file_out)
-!!!     call system("date")
      open (iunit_work, file=trim(file_out)//'.txt', status='unknown')
      write (iunit_work,'(2a)') trim(file_out),' is full and closed'
      close (iunit_work)
-     call system("sync")
      print *,'Output written on file ', trim(file_out)
 #else
      print *, 'File moloch_soil.mhf written'
@@ -7654,13 +7623,9 @@ end subroutine radiat_init
     close (iunit)
 
 #ifdef oper
-    call system("sync")
-!!!      call system("ls -l -L "//file_out)
-!!!      call system("date")
     open (iunit_work, file=file_out(1:14)//'.txt', status='unknown')
     write (iunit_work,'(2A)') file_out,' is full and closed'
     close (iunit_work)
-    call system("sync")
     print *,'Output written on file ', file_out
 #else
     print *,'Output written on file moloch.shf'
@@ -7788,13 +7753,9 @@ integer :: iunit=41, iunit_work=29, jstep, jlon, jlat, jklev
    flush(iunit)
    close(iunit)
 #ifdef oper
-   call system("sync")
-!!!   call system("ls -l -L "//file_out)
-!!!   call system("date")
    open (iunit_work, file=(trim(file_out)//'.txt'), status='unknown')
    write (iunit_work,'(2A)') trim(file_out),' is full and closed'
    close (iunit_work)
-   call system("sync")
    print *,'Output written on file ', trim(file_out)
 #else
    print *,'Output written on file moloch_radar.shf'

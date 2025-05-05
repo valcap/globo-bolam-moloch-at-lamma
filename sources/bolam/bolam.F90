@@ -364,8 +364,6 @@
       ip_oppo = myid + iprocs/2   ! for Globo only
       if (ip_oppo.gt.iprocs-1) ip_oppo = ip_oppo - iprocs
 
-!      call system('hostname')
-
 #endif
 
 !--------------------------------------------------------------------------------------------------------
@@ -2641,12 +2639,6 @@ enddo
       do while (.true.)
         open (iunit, file=trim(filerd), form='unformatted', status='old', iostat=ierr_open)
         if (ierr_open == 0) then
-#ifdef oper
-          call system("sync")
-          call system("ls -l -L "//filerd)
-          call system("date")
-          call system("sleep 1")
-#endif
           exit
         else
           print *,"Input file ",trim(filerd)," not ready: wait - sleep 10 s..."
@@ -2660,7 +2652,7 @@ enddo
             exit
           endif
 #endif
-          call system ("sleep 10")
+          call sleep(10)
         endif
       enddo
 
@@ -2803,12 +2795,6 @@ enddo
         open (iunit, file=trim(filerd), form='unformatted', status='old', iostat=ierr_open)
 
         if (ierr_open == 0) then
-#ifdef oper
-          call system("sync")
-          call system("ls -l -L "//filerd)
-          call system("date")
-          call system("sleep 1")
-#endif
           exit
         else
           print *,"Input file ",trim(filerd)," not ready: wait - sleep 10 s..."
@@ -2823,7 +2809,7 @@ enddo
           endif
 #endif
 
-          call system ("sleep 10")
+          call sleep(10)
         endif
       enddo
 
@@ -3318,7 +3304,6 @@ character(len=50) :: file_out, amhf
  file_out=trim(name)//'_atm_'//trim(amhf)//'.mhf'
  open (iunit, file=trim(file_out), form='unformatted', status='unknown')
 #else
-! call system ("touch mhf-open")
  file_out=trim(name)//"_atm.mhf"
  open (iunit, file=trim(file_out), form='unformatted', status='unknown', position='append')
 #endif
@@ -3376,16 +3361,11 @@ character(len=50) :: file_out, amhf
    print *
 
 #ifdef oper
-   call system("sync")
-!!!   call system("ls -l -L "//file_out)
-!!!   call system("date")
    open  (iunit_work, file=trim(file_out)//'.txt', status='unknown')
    write (iunit_work,'(2a)') trim(file_out),' is full and close'
    close (iunit_work)
-   call system("sync")
 #endif
    print *,'Output written on unit ',trim(file_out)
-!      call system ("rm -f mhf-open")
 
  endif
 
@@ -3430,7 +3410,6 @@ character(len=50) :: file_out, amhf, aini, aterm
    endif
    open (iunit, file=trim(file_out), form='unformatted', status='unknown')
 #else
-!   call system ("touch mhf-open")
    file_out=trim(name)//"_soil.mhf"
    open (iunit, file=trim(file_out), form='unformatted', status='unknown', position='append')
 #endif
@@ -3602,16 +3581,11 @@ character(len=50) :: file_out, amhf, aini, aterm
    print *
 
 #ifdef oper
-   call system("sync")
-!!!   call system("ls -l -L "//file_out)
-!!!   call system("date")
    open  (iunit_work, file=trim(file_out)//'.txt', status='unknown')
    write (iunit_work,'(2a)') trim(file_out),' is full and close'
    close (iunit_work)
-   call system("sync")
 #endif
    print *,'Output written on unit ',trim(file_out)
-!      call system ("rm -f mhf-open")
 
  endif
 
@@ -11987,13 +11961,9 @@ end subroutine surfradpar
       close (iunit)
 
 #ifdef oper
-      call system("sync")
-!!!      call system("ls -l -L "//file_out)
-!!!      call system("date")
       open  (iunit_work, file=file_out(1:13)//'.txt', status='unknown')
       write (iunit_work,'(2a)') file_out,' is full and close'
       close (iunit_work)
-      call system("sync")
       print*, file_out, ' written'
 #else
       print*,'bolam.shf written'
@@ -12492,13 +12462,9 @@ end subroutine surfradpar
       close (iunit)
 
 #ifdef oper
-      call system("sync")
-!!!      call system("ls -l -L "//file_out)
-!!!      call system("date")
       open  (iunit_work, file=trim(file_out)//'.txt', status='unknown')
       write (iunit_work,'(2a)') trim(file_out),' is full and close'
       close (iunit_work)
-      call system("sync")
       print*, trim(file_out), ' written'
 #else
       print*,'globo.shf written'

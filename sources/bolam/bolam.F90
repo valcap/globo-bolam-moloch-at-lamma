@@ -12599,7 +12599,6 @@ use yoethf   , only : r2es     ,r3les    ,r3ies    ,r4les              ,&
                       r4ies    ,r5les    ,r5ies    ,r5alvcp  ,r5alscp  ,&
                       ralvdcp  ,ralsdcp  ,rtwat    ,rtice    ,rticecu  ,&
                       rtwat_rtice_r      ,rtwat_rticecu_r
-use yoedbug  , only : nstpdbg, kstpdbg
 
 use mod_model, only : nlon, nlat, nlev, gnlon, gnlat, gfield, gfield1, &
                       dlon, dlat, sig, sigint, sigalf, ps, pzer, t,    &
@@ -12692,8 +12691,6 @@ lphylin=.false.
 levoigt=.false.
 leradhs=.true.      ! .t. if rad. is computed on a coarser sampled grid (unused)
 lonewsw=.true.      ! .t. if new sw code is active
-nstpdbg= 0
-kstpdbg(:)=-999
 kmode=0
 zdegrad = rpi/180.
 
@@ -13560,7 +13557,6 @@ use yoethf   , only : r2es     ,r3les    ,r3ies    ,r4les              ,&
                       r4ies    ,r5les    ,r5ies    ,r5alvcp  ,r5alscp  ,&
                       ralvdcp  ,ralsdcp  ,rtwat    ,rtice    ,rticecu  ,&
                       rtwat_rtice_r      ,rtwat_rticecu_r
-use yoedbug  , only : nstpdbg, kstpdbg
 
 use mod_model, only : nlon, nlat, nlonr, nradm, nlev, dlon, dlat, cpd, cpv, sig, sigint, sigalf, ps, &
                       pzer, t, tskin, t2, aerosol, ozon, myid, corvis, corirr, corrdt, tzer, q, qcw, &
@@ -13675,8 +13671,6 @@ lphylin=.false.
 levoigt=.false.
 leradhs=.false.      ! not used
 lonewsw=.true.       ! .t. if new sw code is active
-nstpdbg= 0
-kstpdbg(:)=-999
 kmode= 0
 zdegrad = rpi/180.
 
@@ -14055,7 +14049,6 @@ endif
   use yoerdu,    only : nuaer, ntraer, nout, rcday, r10e, replog, repsc, repsco, repscq, repsct, repscw, diff
   use yoesw,     only : lo3only
   use yoethf,    only : rtwat, rtice
-  use yoedbug,   only : ldebug
   use yoephli,   only : lphylin
 
   use mod_model, only : nlon, nlat, nlonr, nradm, nlev, nlevp1, dlon, dlat, cpd, cpv, sig, sigint, sigalf,    &
@@ -14148,7 +14141,6 @@ endif
 
   kulout = 6         ! unita' logica di output per la sucst
   ndump  = 3         ! per evitare stampe
-  ldebug = .false.   ! per evitare stampe
 
 ! ksw number of SW spectral intervals: 2, 4 or 6
 

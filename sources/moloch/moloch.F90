@@ -9105,7 +9105,6 @@ use yoethf   , only : r2es     ,r3les    ,r3ies    ,r4les              ,&
                       r4ies    ,r5les    ,r5ies    ,r5alvcp  ,r5alscp  ,&
                       ralvdcp  ,ralsdcp  ,rtwat    ,rtice    ,rticecu  ,&
                       rtwat_rtice_r      ,rtwat_rticecu_r
-use yoedbug  , only : nstpdbg, kstpdbg
 
 use mod_moloch, only : nlon, nlat, nlev, nlevp1, gnlon, gnlat, gfield, dz, h, ps, p, t,  &
                        tskin, phig, aerosol, ozon, myid, alont, alatt, g, tzer, aerotot
@@ -9194,8 +9193,6 @@ lphylin=.false.
 levoigt=.false.
 leradhs=.true.      ! .t. if rad. is computed on a coarser sampled grid (unused)
 lonewsw=.true.      ! .t. if new sw code is active
-nstpdbg= 0
-kstpdbg(:)=-999
 kmode=0
 zdegrad = rpi/180.
 
@@ -9668,7 +9665,6 @@ use yoethf   , only : r2es     ,r3les    ,r3ies    ,r4les              ,&
                       r4ies    ,r5les    ,r5ies    ,r5alvcp  ,r5alscp  ,&
                       ralvdcp  ,ralsdcp  ,rtwat    ,rtice    ,rticecu  ,&
                       rtwat_rtice_r      ,rtwat_rticecu_r
-use yoedbug  , only : nstpdbg, kstpdbg
 
 use mod_moloch, only : nlon, nlat, nlonr, nradm, nlev, nlevp1, dz, h, g, cpd, cpv, ps, p, swsdtf, &
                        t, tskin, aerosol, ozon, myid, corvis, corirr, corrdt, tzer, swsddr,       &
@@ -9778,8 +9774,6 @@ lphylin=.false.
 levoigt=.false.
 leradhs=.false.      ! not used
 lonewsw=.true.       ! .t. if new sw code is active
-nstpdbg= 0
-kstpdbg(:)=-999
 kmode= 0
 zdegrad = rpi/180.
 

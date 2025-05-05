@@ -53,7 +53,7 @@
 ! ncrossx, ncrossy: no. of cross-sections in long. and lat.
 ! nzlev: no. of constant height levels in output
 
-   integer, parameter :: npar=8, nlevpo=20, ncrossx=3, ncrossy=3, nzlev=20, npoint_cross_max=1000
+   integer, parameter :: npar=8, nlevpo=24, ncrossx=3, ncrossy=3, nzlev=20, npoint_cross_max=1000
    integer :: njump, nlivz, cross_number, cross_interp_gauss
    real :: zcbot, zctop        ! top and bottom zeta for cross-sections
    logical :: ncrossec, output_format_ppf, output_format_grib2
@@ -207,26 +207,30 @@
 
 !  Definition of values of pressure levels in Pa
 
-      plevo(1) = 1000.e2
-      plevo(2) =  950.e2
-      plevo(3) =  900.e2
-      plevo(4) =  850.e2
-      plevo(5) =  800.e2
-      plevo(6) =  750.e2
-      plevo(7) =  700.e2
-      plevo(8) =  650.e2
-      plevo(9) =  600.e2
-      plevo(10)=  550.e2
-      plevo(11)=  500.e2
-      plevo(12)=  450.e2
-      plevo(13)=  400.e2
-      plevo(14)=  350.e2
-      plevo(15)=  300.e2
-      plevo(16)=  250.e2
-      plevo(17)=  200.e2
-      plevo(18)=  150.e2
-      plevo(19)=  100.e2
-      plevo(20)=   50.e2
+       plevo(1) = 1000.e2
+       plevo(2) =  975.e2
+       plevo(3) =  950.e2
+       plevo(4) =  925.e2
+       plevo(5) =  900.e2
+       plevo(6) =  875.e2
+       plevo(7) =  850.e2
+       plevo(8) =  825.e2
+       plevo(9) =  800.e2
+       plevo(10)=  750.e2
+       plevo(11)=  700.e2
+       plevo(12)=  650.e2
+       plevo(13)=  600.e2
+       plevo(14)=  550.e2
+       plevo(15)=  500.e2
+       plevo(16)=  450.e2
+       plevo(17)=  400.e2
+       plevo(18)=  350.e2
+       plevo(19)=  300.e2
+       plevo(20)=  250.e2
+       plevo(21)=  200.e2
+       plevo(22)=  150.e2
+       plevo(23)=  100.e2
+       plevo(24)=   50.e2
 
       do jklev = 1, nlevpo
       zalp(jklev) = alog(plevo(jklev))

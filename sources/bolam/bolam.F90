@@ -1,6 +1,6 @@
-! Last update 28/04/2025
+! Last update 08/05/2025
 
-! Version 25.2.0
+! Version 25.2.1
 
 ! Apr. 2025: Versione di Globo per la previsione mensile (membri perturbati)
 ! -Ds2s (#ifdef s2s)
@@ -123,7 +123,7 @@
 
     integer, dimension(50)        :: nfdr0, nfdr, &
                                      nfdrb, & ! for Globo zoom output
-                                     nfdrs ! for Globo s2s output
+                                     nfdrs, nfdrs2 ! for Globo s2s output
     real(4), dimension(200)       :: pdr0, pdr, &
                                      pdrb, & ! for Globo zoom output
                                      pdrs ! for Globo s2s output
@@ -1195,15 +1195,19 @@ end module u_ghost
 #ifdef s2s
       nsteps = nstep
       nfdrs = nfdr
-      nfdrs(8:50) = 0
-      nfdrs(13) = nsteps
-      nfdrs(14) = 21600
       nfdrs( 2) = 240   ! nx
       nfdrs( 3) = 121   ! ny
+      nfdrs(18) = ntswshf
+
+      nfdrs2 = nfdr
+      nfdrs2( 2) = gnlon-2   ! nx
+      nfdrs2(18) = ntswshf
 
       pdrs(:) = pdr(:)
-      pdrs(1) = 1.5
+      pdrs(1) = -1.5
       pdrs(2) = 1.5
+      pdrs(4) = 90.-pdrs(1)*0.5
+      pdrs(5) = 0.
 #endif
 
 !***********************************************************************
@@ -2102,13 +2106,12 @@ end module u_ghost
     if (nlcadj) then ! convection
 
     call convection_kf (ntop)
-
-    call filt2t (dtdt  , 0.8)   !  Smoothing of convection
-    call filt2t (dqdt  , 0.8)   !  Smoothing of convection
-    call filt2t (dqcwdt, 0.8)   !  Smoothing of convection
-    call filt2t (dqcidt, 0.8)   !  Smoothing of convection
-    call filt2t1(raicon, 0.8)   !  Smoothing of convection
-    call filt2t1(snocon, 0.8)   !  Smoothing of convection
+    call filt2t (dtdt  , 1.)   !  Smoothing of convection
+    call filt2t (dqdt  , 1.)   !  Smoothing of convection
+    call filt2t (dqcwdt, 1.)   !  Smoothing of convection
+    call filt2t (dqcidt, 1.)   !  Smoothing of convection
+    call filt2t1(raicon, 1.)   !  Smoothing of convection
+    call filt2t1(snocon, 1.)   !  Smoothing of convection
 
 ! Reduction of convective precip. near boundaries
 
@@ -3200,11 +3203,13 @@ enddo
           endif
           nfdrs(10) = idays
           nfdrs(11) = ihous
+          nfdrs2(10:11) = nfdrs(10:11)
           if (nint((jstep-1)*dtstep)/21600.lt.nint(jstep*dtstep)/21600.and.idays.ge.0) &
  call wrshf_s2s (nhouc)
         else ! control
           nfdrs(10) = idays
           nfdrs(11) = ihous
+          nfdrs2(10:11) = nfdrs(10:11)
           if (nint((jstep-1)*dtstep)/21600.lt.nint(jstep*dtstep)/21600.or.jstep.eq.1) &
  call wrshf_s2s (nhouc)
         endif
@@ -4549,15 +4554,15 @@ end subroutine wr_param_const
  
     use mod_model, only : nfdrs, pdrs, gnlon, gnlat, gfield, dlon, dlat
     implicit none
-    integer :: imap, jmap, jlon, jlat, i, j, kunit
-    real, dimension(gnlon,gnlat) :: gremap
+    integer :: imap, jmap, jlon, jlat, i, j, j1, kunit
+    real, dimension(gnlon,gnlat) :: gremap, gremap_wr
     real :: zx, zy, zzm, zzp, zrx, zry
 
     imap = nfdrs(2)
     jmap = nfdrs(3)
  
     zrx = pdrs(2)/dlon
-    zry = pdrs(1)/dlat
+    zry = abs(pdrs(1))/dlat
 
     gfield(gnlon,:) = gfield(2,:)
     gfield(1,:) = gfield(gnlon-1,:)
@@ -4565,12 +4570,14 @@ end subroutine wr_param_const
     do j = 1, jmap
     jlat = min (int((j-1)*zry)+1, gnlat-1)
     zy = (j-1)*zry-jlat+1
+    j1 = jmap-j+1
     do i = 1, imap
     jlon = int((i-1)*zrx)+1
     zx = (i-1)*zrx-jlon+1
     zzm = zx*gfield(jlon+1,jlat  ) + (1.-zx)*gfield(jlon,jlat  )
     zzp = zx*gfield(jlon+1,jlat+1) + (1.-zx)*gfield(jlon,jlat+1)
-    gremap(i,j) = zy*zzp + (1.-zy)*zzm
+!    gremap(i,j) = zy*zzp + (1.-zy)*zzm
+    gremap(i,j1) = zy*zzp + (1.-zy)*zzm
     enddo
     enddo
 
@@ -14094,15 +14101,15 @@ end subroutine surfradpar
     integer :: iunit1=26, iunit2=27, iunit_work=29, &
  jlon, jlat, j, jklev, nlevint, nhouc, imin, kout, &
  ilon1=1, ilon2=gnlon-2, jlat1=1, jlat2=gnlat, flag_lon=0
-    real zzpp, ztg, zt0t, zw, zesk, zqsat, ztbarv, zss, zalf, zalp(10), ze1, ze2, zzee, zlog
+    real :: zzpp, ztg, zt0t, zw, zesk, zqsat, ztbarv, zss, zalf, zalp(10), ze1, ze2, zzee, zlog, zqrel
     real, dimension(nlevp1)       :: zlnp, zaux
-    real, dimension(nlon,nlat)    :: ztz0, slp, q2rel, td2
+    real, dimension(nlon,nlat)    :: ztz0, slp, q2rel, td2, zsst, zfsice
     real, dimension(nlon,nlat,10) :: zgph, ztpl, zqpl, zupl, zvpl, zompl
     real, dimension(nlon,nlat)    :: atg1, at2, atd2, acloudt, asnow
     real, dimension(nlon,nlat,nlayer_soil_out) :: tg_aveg_out, qg_aveg_out, atg_aveg_out, aqg_aveg_out
     save atg1, at2, atd2, acloudt, asnow, atg_aveg_out, aqg_aveg_out
     integer, dimension(50)     :: grib2_descript = 0
-    integer, parameter         :: ivalmiss = -9999
+    integer, parameter         :: ivalmiss1 = 4294967295, ivalmiss2 = 255 
     character(len=30)          :: file_out1, file_out2
 
 !  COMPUTATION OF SLP (Pascal)
@@ -14178,12 +14185,11 @@ end subroutine surfradpar
     write (iunit1) nfdrs
     write (iunit1) pdrs
 
-    write (iunit2) nfdrs
+    write (iunit2) nfdrs2
     write (iunit2) pdr
-
   endif
 
-    if (nhouc.eq.0) then
+  if (nhouc.eq.0) then
 
 !-----------------------------------------------------------
 !  INTERPOLATION OF VARIABLES ON CONSTANT PRESSURE SURFACES
@@ -14239,16 +14245,16 @@ end subroutine surfradpar
 !print*, "myid, min max t post", myid, minval(ztpl), maxval(ztpl)
 
 !  INTERPOLATION OF Q
-print*, "poisk 1 myid, min max q", myid, minval(q), maxval(q)
+!print*, "poisk 1 myid, min max q", myid, minval(q), maxval(q)
     ze1 = .4 
     ze2 = .4 
-    zaux(1:nlev) = e(jlon,jlat,1:nlev)
+    zaux(1:nlev) = q(jlon,jlat,1:nlev)
     call comp_esk(zesk,zqsat,tskin(jlon,jlat),ps(jlon,jlat),1)
     zqrel = qskin(jlon,jlat)/zqsat                   ! rel. humidity at the surface
     call comp_esk(zesk,zqsat,ztz0,slp(jlon,jlat),1)  ! saturation humidity at the sea level
     zaux(nlevp1) = zqrel*zqsat                       ! q at the sea level
     call INTERP (zalf, ze1, ze2, nlevint, zlnp, zaux, zalp, zqpl(jlon,jlat,1:10), 10)
-print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
+!print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
 
 !  INTERPOLATION OF U,V
 
@@ -14267,6 +14273,15 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
     ze2 = .5 
     zaux(1:nlev) = omeg(jlon,jlat,1:nlev)*(pzer*sigint(1:nlev)-(pzer-ps(jlon,jlat))*bika(1:nlev))
     call INTERP (zalf, ze1, ze2, nlev, zlnp, zaux, zalp, zompl(jlon,jlat,1:10), 10)
+
+! Sea Surface Temperature and Sea ice fraction
+
+    zsst(jlon,jlat) = atg1(jlon,jlat)
+    zfsice(jlon,jlat) = fice(jlon,jlat)
+    if (fmask(jlon,jlat) < 0.5) then
+      zsst(jlon,jlat) = -999.
+      zfsice(jlon,jlat) = -999.
+    endif
 
     enddo
     enddo
@@ -14298,29 +14313,17 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
     grib2_descript( 2)    = 1 ! horizontal grid
     grib2_descript( 3)    = 1 ! instant individual ensemble
     grib2_descript( 4)    = 1 ! time unit is hour
-    grib2_descript( 6)    = 0 ! operational products
+!!!    grib2_descript( 6)    = 7 ! Sub-seasonal to seasonal prediction project test  (S2S)
+    grib2_descript( 6)    = 6 ! Sub-seasonal to seasonal prediction project (S2S)
     grib2_descript( 7)    = 4 ! Perturbed forecast products
-    grib2_descript(10:15) = ivalmiss
+    grib2_descript(10:15) = ivalmiss2
+    grib2_descript(11)    = ivalmiss1
+    grib2_descript(13)    = ivalmiss1
     grib2_descript(30)    = 0 ! bit-map absent
 
-    call collect (phig, gfield)
-    if (myid == 0) then
-      grib2_descript(10) =   1 ! Ground or water surface
-      grib2_descript(11:12) = 0
-      grib2_descript(20) =   2 ! Discipline: Land surface products
-      grib2_descript(21) =   0 ! Category: Vegetation
-      grib2_descript(22) =   7 ! Parameter: Model terrain height (m)
-      write (iunit1) grib2_descript
-      write (iunit2) grib2_descript
-      gfield = gfield/9.8  ! conversion to gpm
-      call wremap (iunit1)
-      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
-    endif 
-
     call collect (fmask, gfield)
-    if (myid == 0) then
+    if (myid == 0.and.ishf == 1) then
       grib2_descript(10) =   1 ! Ground or water surface
-      grib2_descript(11:12) = 0
       grib2_descript(20) =   2 ! Discipline: Land surface products
       grib2_descript(21) =   0 ! Category: Vegetation
       grib2_descript(22) =   0 ! Parameter: Land cover (0=land, 1=sea) (Proportion)
@@ -14331,45 +14334,58 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
       call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
     endif 
 
-    call collect (fice, gfield)
-    if (myid == 0) then
+    call collect (phig, gfield)
+    if (myid == 0.and.ishf == 1) then
       grib2_descript(10) =   1 ! Ground or water surface
-      grib2_descript(11:12) = 0
+      grib2_descript(20) =   0 ! Discipline: Meteorological products
+      grib2_descript(21) =   3 ! Category: Mass
+      grib2_descript(22) =   5 ! Parameter: Geopotential height (gpm)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      gfield(:,:) = gfield(:,:)/9.8  ! conversion to gpm
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+    endif 
+
+    call collect (zfsice, gfield)
+    if (myid == 0) then
+      grib2_descript(3)  =  11 ! statistical individual ensemble
+      grib2_descript(5)  =   0 ! average
+      grib2_descript(10) =   1 ! Ground or water surface
       grib2_descript(20) =   10! Discipline: Oceanographic products
       grib2_descript(21) =   2 ! Category: Ice
       grib2_descript(22) =   0 ! Parameter: Ice cover (Proportion)
       write (iunit1) grib2_descript
       write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
       call wremap (iunit1)
       call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      grib2_descript( 3)    = 1 ! instant individual ensemble
     endif 
 
     call collect (slp, gfield)
     if (myid == 0) then
-      grib2_descript(10) =   1 ! Ground or water surface
-      grib2_descript(11:12) = 0
-!      grib2_descript(10) = 101 ! Mean sea level
+      grib2_descript(10) = 101 ! Mean sea level
       grib2_descript(20) =   0 ! Discipline: Meteorological products
       grib2_descript(21) =   3 ! Category: Mass
-      grib2_descript(22) =   1 ! Parameter: Pressure reduced to MSL (Pa)
+      grib2_descript(22) =   0 ! Parameter: Pressure (Pa)
       write (iunit1) grib2_descript
       write (iunit2) grib2_descript
       call wremap (iunit1)
       call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
     endif 
 
-    call collect (atg1, gfield)
+    call collect (zsst, gfield)
     if (myid == 0) then
       grib2_descript(3)  =  11 ! statistical individual ensemble
       grib2_descript(5)  =   0 ! average
-      grib2_descript(10) = 106 ! Depth below land surface (m)
-      grib2_descript(11) = lev_soil(1)*1.e3
-      grib2_descript(12) =   3
-      grib2_descript(20) =   2 ! Discipline: Land surface products
-      grib2_descript(21) =   0 ! Category: Vegetation/Biomass
-      grib2_descript(22) =   2 ! Parameter: Soil temperature (K)
+      grib2_descript(10) =   1 ! Ground or water surface
+      grib2_descript(20) =  10 ! Discipline: Oceanographic products
+      grib2_descript(21) =   3 ! Category: Surface Properties
+      grib2_descript(22) =   0 ! Parameter: Water temperature (K)
       write (iunit1) grib2_descript
       write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
       call wremap (iunit1)
       call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
       grib2_descript( 3)    = 1 ! instant individual ensemble
@@ -14385,6 +14401,7 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
       grib2_descript(20) =   0 ! Discipline: Meteorological products
       grib2_descript(21) =   0 ! Category: Temperature
       grib2_descript(22) =   0 ! Parameter: Temperature (K)
+      if (ishf == 1) gfield(:,:) = 0.
       write (iunit1) grib2_descript
       write (iunit2) grib2_descript
       call wremap (iunit1)
@@ -14404,23 +14421,28 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
       grib2_descript(22) =   6 ! Parameter: Dew point temperature (K)
       write (iunit1) grib2_descript
       write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
       call wremap (iunit1)
       call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
       grib2_descript( 3)    = 1 ! instant individual ensemble
     endif 
+
+    grib2_descript(10:15) = ivalmiss2
+    grib2_descript(11)    = ivalmiss1
+    grib2_descript(13)    = ivalmiss1
 
     call collect (asnow, gfield)
     if (myid == 0) then
       grib2_descript(3)  =  11 ! statistical individual ensemble
       grib2_descript(5)  =   0 ! average
       grib2_descript(10) =   1 ! Ground or water surface
-      grib2_descript(11:12) = 0
       grib2_descript(20) =   0 ! Discipline: Meteorological products
       grib2_descript(21) =   1 ! Category: Moisture
-      grib2_descript(22) =  13 ! Parameter: Water equivalent of accumulated snow depth (kg m-2)
+      grib2_descript(22) =  60 ! Parameter: Snow depth water equivalent (kg m-2)
       write (iunit1) grib2_descript
       write (iunit2) grib2_descript
       gfield(:,:) = gfield(:,:) * 1.e3 ! -> kg/m^2
+      if (ishf == 1) gfield(:,:) = 0.
       call wremap (iunit1)
       call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
       grib2_descript( 3)    = 1 ! instant individual ensemble
@@ -14431,13 +14453,13 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
       grib2_descript(3)  =  11 ! statistical individual ensemble
       grib2_descript(5)  =   0 ! average
       grib2_descript(10) =   1 ! Ground or water surface
-      grib2_descript(11:12) = 0
       grib2_descript(20) =   0 ! Discipline: Meteorological products
       grib2_descript(21) =   6 ! Category: Cloud
       grib2_descript(22) =   1 ! Parameter: Total cloud cover (%)
       write (iunit1) grib2_descript
       write (iunit2) grib2_descript
       gfield(:,:) = gfield(:,:)*1.e2
+      if (ishf == 1) gfield(:,:) = 0.
       call wremap (iunit1)
       call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
       grib2_descript( 3)    = 1 ! instant individual ensemble
@@ -14451,15 +14473,16 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
       grib2_descript(5)  =   0 ! average
       grib2_descript(10) = 106 ! Depth below land surface (m)
       grib2_descript(11) =   0
-      grib2_descript(12) =   2
-      grib2_descript(11) =  20 ! 20
-      grib2_descript(14) =   2 ! cm
+      grib2_descript(12) =   0
+      grib2_descript(13) =   2 ! 2*0.1 m
+      grib2_descript(14) =   1
       grib2_descript(20) =   2 ! Discipline: Land surface products
       grib2_descript(21) =   0 ! Category: Vegetation/Biomass
       grib2_descript(22) =   2 ! Parameter: Soil temperature (K)
-!!!      write (iunit1) grib2_descript
+      write (iunit1) grib2_descript
       write (iunit2) grib2_descript
-!!!      call wremap (iunit1)
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
       call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
       grib2_descript( 3)    = 1 ! instant individual ensemble
     endif 
@@ -14470,16 +14493,17 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
       grib2_descript(5)  =   0 ! average
       grib2_descript(10) = 106 ! Depth below land surface (m)
       grib2_descript(11) =   0
-      grib2_descript(12) =   2
-      grib2_descript(11) =  20 ! 20 
-      grib2_descript(14) =   2 ! cm
+      grib2_descript(12) =   0
+      grib2_descript(13) =   2 ! 2*0.1 m
+      grib2_descript(14) =   1
       grib2_descript(20) =   2 ! Discipline: Land surface products
       grib2_descript(21) =   0 ! Category: Vegetation/Biomass
-      grib2_descript(22) =   9 ! Parameter: Soil moisture
-!!!      write (iunit1) grib2_descript
+      grib2_descript(22) =  22 ! Parameter: Soil Moisture
+      write (iunit1) grib2_descript
       write (iunit2) grib2_descript
       gfield(:,:)=gfield(:,:)*1.e3 ! il *1000 e' per renderlo kg/m3 come da richiesta S2S
-!!!      call wremap (iunit1)
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
       call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
       grib2_descript( 3)    = 1 ! instant individual ensemble
     endif 
@@ -14490,15 +14514,16 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
       grib2_descript(5)  =   0 ! average
       grib2_descript(10) = 106 ! Depth below land surface (m)
       grib2_descript(11) =   0
-      grib2_descript(12) =   2
-      grib2_descript(11) = 100 ! 100
-      grib2_descript(14) =   2 ! cm
+      grib2_descript(12) =   0
+      grib2_descript(13) =  10 ! 10*0.1 m
+      grib2_descript(14) =   1 ! 
       grib2_descript(20) =   2 ! Discipline: Land surface products
       grib2_descript(21) =   0 ! Category: Vegetation/Biomass
       grib2_descript(22) =   2 ! Parameter: Soil temperature (K)
-!!!      write (iunit1) grib2_descript
+      write (iunit1) grib2_descript
       write (iunit2) grib2_descript
-!!!      call wremap (iunit1)
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
       call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
       grib2_descript( 3)    = 1 ! instant individual ensemble
     endif 
@@ -14509,21 +14534,26 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
       grib2_descript(5)  =   0 ! average
       grib2_descript(10) = 106 ! Depth below land surface (m)
       grib2_descript(11) =   0
-      grib2_descript(12) =   2
-      grib2_descript(11) = 100 ! 100
-      grib2_descript(14) =   2 ! cm
+      grib2_descript(12) =   0
+      grib2_descript(13) =  10 ! 10*0.1 m
+      grib2_descript(14) =   1 ! 
       grib2_descript(20) =   2 ! Discipline: Land surface products
       grib2_descript(21) =   0 ! Category: Vegetation/Biomass
-      grib2_descript(22) =   9 ! Parameter: Soil moisture
-!!!      write (iunit1) grib2_descript
+      grib2_descript(22) =  22 ! Parameter: Soil Moisture
+      write (iunit1) grib2_descript
       write (iunit2) grib2_descript
       gfield(:,:)=gfield(:,:)*1.e3 ! il *1000 e' per renderlo kg/m3 come da richiesta S2S
-!!!      call wremap (iunit1)
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
       call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
       grib2_descript( 3)    = 1 ! instant individual ensemble
     endif 
+
+    grib2_descript(10:15) = ivalmiss2
+    grib2_descript(11)    = ivalmiss1
+    grib2_descript(13)    = ivalmiss1
   
-    if (nfdrs(10).eq.0.and.nfdrs(11).eq.0) then
+    if (nfdrs(10).eq.0.and.nfdrs(11).eq.0) then ! validity time is 0 UTC every day
       if (myid.eq.0) gfield = 0.  
     else
       call collect (olrtotc, gfield)
@@ -14532,12 +14562,12 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
       grib2_descript(3)  =  11 ! statistical individual ensemble
       grib2_descript(5)  =   1 ! accumulation
       grib2_descript(10) =   8 ! Nominal top of the atmosphere
-      grib2_descript(11:14) =  0
       grib2_descript(20) =   0 ! Discipline: Meteorological products
       grib2_descript(21) =   5 ! Category: long-wave radiation
       grib2_descript(22) =   5 ! Parameter: Net long-wave radiation flux (W m-2)
       write (iunit1) grib2_descript
 !!!      write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
       call wremap (iunit1)
 !!!      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
       grib2_descript( 3)    = 1 ! instant individual ensemble
@@ -14547,11 +14577,10 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
 
     if (myid == 0) then
       grib2_descript(10) = 100 ! Isobaric surface (Pa)
-      grib2_descript(11) = nint(exp(zalp(jklev))*1.e-2)
-      grib2_descript(12) =  2
-      grib2_descript(13:14) =  0
-      grib2_descript(20) =   0 ! Discipline: Meteorological products
-      grib2_descript( 3)    = 1 ! instant individual ensemble
+      grib2_descript(11) = nint(exp(zalp(jklev)))
+      grib2_descript(12) =  0
+      grib2_descript(20) =  0 ! Discipline: Meteorological products
+      grib2_descript( 3) =  1 ! instant individual ensemble
     endif
 
     call collect (zgph(:,:,jklev), gfield)
@@ -14572,6 +14601,20 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
       grib2_descript(22) =   0 ! Parameter: Temperature (K)
       write (iunit1) grib2_descript
       call wremap (iunit1)
+      if (jklev == 1.or.jklev == 2.or.jklev == 3.or.jklev == 5) then
+        write (iunit2) grib2_descript
+        call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      endif
+    endif 
+
+    call collect (zqpl(:,:,jklev), gfield)
+    if (myid == 0) then
+      grib2_descript(21) =   1 ! Category: Moisture
+      grib2_descript(22) =   0 ! Parameter: Specific humidity (kg kg-1)
+      if (jklev <= 7 ) then
+        write (iunit1) grib2_descript
+        call wremap (iunit1)
+      endif
       if (jklev == 1.or.jklev == 2.or.jklev == 3.or.jklev == 5) then
         write (iunit2) grib2_descript
         call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
@@ -14605,7 +14648,7 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
     call collect (zompl(:,:,jklev), gfield)
     if (myid == 0) then
       grib2_descript(21) =   2 ! Category: Momentum
-      grib2_descript(22) =   7 ! Sigma coordinate vertical velocity (s-1)
+      grib2_descript(22) =   8 ! Vertical velocity [pressure] (Pa s-1)
       write (iunit1) grib2_descript
       call wremap (iunit1)
 !!!      write (iunit2) grib2_descript
@@ -14623,15 +14666,17 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
     atg_aveg_out = 0.
     aqg_aveg_out = 0.
 
-    endif  ! nhouc
+  endif  ! nhouc
 
 !-----------------------------------------------------------
 !  Write every 6 hours
 !-----------------------------------------------------------
-    if (myid == 0) then
-      grib2_descript(20) =   0 ! Discipline: Meteorological products
-      grib2_descript( 3) = 1   ! instant individual ensemble
-    endif 
+    grib2_descript(20) =   0 ! Discipline: Meteorological products
+    grib2_descript( 3) = 1   ! instant individual ensemble
+
+    grib2_descript(10:15) = ivalmiss2
+    grib2_descript(11)    = ivalmiss1
+    grib2_descript(13)    = ivalmiss1
 
     call collect (u10, gfield)
     if (myid == 0) then
@@ -14667,9 +14712,10 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
       grib2_descript(11) =   2 ! 2 m
       grib2_descript(12) =   0
       grib2_descript(21) =   0 ! Category: Temperature
-      grib2_descript(22) =   3 ! Parameter: Temperature (K)
+      grib2_descript(22) =   0 ! Parameter: Temperature (K)
       write (iunit1) grib2_descript
       write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
       call wremap (iunit1)
       call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
       grib2_descript( 3)    = 1 ! instant individual ensemble
@@ -14683,9 +14729,10 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
       grib2_descript(11) =   2 ! 2 m
       grib2_descript(12) =   0
       grib2_descript(21) =   0 ! Category: Temperature
-      grib2_descript(22) =   3 ! Parameter: Temperature (K)
+      grib2_descript(22) =   0 ! Parameter: Temperature (K)
       write (iunit1) grib2_descript
       write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
       call wremap (iunit1)
       call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
       grib2_descript( 3)    = 1 ! instant individual ensemble
@@ -14699,15 +14746,19 @@ print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
       t2max  = 0.
     endif
 
+    grib2_descript(10:15) = ivalmiss2
+    grib2_descript(11)    = ivalmiss1
+    grib2_descript(13)    = ivalmiss1
+
     if (myid == 0) then
       grib2_descript(3)  =  11 ! statistical individual ensemble
       grib2_descript(5)  =   1 ! Accumulation
       grib2_descript(10) =   1 ! Ground or water surface
-      grib2_descript(11:14) =  0 
       grib2_descript(21) =   1 ! Category: Moisture
-      grib2_descript(22) =   3 ! Parameter: Precipitable water (kg m-2)
+      grib2_descript(22) =  52 ! Parameter: Total precipitation rate (kg m-2 s-1)
       write (iunit1) grib2_descript
       write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
       call wremap (iunit1)
       call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
       grib2_descript( 3)    = 1 ! instant individual ensemble

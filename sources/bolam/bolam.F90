@@ -368,6 +368,16 @@
 
 #endif
 
+!--------------------------------------------------------------------------------------------------------
+    if (myid == 0) then
+      print *
+#ifdef globo
+      print *,'    --- Globo model Version 24.1.1 ---'
+#else
+      print *,'    --- Bolam model Version 24.1.1 ---'
+#endif
+      print *
+    endif
 !------------------------------
 ! read parameters from namelist
 !------------------------------

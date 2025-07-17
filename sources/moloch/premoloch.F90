@@ -5223,7 +5223,7 @@ subroutine write_mhf_atm(nf)
 use model
 implicit none
 
-integer :: nf, iunit=22, i, j, k
+integer :: nf, iunit=32, i, j, k
 character(len=30) :: file_output
 
  write (file_output,'(a,i2.2,a)') 'input_atm_',nf,'.mhf'
@@ -5288,7 +5288,7 @@ subroutine write_mhf_soil(nf)
 use model
 implicit none
 
-integer :: nf, iunit=22, k, i, j, iwr
+integer :: nf, iunit=32, k, i, j, iwr
 character(len=30) :: file_output
 real, dimension(nlon,nlat) :: field2d_add, snow_albedo, runoff_tot
 

@@ -1,5 +1,13 @@
 ! Preglobo
+! Introdure lbot !!!!
+! v. preglobo_s2s.F90
+
+
 ! Input data GFS-NOAA or IFS-ECMWF in grib2 format
+!
+! Ultima modifica: 03/04/2025
+!
+! Apr. 2025: New definition of vertical coordinate (vert_coord_c, aka, bika)
 !
 ! Sett. 2024: 
 ! Cambiamento in subroutine physiographic_param (def_soil.F90) e scrittura
@@ -45,13 +53,13 @@
 ! sea ice temperature level 1.
 !##################################################################################################
    module param
-   integer :: nlon, nlat, nlev, nlevp1, nlevg, npolcap, ntot
+   integer :: nlon, nlat, nlev, nlevp1, nlevg, npolcap, ntot, ivert_coord_type=1
    integer, parameter :: nlevg0=20, nlevsnow=11
 
 ! alfa, pzer: parameters defining the hybrid vertical coordinate
 ! soil_lev: depth of soil levels (m)
 
-   real :: dlon, dlat, alfa, pzer
+   real :: dlon, dlat, alfa, pzer, vert_coord_c=0.
    real, dimension(nlevg0) :: soil_lev0
    real, dimension(:), allocatable :: soil_lev
 
@@ -89,7 +97,7 @@
 
 ! log. of press. on auxiliary levels and model hybrid levels
 
- real, dimension(:), allocatable :: plaux, s, sigint, plsig, hxt, hxv
+ real, dimension(:), allocatable :: plaux, s, sigint, plsig, hxt, hxv, aka, bika, akah, bikah
 
 ! lapse rate
 
@@ -111,6 +119,7 @@
  namelist/param_preglobo/ nlon, nlat, nlev, npolcap, &
                           alfa, pzer, &
                           nlev_atm_inp_max, nlev_soil_inp_max, &
+                          ivert_coord_type, &
                           soil_lev0
 
  real :: val_missing=-9999.
@@ -167,7 +176,7 @@ module mod_fields
 
 ! output fields at surface and hybrid levels
 
- real, dimension(:,:,:), allocatable :: u, v, t, q, qc
+ real, dimension(:,:,:), allocatable :: u, v, t, q, qc, press
  real, dimension(:,:), allocatable   :: phig, fmask, tskin, qvsurf, ps, cloud, totpre, &
                                         conpre, snfall, snow, fice, rgm, rgq, tice, iceth, fmaski, &
  tgsurf, qgsurf, water_table_depth, tg_bottom, qg_rel_bottom, qg_rel_surf_approx, &
@@ -220,7 +229,7 @@ real, dimension(:,:), allocatable ::  workf, work, qgmin
 ! they are derived (some only virtually) from the analyses,
 ! except htopi that is derived from the global orography dataset
 
-real, dimension(:,:), allocatable   :: phigi, phigi2d, psil, snowi, htopi, tskini
+real, dimension(:,:), allocatable   :: phigi, phigi2d, psil, snowi, htopi
 real, dimension(:,:,:), allocatable :: tgi, qgi, tgii, qgii
 
 ! Sea surface temperature (sst) derived from analysis
@@ -254,13 +263,13 @@ integer :: i, j, k, i0, j0, iii, ki, k1, k2, k3, k4, kf, kt, jklev, igrib, icent
            flag_constant_fields, nlon_limit, nlsnow, nk
 
 real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,            &
-        alon0, alat0, alatcr0, alatcr25, gamma1, zlaps0, zzpp, zt0t, zratio, zesk,     &
+        alon0, alat0, alatcr0, alatcr25, gamma1, zlaps0, zt0t, zratio, zesk,     &
         al, alf, ex1, ex2, zphl1, zphl2, zphl3, zphl4, zpl1, zpl2, peso, peso2,        &
         delp1, delp2, delp3, tv1, tv2, tvs, psmin, zdiftp, zwf, zge, wei, tvm, zalmax, &
         psig, zqs, zqsw, zqsi, zes, zesw, zesi, qsat, wsat, w, rh, wm, ztlake,         &
         ws, topcr, tland, zfsnow, zterm, zterq, wf, ztland, ttme,  zqgmin, zqgmax,     &
-        zlon, zlat, zdelt, zp, qgav1, qgav2, qgav3, qgav4, zeskw, zdq,                 &
-        zrgm, fatt, zeski, zqsat, zqtrue, zcaz, zzh1, zzh2, z1, z2
+        zlon, zlat, zdelt, qgav1, qgav2, qgav3, qgav4, zeskw, zdq,                 &
+        zrgm, fatt, zeski, zqsat, zqtrue, zcaz, zzh1, zzh2, zs, z1, z2
 
    pi  = abs(acos(-1.))
    eps = rd/rv
@@ -388,8 +397,12 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
  allocate(pl     (nlon,nlat,nlev_atm_inp_max))
  allocate(phl    (nlon,nlat,nlev_atm_inp_max+1))
  allocate(plaux  (2*nlev_atm_inp_max-1))
- allocate(s      (nlevp1))
  allocate(sigint (nlev))
+ allocate(aka    (nlev))
+ allocate(bika   (nlev))
+ allocate(s      (nlevp1))
+ allocate(akah   (nlevp1))
+ allocate(bikah  (nlevp1))
  allocate(plsig  (nlev))
  allocate(hxt    (nlat))
  allocate(hxv    (nlat))
@@ -423,6 +436,7 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
  allocate(t      (nlon,nlat,nlev))
  allocate(q      (nlon,nlat,nlev))
  allocate(qc     (nlon,nlat,nlev))
+ allocate(press  (nlon,nlat,nlev))
 
  allocate(phig      (nlon,nlat))
  allocate(fmask     (nlon,nlat))
@@ -527,7 +541,6 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
  allocate(snowi  (nlon,nlat))
  allocate(htopi  (nlon,nlat))
  allocate(zhtopvar(nlon,nlat))
- allocate(tskini (nlon,nlat))
  allocate(tgi    (nlon,nlat,nlevg))
  allocate(qgi    (nlon,nlat,nlevg))
  allocate(tgii   (nlon,nlat,nlev_soil_inp_max))
@@ -575,15 +588,57 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
 
    snow_albedo(:,:) = 0.71
 
-! definition of hybrid half-integer and integer atmosferic levels
+! Definition of hybrid half-integer and integer atmosferic levels
+
+   s(1) = 0.
+
+   vert_coord_c = 0.
+
+! 1. Case of simple sigma standard coordinates = equal-mass layers
+
+   if (ivert_coord_type <= 1) then
+     do k = 2, nlevp1
+       s(k) = float(k-1)/float(nlev)
+     enddo
+   endif
+
+! 2. Case of bolam standard coordinates
+
+   if (ivert_coord_type == 2) then
+     do k = 2, nlevp1
+       zs = float(k-1)/float(nlev)
+       s(k) = 0.78*zs + 1.44*zs**3 - 1.22*zs**4
+     enddo
+   endif
+
+! 3. Case of vert_coord_c using: vert_coord_c flattens hybrid surfaces more rapidly above mountains at stratospheric levels
+
+   if (ivert_coord_type == 3) then
+     vert_coord_c = 0.09**3*(1.+alfa*(1.-0.09)*(2.-0.09))/(1.-0.09)
+     do k = 2, nlevp1
+       zs = float(k-1)/float(nlev)
+       s(k) = 0.78*zs + 1.44*zs**3 - 1.22*zs**4
+       s(k) = s(k) * max ((1.+tanh((zs-0.5)/0.7))/(1.+tanh((1.-0.5)/0.7)), 0.02)
+     enddo
+   endif
+
+! At integer levels:
 
    do k = 1, nlev
-   s(k) = float(k-1)/float(nlev)
+     sigint(k) = 0.5*(s(k+1)+s(k))
+     bika(k) = max( sigint(k)**3 * (1.+alfa*(1.-sigint(k))*(2.-sigint(k))) - vert_coord_c*(1.-sigint(k)), 0.)
+     aka (k)  = pzer*(sigint(k) - bika(k))
    enddo
-   s(nlevp1) = 1.
-   do k = 1, nlev
-   sigint(k) = 0.5*(s(k+1)+s(k))
+
+! At semi-integer levels:
+
+   bikah(1) = 0.
+   bikah(nlevp1) = 1.
+   do k = 2, nlev
+     bikah(k) = 0.5*(bika(k)+bika(k-1))
    enddo
+
+! Definition of horizontal grid variables
 
    do j = 2, nlat-1
    zlatt  = pi/180.*(-90.+(j-1)*dlat)
@@ -614,6 +669,7 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
    pdr(37) = alfa
    pdr(38) = 0.
    pdr(39) = 0.
+   pdr(199) = vert_coord_c
 
    do k = 2, nlevp1
    if (38+k.gt.200) then ! 200 is the present dimension of pdr
@@ -842,7 +898,7 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
 
    call physiographic_param (nlon_limit, nlat, nst, nvt, nlevg, &
  alon0, alat0, dlon, dlat, x0, y0, xxtg(1:nlon_limit,:), yytg(1:nlon_limit,:), &
- tskini(1:nlon_limit,:), soil_lev, ndayr, flag_constant_fields, &
+ tskin(1:nlon_limit,:), soil_lev, ndayr, flag_constant_fields, &
  htopi(1:nlon_limit,:), zhtopvar(1:nlon_limit,:), fmask(1:nlon_limit,:), &
  water_table_depth(1:nlon_limit,:), tg_bottom(1:nlon_limit,:), &
  qg_rel_bottom(1:nlon_limit,:), qg_rel_surf_approx(1:nlon_limit,:), &
@@ -861,56 +917,52 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
  veg_albedo(1:nlon_limit,:), veg_emiss1(1:nlon_limit,:), veg_emiss2(1:nlon_limit,:), veg_lai_max, &
  snow_dirt(1:nlon_limit,:))
 
-   if (flag_constant_fields == 1 ) then ! Definition of constant parameters
+   htopi(nlon-1:nlon,:) = htopi(1:2,:)
+   zhtopvar(nlon-1:nlon,:) = zhtopvar(1:2,:)
+   fmask(nlon-1:nlon,:) = fmask(1:2,:)
+   tg_bottom(nlon-1:nlon,:) = tg_bottom(1:2,:)
+   qg_rel_bottom(nlon-1:nlon,:) = qg_rel_bottom(1:2,:)
+   qg_rel_surf_approx(nlon-1:nlon,:) = qg_rel_surf_approx(1:2,:)
+   water_table_depth(nlon-1:nlon,:) = water_table_depth(1:2,:)
+   ind_lev_soil_h_bottom(nlon-1:nlon,:) = ind_lev_soil_h_bottom(1:2,:)
+   ind_lev_soil_w_bottom(nlon-1:nlon,:) = ind_lev_soil_w_bottom(1:2,:)
+   soil_map(nlon-1:nlon,:,:) = soil_map(1:2,:,:)
+   veg_map(nlon-1:nlon,:,:) = veg_map(1:2,:,:)
+   soil_qmax(nlon-1:nlon,:,:) = soil_qmax(1:2,:,:)
+   soil_qmin(nlon-1:nlon,:,:) = soil_qmin(1:2,:,:)
+   soil_c(nlon-1:nlon,:,:) = soil_c(1:2,:,:)
+   soil_rho(nlon-1:nlon,:,:) = soil_rho(1:2,:,:)
+   soil_psi(nlon-1:nlon,:,:) = soil_psi(1:2,:,:)
+   soil_k(nlon-1:nlon,:,:) = soil_k(1:2,:,:)
+   soil_par_b(nlon-1:nlon,:,:) = soil_par_b(1:2,:,:)
+   soil_par_c(nlon-1:nlon,:,:) = soil_par_c(1:2,:,:)
+   soil_qrel_wilt(nlon-1:nlon,:,:) = soil_qrel_wilt(1:2,:,:)
+   soil_qrel_ref(nlon-1:nlon,:,:) = soil_qrel_ref(1:2,:,:)
+   soil_albedo_dry(nlon-1:nlon,:) = soil_albedo_dry(1:2,:)
+   soil_albedo_wet(nlon-1:nlon,:) = soil_albedo_wet(1:2,:)
+   soil_emiss1_dry(nlon-1:nlon,:) = soil_emiss1_dry(1:2,:)
+   soil_emiss1_wet(nlon-1:nlon,:) = soil_emiss1_wet(1:2,:)
+   soil_emiss2_dry(nlon-1:nlon,:) = soil_emiss2_dry(1:2,:)
+   soil_emiss2_wet(nlon-1:nlon,:) = soil_emiss2_wet(1:2,:)
+   veg_lai(nlon-1:nlon,:) = veg_lai(1:2,:)
+   veg_frac(nlon-1:nlon,:) = veg_frac(1:2,:)
+   veg_root_depth(nlon-1:nlon,:) = veg_root_depth(1:2,:)
+   veg_roughness(nlon-1:nlon,:) = veg_roughness(1:2,:)
+   veg_albedo(nlon-1:nlon,:) = veg_albedo(1:2,:)
+   veg_emiss1(nlon-1:nlon,:) = veg_emiss1(1:2,:)
+   veg_emiss2(nlon-1:nlon,:) = veg_emiss2(1:2,:)
+   snow_dirt(nlon-1:nlon,:) = snow_dirt(1:2,:)
 
-     htopi(nlon-1:nlon,:) = htopi(1:2,:)
-     zhtopvar(nlon-1:nlon,:) = zhtopvar(1:2,:)
-     fmask(nlon-1:nlon,:) = fmask(1:2,:)
-     tg_bottom(nlon-1:nlon,:) = tg_bottom(1:2,:)
-     qg_rel_bottom(nlon-1:nlon,:) = qg_rel_bottom(1:2,:)
-     qg_rel_surf_approx(nlon-1:nlon,:) = qg_rel_surf_approx(1:2,:)
-     water_table_depth(nlon-1:nlon,:) = water_table_depth(1:2,:)
-     ind_lev_soil_h_bottom(nlon-1:nlon,:) = ind_lev_soil_h_bottom(1:2,:)
-     ind_lev_soil_w_bottom(nlon-1:nlon,:) = ind_lev_soil_w_bottom(1:2,:)
-     soil_map(nlon-1:nlon,:,:) = soil_map(1:2,:,:)
-     veg_map(nlon-1:nlon,:,:) = veg_map(1:2,:,:)
-     soil_qmax(nlon-1:nlon,:,:) = soil_qmax(1:2,:,:)
-     soil_qmin(nlon-1:nlon,:,:) = soil_qmin(1:2,:,:)
-     soil_c(nlon-1:nlon,:,:) = soil_c(1:2,:,:)
-     soil_rho(nlon-1:nlon,:,:) = soil_rho(1:2,:,:)
-     soil_psi(nlon-1:nlon,:,:) = soil_psi(1:2,:,:)
-     soil_k(nlon-1:nlon,:,:) = soil_k(1:2,:,:)
-     soil_par_b(nlon-1:nlon,:,:) = soil_par_b(1:2,:,:)
-     soil_par_c(nlon-1:nlon,:,:) = soil_par_c(1:2,:,:)
-     soil_qrel_wilt(nlon-1:nlon,:,:) = soil_qrel_wilt(1:2,:,:)
-     soil_qrel_ref(nlon-1:nlon,:,:) = soil_qrel_ref(1:2,:,:)
-     soil_albedo_dry(nlon-1:nlon,:) = soil_albedo_dry(1:2,:)
-     soil_albedo_wet(nlon-1:nlon,:) = soil_albedo_wet(1:2,:)
-     soil_emiss1_dry(nlon-1:nlon,:) = soil_emiss1_dry(1:2,:)
-     soil_emiss1_wet(nlon-1:nlon,:) = soil_emiss1_wet(1:2,:)
-     soil_emiss2_dry(nlon-1:nlon,:) = soil_emiss2_dry(1:2,:)
-     soil_emiss2_wet(nlon-1:nlon,:) = soil_emiss2_wet(1:2,:)
-     veg_lai(nlon-1:nlon,:) = veg_lai(1:2,:)
-     veg_frac(nlon-1:nlon,:) = veg_frac(1:2,:)
-     veg_root_depth(nlon-1:nlon,:) = veg_root_depth(1:2,:)
-     veg_roughness(nlon-1:nlon,:) = veg_roughness(1:2,:)
-     veg_albedo(nlon-1:nlon,:) = veg_albedo(1:2,:)
-     veg_emiss1(nlon-1:nlon,:) = veg_emiss1(1:2,:)
-     veg_emiss2(nlon-1:nlon,:) = veg_emiss2(1:2,:)
-     snow_dirt(nlon-1:nlon,:) = snow_dirt(1:2,:)
-  
-     tg_first_guess(nlon-1:nlon,:,:) = tg_first_guess(1:2,:,:)
-     qg_rel_first_guess(nlon-1:nlon,:,:) = qg_rel_first_guess(1:2,:,:)
-     veg_lai(nlon-1:nlon,:) = veg_lai(1:2,:)
-     veg_frac(nlon-1:nlon,:) = veg_frac(1:2,:)
+   tg_first_guess(nlon-1:nlon,:,:) = tg_first_guess(1:2,:,:)
+   qg_rel_first_guess(nlon-1:nlon,:,:) = qg_rel_first_guess(1:2,:,:)
+   veg_lai(nlon-1:nlon,:) = veg_lai(1:2,:)
+   veg_frac(nlon-1:nlon,:) = veg_frac(1:2,:)
  
-     call polavert (phig, nlon, nlat, npolcap)
-     call polavert (zhtopvar, nlon, nlat, npolcap)
-     zhtopvar(:,:) = max (zhtopvar(:,:), 0.)
-     call polavert (veg_roughness, nlon, nlat, npolcap)
-     veg_roughness(:,:) = max (veg_roughness(:,:), 1.e-8)
-
-   endif ! Definition of constant parameters
+   call polavert (phig, nlon, nlat, npolcap)
+   call polavert (zhtopvar, nlon, nlat, npolcap)
+   zhtopvar(:,:) = max (zhtopvar(:,:), 0.)
+   call polavert (veg_roughness, nlon, nlat, npolcap)
+   veg_roughness(:,:) = max (veg_roughness(:,:), 1.e-8)
 
    phig(:,:) = htopi(:,:)*g0
 
@@ -1075,47 +1127,47 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
    tice(:,:)   = min (tice(:,:), 271.4)
    qgi(:,:,:)  = min (max(qgi(:,:,:),0.), 1.) ! relative value
 
-i=2; j=588
-i=552; j=890
-print *
-print *,'poisk fmask',fmask(i,j)
-print *,'poisk htopi',phig(i,j)/g0
-print *,'poisk zhtopvar',zhtopvar(i,j)
-print *,'poisk tg_bottom, qg_rel_bottom, qg_rel_surf_approx, water_table_depth',&
- tg_bottom(i,j), qg_rel_bottom(i,j), qg_rel_surf_approx(i,j), water_table_depth(i,j)
-print *,'poisk ind_lev_soil_h_bottom ind_lev_soil_w_bottom',ind_lev_soil_h_bottom(i,j),ind_lev_soil_w_bottom(i,j)
-print *,'poisk soil_map',soil_map(i,j,:)
-print *,'poisk veg_map',veg_map(i,j,:)
-print *,'poisk soil_qmax',soil_qmax(i,j,:)
-print *,'poisk soil_qmin',soil_qmin(i,j,:)
-print *,'poisk soil_c',soil_c(i,j,:)
-print *,'poisk soil_rho',soil_rho(i,j,:)
-print *,'poisk soil_psi',soil_psi(i,j,:)
-print *,'poisk soil_k',soil_k(i,j,:)
-print *,'poisk soil_par_b',soil_par_b(i,j,:)
-print *,'poisk soil_qrel_wilt',soil_qrel_wilt(i,j,:)
-print *,'poisk soil_qrel_ref',soil_qrel_ref(i,j,:)
-print *,'poisk soil_albedo_dry',soil_albedo_dry(i,j)
-print *,'poisk soil_albedo_dry',soil_albedo_dry(i,j)
-print *,'poisk soil_albedo_wet',soil_albedo_wet(i,j)
-print *,'poisk soil_emiss1_dry',soil_emiss1_dry(i,j)
-print *,'poisk soil_emiss1_wet',soil_emiss1_wet(i,j)
-print *,'poisk soil_emiss2_dry',soil_emiss2_dry(i,j)
-print *,'poisk soil_emiss2_wet',soil_emiss2_wet(i,j)
-print *,'poisk veg_root_depth',veg_root_depth(i,j)
-print *,'poisk veg_roughness',veg_roughness(i,j)
-print *,'poisk veg_albedo',veg_albedo(i,j)
-print *,'poisk veg_emiss1',veg_emiss1(i,j)
-print *,'poisk veg_emiss2',veg_emiss2(i,j)
-print *,'poisk snow_dirt',snow_dirt(i,j)
-print *,'poisk veg_lai_max',veg_lai_max
-print *,'poisk tg_first_guess',tg_first_guess(i,j,:)
-print *,'poisk qg_rel_first_guess',qg_rel_first_guess(i,j,:)
-print *,'poisk veg_lai',veg_lai(i,j)
-print *,'poisk veg_frac',veg_frac(i,j)
-print *,'poisk tgi',tgi(i,j,:)
-print *,'poisk qgi',qgi(i,j,:)
-print *
+!i=2; j=588
+!i=552; j=890
+!print *
+!print *,'poisk fmask',fmask(i,j)
+!print *,'poisk htopi',phig(i,j)/g0
+!print *,'poisk zhtopvar',zhtopvar(i,j)
+!print *,'poisk tg_bottom, qg_rel_bottom, qg_rel_surf_approx, water_table_depth',&
+! tg_bottom(i,j), qg_rel_bottom(i,j), qg_rel_surf_approx(i,j), water_table_depth(i,j)
+!print *,'poisk ind_lev_soil_h_bottom ind_lev_soil_w_bottom',ind_lev_soil_h_bottom(i,j),ind_lev_soil_w_bottom(i,j)
+!print *,'poisk soil_map',soil_map(i,j,:)
+!print *,'poisk veg_map',veg_map(i,j,:)
+!print *,'poisk soil_qmax',soil_qmax(i,j,:)
+!print *,'poisk soil_qmin',soil_qmin(i,j,:)
+!print *,'poisk soil_c',soil_c(i,j,:)
+!print *,'poisk soil_rho',soil_rho(i,j,:)
+!print *,'poisk soil_psi',soil_psi(i,j,:)
+!print *,'poisk soil_k',soil_k(i,j,:)
+!print *,'poisk soil_par_b',soil_par_b(i,j,:)
+!print *,'poisk soil_qrel_wilt',soil_qrel_wilt(i,j,:)
+!print *,'poisk soil_qrel_ref',soil_qrel_ref(i,j,:)
+!print *,'poisk soil_albedo_dry',soil_albedo_dry(i,j)
+!print *,'poisk soil_albedo_dry',soil_albedo_dry(i,j)
+!print *,'poisk soil_albedo_wet',soil_albedo_wet(i,j)
+!print *,'poisk soil_emiss1_dry',soil_emiss1_dry(i,j)
+!print *,'poisk soil_emiss1_wet',soil_emiss1_wet(i,j)
+!print *,'poisk soil_emiss2_dry',soil_emiss2_dry(i,j)
+!print *,'poisk soil_emiss2_wet',soil_emiss2_wet(i,j)
+!print *,'poisk veg_root_depth',veg_root_depth(i,j)
+!print *,'poisk veg_roughness',veg_roughness(i,j)
+!print *,'poisk veg_albedo',veg_albedo(i,j)
+!print *,'poisk veg_emiss1',veg_emiss1(i,j)
+!print *,'poisk veg_emiss2',veg_emiss2(i,j)
+!print *,'poisk snow_dirt',snow_dirt(i,j)
+!print *,'poisk veg_lai_max',veg_lai_max
+!print *,'poisk tg_first_guess',tg_first_guess(i,j,:)
+!print *,'poisk qg_rel_first_guess',qg_rel_first_guess(i,j,:)
+!print *,'poisk veg_lai',veg_lai(i,j)
+!print *,'poisk veg_frac',veg_frac(i,j)
+!print *,'poisk tgi',tgi(i,j,:)
+!print *,'poisk qgi',qgi(i,j,:)
+!print *
 
 ! --------------------------------------------------
 !  only in the case of hybrid levels: horizontal interpolation of surface pressure
@@ -1488,9 +1540,19 @@ print *
 
  endif ! end of distinction between level types
 
+! Definition of pressure at integer levels
+
+ do k = 1, nlev
+ do j = 1, nlat
+ do i = 1, nlon
+   press(i,j,k) = aka(k) + ps(i,j)*bika(k)
+ enddo
+ enddo
+ enddo
+
    psmin  = minval(ps(:,:))
    print*
-   print*, "psmin =", psmin, "alfa =", alfa, "Pzer =", pzer
+   print*, "psmin =", psmin, "alfa =", alfa, "Pzer =", pzer, "Vert. coord. parameter =",vert_coord_c
 !print *,minloc(ps(:,:))
 !stop
 
@@ -1520,7 +1582,7 @@ print *
 
 ! Computation of pressure at the hybrid levels on the t points (for t and q)
 
-   call levels (pst(i,j), sigint, nlev, plsig, alfa, pzer)
+   call levels (pst(i,j), nlev, plsig, aka, bika)
 
 ! Definition of auxiliary input vectors (qpk contains sqrt(q); tvk contains virtual t)
 
@@ -1672,14 +1734,14 @@ print *
 ! Interpolation of wind components;
 ! wind is kept almost constant at a level under nlev_atm_inp
 
-   call levels (psu(i,j), sigint, nlev, plsig, alfa, pzer)
+   call levels (psu(i,j), nlev, plsig, aka, bika)
    call near (plsig, nlev, pl2,nlev_atm_inp, iv)
    alf = .65
    ex1 = .2
    ex2 = .2
    call interp_spline_1d (uk, plsig, nlev, upk, pl2, nlev_atm_inp, iv, alf, ex1, ex2)
 
-   call levels (psv(i,j), sigint, nlev, plsig, alfa, pzer)
+   call levels (psv(i,j), nlev, plsig, aka, bika)
    call near (plsig, nlev, pl2, nlev_atm_inp, iv)
    call interp_spline_1d (vk, plsig, nlev, vpk, pl2, nlev_atm_inp, iv, alf, ex1, ex2)
 
@@ -1828,9 +1890,8 @@ print *
     tg(i,j,3)  = tg(i,j,3)  + zdelt*.7
     tg(i,j,4:nlevg)  = tg(i,j,4:nlevg)  + zdelt*.45
      do k = nlev/2, nlev
-     zp = pzer*sigint(k) - (pzer-ps(i,j))*sigint(k)**3 * (1.+alfa*(1.-sigint(k))*(2.-sigint(k)))
-     if (zp > 945.e2 .and. zp <= 960.e2) t(i,j,k) = t(i,j,k) + 0.5*zdelt
-     if (zp > 960.e2) t(i,j,k) = t(i,j,k) + zdelt
+     if (press(i,j,k) > 945.e2 .and. press(i,j,k) <= 960.e2) t(i,j,k) = t(i,j,k) + 0.5*zdelt
+     if (press(i,j,k) > 960.e2) t(i,j,k) = t(i,j,k) + zdelt
      enddo
     endif
    endif
@@ -1940,7 +2001,7 @@ print *
       do k = 1, nlev
       do j = 1, nlat
       do i = 1, nlon
-      zzpp = pzer*sigint(k)-(pzer-ps(i,j))*sigint(k)**3 * (1.+alfa*(1.-sigint(k))*(2.-sigint(k)))
+    if (press(i,j,k) >= 500.) then
       zt0t = t0/t(i,j,k)
       if (zt0t.le.1.) then
       zesk = e0*exp(-ccw1*alog(zt0t)+ccw2*(1.-zt0t)) !! Partial pressure over water
@@ -1948,11 +2009,18 @@ print *
       zesk = e0*exp(-cci1*alog(zt0t)+cci2*(1.-zt0t)) !! Partial pressure over ice
       endif
 
-      zqsat = zesk*eps/(zzpp+zesk*(eps-1.))
+      zqsat = zesk*eps/(press(i,j,k)+zesk*(eps-1.))
       zqtrue = min (zqsat, q(i,j,k))
       zdq = max (q(i,j,k)-zqtrue, 0.)
       qc(i,j,k) = zdq
       q(i,j,k)  = zqtrue
+    else
+      q(i,j,k)  = 1.e-8
+      qc(i,j,k) = 0.
+    endif
+if (i==330.and.j==199) print *,'poisk  qc ',k,press(i,j,k),t(i,j,k)-273.15,q(i,j,k),qc(i,j,k),zesk
+!if (i==330.and.j==199.and.k==1) print *,'poisk 1 qc ',qc(i,j,k),q(i,j,k),zqsat,press(i,j,k),t(i,j,k),zesk
+!if (k==1.and.qc(i,j,k) > 1.e-8) print *,'poisk 2 qc ',i,j,qc(i,j,k)
       enddo
       enddo
       enddo
@@ -2371,14 +2439,14 @@ character(len=30) :: file_output='input_soil_01.mhf'
 return
 end
 !##################################################################################################
-   subroutine levels (psl, sigint, nlev, plsig, alfa, pzer)
+   subroutine levels (psl, nlev, plsig, aka, bika)
 
 ! given the suface pressure psl=logps, computes the logp on hybrid levels
 
-   real sigint(nlev), plsig(nlev)
+   real, dimension(nlev) :: plsig, aka, bika
 
    do k = 1, nlev
-   plsig(k) = alog ( pzer*sigint(k)-(pzer-exp(psl))*sigint(k)**3*(1.+alfa*(1.-sigint(k))*(2.-sigint(k))) )
+     plsig(k) = log ( aka(k) + exp(psl)*bika(k) )
    enddo
 
    return
@@ -2956,7 +3024,6 @@ character(len=30) :: file_data="model_param_constant.bin"
  call rrec2 (iunit, nlon, nlat, htop(1:nlon,1:nlat))
 
  call rrec2 (iunit, nlon, nlat, htopvar(1:nlon,1:nlat))
-print *,'poisk htop preglobo 2 ',htop(552,890),htopvar(552,890)
 
  do k = 1,nst+1
    call rrec2 (iunit, nlon, nlat, soil_map(1:nlon,1:nlat,k))
@@ -3081,7 +3148,6 @@ character(len=30) :: file_data="model_param_constant.bin"
  call wrec2 (iunit, nlon, nlat, htop(1:nlon,1:nlat))
 
  call wrec2 (iunit, nlon, nlat, htopvar(1:nlon,1:nlat))
-print *,'poisk htop preglobo 1 ',htop(552,890),htopvar(552,890)
 
  do k = 1,nst+1
    call wrec2 (iunit, nlon, nlat, soil_map(1:nlon,1:nlat,k))

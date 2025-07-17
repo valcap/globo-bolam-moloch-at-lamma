@@ -22,7 +22,7 @@ INTEGER, DIMENSION(50) :: NFDR
 REAL, DIMENSION(200) :: PDR
 
 INTEGER :: NX, NY, NLEV, NSTEP_PERIOD, NDAY_FC, NHOUR_FC, NMIN_FC, NDAY, NDM, IIMON, &
- I, J, K, IFIELD, N_VERT_COORD_PAR, NMEM, IMEM
+ I, J, K, IFIELD, N_VERT_COORD_PAR, NMEM=0, IMEM=0
 REAL :: PI, DZ, DTSTEP, DELTA_FORECAST, DELTA_PERIOD
 INTEGER, DIMENSION(12) ::IMON=(/31,28,31,30,31,30,31,31,30,31,30,31/)
 REAL*4, DIMENSION(:), ALLOCATABLE :: VERT_COORD_PAR
@@ -32,18 +32,6 @@ REAL*4, DIMENSION(:), ALLOCATABLE :: VERT_COORD_PAR
  OPEN (INPUT_UNIT, FILE="grib_sample.inp", STATUS="OLD")
  READ (INPUT_UNIT, GRIB_SAMPLE)
  CLOSE (INPUT_UNIT)
-
-! For ensemble forecasts only
-
-! PRINT *
-! PRINT *,' Enter total number of ensemble forecast members'
-! READ (*,*) NMEM
-! PRINT *,' You entered ',NMEM,' of ensemble forecast members'
-!
-! PRINT *
-! PRINT *,' Enter index of current ensemble forecast member'
-! READ (*,*) IMEM
-! PRINT *,' You entered ',IMEM,' index of current ensemble forecast member'
 
 ! Opening of input file
 
@@ -208,6 +196,29 @@ REAL*4, DIMENSION(:), ALLOCATABLE :: VERT_COORD_PAR
 
    IF (IERR /= 0) EXIT
 
+! For ensemble forecasts only
+
+   IF (DATA(IFIELD) % GRIB2_DESCRIPT(7) == 4.OR.DATA(IFIELD) % GRIB2_DESCRIPT(7) == 3) THEN ! type of data: Perturbed forecas or Control forecast
+
+     IF (IFIELD == 1) THEN
+  
+       PRINT *
+       PRINT *,' Enter total number of ensemble forecast members'
+       READ (*,*) NMEM
+       PRINT *,' You entered ',NMEM,' of ensemble forecast members'
+
+       PRINT *
+       PRINT *,' Enter index of current ensemble forecast member'
+       READ (*,*) IMEM
+       PRINT *,' You entered ',IMEM,' index of current ensemble forecast member'
+
+     ENDIF
+
+     DATA(IFIELD) % GRIB2_DESCRIPT(31) = IMEM
+     DATA(IFIELD) % GRIB2_DESCRIPT(32) = NMEM
+
+   ENDIF ! ensemble products
+
    ALLOCATE (DATA(IFIELD) % FIELD(NX,NY))
 
    CALL RREC2 (INPUT_UNIT, NX, NY, DATA(IFIELD) % FIELD(1:NX,1:NY))
@@ -248,13 +259,8 @@ REAL*4, DIMENSION(:), ALLOCATABLE :: VERT_COORD_PAR
 
 ! For ensemble forecasts only
 
-!   IF (DATA(IFIELD) % GRIB2_DESCRIPT(6) == 7.AND.IMEM > 0) &
-! DATA(IFIELD) % GRIB2_DESCRIPT(7) = DATA(IFIELD) % GRIB2_DESCRIPT(7) + 1 ! from "Control forecast" to "Perturbed forecast"
-!
-! PRINT *
-! PRINT *,' Enter total number of ensemble forecast members'
-! READ (*,*) NMEM
-! PRINT *,' You entered ',NMEM,' of ensemble forecast members'
+   IF (DATA(IFIELD) % GRIB2_DESCRIPT(7)==4.AND.IMEM == 0) &
+ DATA(IFIELD) % GRIB2_DESCRIPT(7) = 3 ! from "Perturbed forecast" to "Control forecast"
 
  ENDDO
 

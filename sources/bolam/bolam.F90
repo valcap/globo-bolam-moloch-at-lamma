@@ -1,6 +1,21 @@
-! Last update 29/07/2024
+! Last update 08/05/2025
 
-! Version 24.1.1
+! Version 25.2.1
+
+! Apr. 2025: Versione di Globo per la previsione mensile (membri perturbati)
+! -Ds2s (#ifdef s2s)
+! Versione con la nuova definizione della coordinata verticale (aka, bika)
+
+! Non gira con adv_ff_micro neanche in versione di globo_s2s
+
+! Feb. 2025: Nuova u_ghost: risparmio sulle memorizzazioni ridontante
+! dei vettori di scambio, la procedura e' devisa in 4 passi:
+! inizializzazione del buffer di scambio, memorizzazione delle cornici di
+! piu' campi in un singolo buffer di scambio (variante per 2d e per 1d),
+! scambio via un singolo buffere, memorizzazione della cornici ricevuti
+! su piu' cambi (variante per 2d e per 1d);
+! u_ghost ---> u_ghost_init, u_ghost_put_2d, u_ghost_put_1d,
+! u_ghost_transfer, u_ghost_get_2d, u_ghost_get_1d
 
 ! Sett. 2024: 
 ! Cambiata la scrittura di model_param_constant.bin - piu' grandezze.
@@ -74,7 +89,8 @@
     integer, parameter :: nlev_snow=11
 ! <---
 
-    logical :: nlbfix, nlcadj, nlana, nlclimate, nlrst
+    logical :: nlbfix, nlcadj, nlana, nlclimate, nlrst, &
+               nlag = .false. ! s2s members/control (control=.f.)
     integer :: nstep, nstep0, ntsbou, nbc, nhist, nhist_zoom, nhist_soil_full, ndrunt, &
                ntsrc, ntswshf, nradm, ntop, nadj, nbl, nstep_sl_filter, nrst
     real(4) :: dtstep, anu2, anu2v, ddamp, hrun, hbound, hist, hist_zoom, hist_soil_full, &
@@ -97,7 +113,7 @@
     integer, parameter :: nlonm1=nlon-1, nlatm1=nlat-1, nlevp1=nlev+1, nbuffer=2*max(nlon,nlat)*nlev
     integer            :: nyrin, nmonin, ndayin, nhouin, nminin
     integer            :: i_zoom_lon_ini, i_zoom_lon_fin, j_zoom_lat_ini, j_zoom_lat_fin, flag_joint=0
-    real(4)            :: alon0, alat0, dlon, dlat, x0, y0, dx, dy, alfa, pzer, d1, d2, d3, d4, dt, alp0, &
+    real(4)            :: alon0, alat0, dlon, dlat, x0, y0, dx, dy, alfa, pzer, vert_coord_c, d1, d2, d3, d4, dt, alp0, &
                           psmin, co2ppm, rdecli0, reqtim0
     real(4), parameter :: yliv=2834170.5, yliw=333560.5, ylwv=yliv-yliw, tzer=273.15, ezer= 611.,               &
                           rd=287.05, rv=461.51, eps=rd/rv, cpd=1004.6, cvd=cpd-rd, cpv=1869.46, cw=4186.8,      &
@@ -105,12 +121,16 @@
                           omega=7.292e-5, pi=3.14159265, tkemin=1.e-9
 !!!    real(4), parameter :: alsn = .71      ! mean snow albedo (exept glaciers)
 
-    integer, dimension(50)        :: nfdr0, nfdr, nfdrb ! nfdrb for Globo zoom output
-    real(4), dimension(200)       :: pdr0, pdr, pdrb ! pdrb for Globo zoom output
-    real(4), dimension(nlev)      :: dsig, sigint, dsigalf, sigalf, huc
+    integer, dimension(50)        :: nfdr0, nfdr, &
+                                     nfdrb, & ! for Globo zoom output
+                                     nfdrs, nfdrs2 ! for Globo s2s output
+    real(4), dimension(200)       :: pdr0, pdr, &
+                                     pdrb, & ! for Globo zoom output
+                                     pdrs ! for Globo s2s output
+    real(4), dimension(nlev)      :: dsig, sigint, dsigalf, sigalf, huc, aka, bika, dbika
     real(4), dimension(nlon)      :: bndrel
     real(4), dimension(nlat)      :: hxt, hst, hxv, tangu, tangv
-    real(4), dimension(nlevp1)    :: sig
+    real(4), dimension(nlevp1)    :: sig, akah, bikah, dbikah
     real(4), dimension(nlevg)     :: d, lev_soil
     real(4), dimension(nlon,nlat) :: ps, pst, fmask, phig, orogvar, tskin, qskin, cloudt, albedo, rgm, rgq, rgmd, &
                                      snow, fsnow, raicon, snocon, rainls, snowls, alsn, tgclim, qgclim, &
@@ -124,7 +144,8 @@
                                     shf_accum, lhf_accum, qf_accum, albedo_soil_dry, albedo_soil_wet, albedo_veg, &
                                     emiss1_soil_dry, emiss1_soil_wet, emiss1_veg,                                 &
                                     emiss2_soil_dry, emiss2_soil_wet, emiss2_veg,                                 &
-                                    fice_rd, iceth_rd
+                                    fice_rd, iceth_rd, &
+                                    totprec, conprec, tganom
 ! cumulated variables
     real(4), dimension(nlon,nlat) :: totpre, conpre, snfall, &
                                      cswfl, clwfl, chflux, cqflux, cwvflux, &
@@ -136,18 +157,19 @@
                                      runoff_zoom, runoff_tot_zoom, t2min_zoom, t2max_zoom
     real(4), dimension(gnlon,gnlat)      :: gfield, gfield1, gfield2, gfield3
     real(4), dimension(nlon,nlat,nlevg)  :: tg, qg, qgice
-    real(4), dimension(nlon,nlat,nlev)   :: tvirt, u, v, t, q, qcw, qci, qrain, qsnow, qhail, phi, omeg, dtdt,    &
+    real(4), dimension(nlon,nlat,nlev)   :: tvirt, u, v, t, q, qcw, qci, qrain, qsnow, qhail, p, phi, omeg, dtdt, &
                                             dqdt, dqcwdt, dqcidt, dqrndt, dqsndt, div1, div2, fcloud, ut, vt,     &
                                             ub1, vb1, tb1, qb1, qcwb1, qcib1, ub2, vb2, tb2, qb2, qcwb2, qcib2,   &
                                             trd_a, trd_c, tket
     real(4), dimension(nlon,nlat,nlevp1) :: sigdot, phih, tke, lml, rich
     real(4), dimension(nlon,nlat,nst+1)  :: suolo
     real(4), dimension(nlon,nlat,nvt+1)  :: vegeta
+    real(4), dimension(nlon,nlat,73)     :: tgcist, ficecist
 
 ! mpi veriables
 
     integer :: myid=0, iprocs=1, infx=1, infy=1, supx, supy, &
-               ip_e=-1, ip_n=-1, ip_s=-1, ip_w=-1, ip_null=-1
+               ip_e=-1, ip_n=-1, ip_s=-1, ip_w=-1, ip_oppo=-1, ip_null=-1, comm_row
 
 ! pochva --->
 
@@ -182,6 +204,12 @@
     real(4), dimension(nlon,nlat,n_std_lev_atm) :: t_std_lev, u_std_lev, v_std_lev, q_std_lev, rh_std_lev, td_std_lev
     real(4), dimension(nlon,nlat,n_std_lev_soil) :: tg_std_lev, qg_std_lev
 
+! s2s: Variables for soil output
+    integer, parameter :: nlayer_soil_out=2
+    real(4), dimension(nlayer_soil_out) :: depth_soil_out = (/20., 100./)
+    real(4), dimension(0:nlevg,nlayer_soil_out) :: weight
+    integer, dimension(nlayer_soil_out) :: klast
+
 ! costants used to compute partial pressures at saturation
 
     real(4), parameter :: ccw1=(cpv-cw)/rv, ccw2=ylwv/tzer/rv-ccw1, cci1=(cpv-ci)/rv, cci2=yliv/tzer/rv-cci1
@@ -197,15 +225,18 @@
     real(4), dimension(nlon,nlat)        :: corvis, corirr, gelvis, gelirr
     real(4), dimension(nlon,nlat,nlev)   :: corrdt, geldt
 
+! Filtering
+
+    real(4), dimension(nlon,nlat,nlev)   :: anu3d
+
     integer :: imhf=0, imhf_zoom=0, ishf=0, irf=0
 
 ! Globo variables and parameters
 
-    integer ip_oppo
     real(4) cpole
     integer, dimension(nlat)      :: nsweep
     real(4), dimension(nlon,nfou) :: snt, cst
-    real(4), dimension(nlon,nlat) :: olr, olrtot
+    real(4), dimension(nlon,nlat) :: olr, olrtot, olrtotc
     real(4), dimension(nlat)      :: filtt1, filtu1, filtv1
 
 #ifdef globo
@@ -226,9 +257,462 @@
 
     end module mod_model
 !##################################################################################################################
+
+module u_ghost
+
+! MPI smart application:
+! 1) initialization of the change buffer;
+! 2) memorisation of outgoing boundaries of multiple fields in the single change buffer;
+! 3) send-recieve of the single change buffer;
+! 4) memorisation of recieved boundaries from the single change buffer in multiple fields.
+
+use mod_model, only : nlon, nlat, nlev, ip_e, ip_n, ip_s, ip_w, ip_oppo, ip_null
+
+implicit none
+
+#ifdef mpi
+  include 'mpif.h'
+#endif
+
+! ndirect - number of exchage direction: 
+! 1 - send to north, recieve from south,
+! 2 - send to east, recieve from west,
+! 3 - send to south, recieve from north,
+! 4 - send to west, recieve from east,
+! 5 - send and recieve across the poles in the case of Globo (global domain).
+ integer, parameter :: ndirect = 5, &
+                       nrequest_tot = ndirect*2, &
+                       u_ghost_bufsiz = (max(nlon,nlat) +1) * (nlev+1) * 10
+! Attention: max number of field for the single mpi boundaries exchange
+! is 10!
+
+ integer, dimension(ndirect) :: ind_snd, ind_rcv
+ real, dimension(:,:), allocatable :: buffer_snd, buffer_rcv
+ integer :: use_comm, use_ierr
+ logical :: transfer
+
+contains
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_init(comm)
+
+! Point 1 of MPI smart application
+
+! Initialization of exchage buffers and other exchange service variables
+
+integer, intent(in) :: comm
+
+#ifdef mpi
+
+ use_comm = comm
+ ind_snd(:) = 0
+ ind_rcv(:) = 0
+ transfer = .false.
+
+ if (.not.allocated(buffer_snd)) then
+   allocate( buffer_snd( u_ghost_bufsiz, ndirect) )
+ endif
+
+ if (.not.allocated(buffer_rcv)) then
+   allocate( buffer_rcv( u_ghost_bufsiz, ndirect) )
+ endif
+
+#endif
+
+end subroutine u_ghost_init
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_put_2d(array, idirect)
+
+! Point 2 of MPI smart application for 2d array
+
+! Memorisation of outgoing boundaries of multiple fields in the single change buffer
+
+! idirect - index of exchage direction: 
+! 1 - send to north, recieve from south,
+! 2 - send to east, recieve from west,
+! 3 - send to south, recieve from north,
+! 4 - send to west, recieve from east,
+! 5 - send and recieve across the poles in the case of Globo (global domain).
+integer, intent(in) :: idirect
+real, dimension(:,:), intent(in) :: array
+
+integer ::  npoint_buff, ip_snd=-1, ip_rcv=-1
+
+#ifdef mpi
+
+ if (idirect == 1) then
+   ip_snd=ip_n
+   ip_rcv=ip_s
+ endif
+ if (idirect == 2) then
+   ip_snd=ip_e
+   ip_rcv=ip_w
+ endif
+ if (idirect == 3) then
+   ip_snd=ip_s
+   ip_rcv=ip_n
+ endif
+ if (idirect == 4) then
+   ip_snd=ip_w
+   ip_rcv=ip_e
+ endif
+ if (idirect == 5) then
+   ip_snd=ip_oppo
+   ip_rcv=ip_oppo
+ endif
+
+ npoint_buff = size(array)
+
+ if (ip_snd /= ip_null) then
+  buffer_snd(ind_snd(idirect)+1:ind_snd(idirect)+npoint_buff, idirect) = reshape(array, (/npoint_buff/))
+  ind_snd(idirect) = ind_snd(idirect) + npoint_buff
+ endif
+
+ if (ip_rcv /= ip_null) then
+   ind_rcv(idirect) = ind_rcv(idirect) + npoint_buff
+ endif
+
+#endif
+
+end subroutine u_ghost_put_2d
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_put_1d(array, idirect)
+
+! Point 2 of MPI smart application for 1d array
+
+! Memorisation of outgoing boundaries of multiple fields in the single change buffer
+
+! idirect - index of exchage direction: 
+! 1 - send to north, recieve from south,
+! 2 - send to east, recieve from west,
+! 3 - send to south, recieve from north,
+! 4 - send to west, recieve from east,
+! 5 - send and recieve across the poles in the case of Globo (global domain).
+integer, intent(in) :: idirect
+real, dimension(:), intent(in) :: array
+
+integer :: npoint_buff, ip_snd=-1, ip_rcv=-1
+
+#ifdef mpi
+
+ if (idirect == 1) then
+   ip_snd=ip_n
+   ip_rcv=ip_s
+ endif
+ if (idirect == 2) then
+   ip_snd=ip_e
+   ip_rcv=ip_w
+ endif
+ if (idirect == 3) then
+   ip_snd=ip_s
+   ip_rcv=ip_n
+ endif
+ if (idirect == 4) then
+   ip_snd=ip_w
+   ip_rcv=ip_e
+ endif
+ if (idirect == 5) then
+   ip_snd=ip_oppo
+   ip_rcv=ip_oppo
+ endif
+
+ npoint_buff = size(array)
+
+ if (ip_snd /= ip_null) then
+  buffer_snd(ind_snd(idirect)+1:ind_snd(idirect)+npoint_buff, idirect) = array(1:npoint_buff)
+  ind_snd(idirect) = ind_snd(idirect) + npoint_buff
+ endif
+
+ if (ip_rcv /= ip_null) then
+   ind_rcv(idirect) = ind_rcv(idirect) + npoint_buff
+ endif
+
+#endif
+
+end subroutine u_ghost_put_1d
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_put_0d(zvalue, idirect)
+
+! Point 2 of MPI smart application for 0d array
+
+! Memorisation of outgoing boundaries of multiple fields in the single change buffer
+
+! idirect - index of exchage direction: 
+! 1 - send to north, recieve from south,
+! 2 - send to east, recieve from west,
+! 3 - send to south, recieve from north,
+! 4 - send to west, recieve from east,
+! 5 - send and recieve across the poles in the case of Globo (global domain).
+integer, intent(in) :: idirect
+real, intent(in) :: zvalue
+
+integer :: ip_snd=-1, ip_rcv=-1
+
+#ifdef mpi
+
+ if (idirect == 1) then
+   ip_snd=ip_n
+   ip_rcv=ip_s
+ endif
+ if (idirect == 2) then
+   ip_snd=ip_e
+   ip_rcv=ip_w
+ endif
+ if (idirect == 3) then
+   ip_snd=ip_s
+   ip_rcv=ip_n
+ endif
+ if (idirect == 4) then
+   ip_snd=ip_w
+   ip_rcv=ip_e
+ endif
+ if (idirect == 5) then
+   ip_snd=ip_oppo
+   ip_rcv=ip_oppo
+ endif
+
+ if (ip_snd /= ip_null) then
+  buffer_snd(ind_snd(idirect)+1, idirect) = zvalue
+  ind_snd(idirect) = ind_snd(idirect) + 1
+ endif
+
+ if (ip_rcv /= ip_null) then
+   ind_rcv(idirect) = ind_rcv(idirect) + 1
+ endif
+
+#endif
+
+end subroutine u_ghost_put_0d
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_transfer
+
+! Point 3 of MPI smart application
+
+! Buffer data transfer: send-recieve of the single change buffer
+! for all defined directions
+
+integer, dimension(nrequest_tot) :: requests
+integer :: n_req
+
+ n_req = 0
+
+#ifdef mpi
+
+! Norh -> South transfer
+
+ if (ind_rcv(1) > 0) then
+  n_req = n_req + 1
+  call mpi_irecv (buffer_rcv(:,1), ind_rcv(1), mpi_real, ip_s, 1, use_comm, requests(n_req), use_ierr)
+ endif
+
+ if (ind_snd(1) > 0) then
+   n_req = n_req + 1
+   call mpi_isend (buffer_snd(:,1), ind_snd(1), mpi_real, ip_n, 1, use_comm, requests(n_req), use_ierr)
+ endif
+
+! Est -> West transfer
+
+ if (ind_rcv(2) > 0) then
+   n_req = n_req + 1
+   call mpi_irecv (buffer_rcv(:,2), ind_rcv(2), mpi_real, ip_w, 2, use_comm, requests(n_req), use_ierr)
+ endif
+
+ if (ind_snd(2) > 0) then
+   n_req = n_req + 1
+   call mpi_isend (buffer_snd(:,2), ind_snd(2), mpi_real, ip_e, 2, use_comm, requests(n_req), use_ierr)
+ endif
+
+! South -> North transfer
+
+ if (ind_rcv(3) > 0) then
+   n_req = n_req + 1
+   call mpi_irecv (buffer_rcv(:,3), ind_rcv(3), mpi_real, ip_n, 3, use_comm, requests(n_req), use_ierr)
+ endif
+
+ if (ind_snd(3) > 0) then
+   n_req = n_req + 1
+   call mpi_isend (buffer_snd(:,3), ind_snd(3), mpi_real, ip_s, 3, use_comm, requests(n_req), use_ierr)
+ endif
+
+! West -> East transfer
+
+ if (ind_rcv(4) > 0) then
+   n_req = n_req + 1
+   call mpi_irecv (buffer_rcv(:,4), ind_rcv(4), mpi_real, ip_e, 4, use_comm, requests(n_req), use_ierr)
+ endif
+
+ if (ind_snd(4) > 0) then
+   n_req = n_req + 1
+   call mpi_isend(buffer_snd(:,4), ind_snd(4), mpi_real, ip_w, 4, use_comm, requests(n_req), use_ierr)
+ endif
+
+! Across the poles transfer
+
+ if (ind_rcv(5) > 0) then
+   n_req = n_req + 1
+   call mpi_irecv (buffer_rcv(:,5), ind_rcv(5), mpi_real, ip_oppo, 5, use_comm, requests(n_req), use_ierr)
+ endif
+
+ if (ind_snd(5) > 0) then
+   n_req = n_req + 1
+   call mpi_isend(buffer_snd(:,5), ind_snd(5), mpi_real, ip_oppo, 5, use_comm, requests(n_req), use_ierr)
+ endif
+
+! Waiting of all launched transfers
+
+ call mpi_waitall(n_req, requests, mpi_statuses_ignore, use_ierr)
+
+ transfer = .true.
+
+ ind_rcv(:) = 0
+
+#endif
+
+end subroutine u_ghost_transfer
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_get_2d(array, idirect)
+
+! Point 4 of MPI smart application for 2d array
+
+! Memorisation of received boundaries of multiple fields from the single change buffer
+
+! idirect - index of exchage direction: 
+! 1 - send to north, recieve from south,
+! 2 - send to east, recieve from west,
+! 3 - send to south, recieve from north,
+! 4 - send to west, recieve from east,
+! 5 - send and recieve across the poles in the case of Globo (global domain).
+integer, intent(in) ::  idirect
+real, dimension(:,:), intent(out) :: array
+
+integer :: npoint_buff, ip_rcv=-1
+
+#ifdef mpi
+
+ if (idirect == 1) ip_rcv=ip_s
+ if (idirect == 2) ip_rcv=ip_w
+ if (idirect == 3) ip_rcv=ip_n
+ if (idirect == 4) ip_rcv=ip_e
+ if (idirect == 5) ip_rcv=ip_oppo
+
+ if (.not.transfer) then
+   call u_ghost_transfer
+ endif
+
+ npoint_buff = size(array)
+
+ if (ip_rcv /= ip_null) then
+   array(:,:) = reshape(buffer_rcv(ind_rcv(idirect)+1:ind_rcv(idirect)+npoint_buff, idirect), shape(array))
+   ind_rcv(idirect) = ind_rcv(idirect) + npoint_buff
+ endif
+
+#endif
+
+end subroutine u_ghost_get_2d
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_get_1d(array, idirect)
+
+! Point 4 of MPI smart application for 1d array
+
+! Memorisation of received boundaries of multiple fields from the single change buffer
+
+! idirect - index of exchage direction: 
+! 1 - send to north, recieve from south,
+! 2 - send to east, recieve from west,
+! 3 - send to south, recieve from north,
+! 4 - send to west, recieve from east,
+! 5 - send and recieve across the poles in the case of Globo (global domain).
+integer, intent(in) ::  idirect
+real, dimension(:), intent(out) :: array
+
+integer :: npoint_buff, ip_rcv=-1
+
+#ifdef mpi
+
+ if (idirect == 1) ip_rcv=ip_s
+ if (idirect == 2) ip_rcv=ip_w
+ if (idirect == 3) ip_rcv=ip_n
+ if (idirect == 4) ip_rcv=ip_e
+ if (idirect == 5) ip_rcv=ip_oppo
+
+ if (.not.transfer) then
+   call u_ghost_transfer
+ endif
+
+ npoint_buff = size(array)
+
+ if (ip_rcv /= ip_null) then
+   array(:) = buffer_rcv(ind_rcv(idirect)+1:ind_rcv(idirect)+npoint_buff, idirect)
+   ind_rcv(idirect) = ind_rcv(idirect) + npoint_buff
+ endif
+
+#endif
+
+end subroutine u_ghost_get_1d
+
+!------------------------------------------------------------------------------
+
+subroutine u_ghost_get_0d(zvalue, idirect)
+
+! Point 4 of MPI smart application for 0d array
+
+! Memorisation of received boundaries of multiple fields from the single change buffer
+
+! idirect - index of exchage direction: 
+! 1 - send to north, recieve from south,
+! 2 - send to east, recieve from west,
+! 3 - send to south, recieve from north,
+! 4 - send to west, recieve from east,
+! 5 - send and recieve across the poles in the case of Globo (global domain).
+integer, intent(in) ::  idirect
+real, intent(out) :: zvalue
+
+integer :: ip_rcv=-1
+
+#ifdef mpi
+
+ if (idirect == 1) ip_rcv=ip_s
+ if (idirect == 2) ip_rcv=ip_w
+ if (idirect == 3) ip_rcv=ip_n
+ if (idirect == 4) ip_rcv=ip_e
+ if (idirect == 5) ip_rcv=ip_oppo
+
+ if (.not.transfer) then
+   call u_ghost_transfer
+ endif
+
+ if (ip_rcv /= ip_null) then
+   zvalue = buffer_rcv(ind_rcv(idirect)+1, idirect)
+   ind_rcv(idirect) = ind_rcv(idirect) + 1
+ endif
+
+#endif    ! ifdef mpi
+
+end subroutine u_ghost_get_0d
+
+!------------------------------------------------------------------------------
+
+end module u_ghost
+
+!##################################################################################################################
     program bolam
 
     use mod_model
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_put_1d, u_ghost_put_0d, &
+ u_ghost_get_2d, u_ghost_get_1d, u_ghost_get_0d
     use pochva_scheme, only : pochva
 
     implicit none
@@ -240,9 +724,12 @@
 
     integer      :: ierr, comm
     integer      :: iunit_inp=10, j, n, jadj, jstep, interv, jsday,                &
-                    stime1, stime2, countrate, jlon, jlat, jklev, jklev_ref=3, nyrc, nmonc, ndayc, nhouc, nminc,  &
+                    stime1, stime2, countrate, jlon, jlat, jklev, jklev_ref=3, &
+                    jstart, jend, &
+                    nyrc, nmonc, ndayc, nhouc, nminc,  &
                     nyrc1, nmonc1, ndayc1, nhouc1, nminc1, iday, ihou, imin, ndayr, ndayr1,          &
-                    jlo1, jlo2, jla1, jbl, imhf_copy
+                    jlo1, jlo2, jla1, jbl, imhf_copy, &
+                    idays, ihous, nsteps, nyrins, nmonins, ndayins, kout ! for s2s output
     real(4)      :: zubar, zvbar, zcz, zdtrdy, zpsav, zcoef, zgamma, zexp, zzpp, zpsb, zub, zvb, zdt, &
                     zalf, zalf2, zbet, zbet2, dtstep2, zdz, z, zhea, ztime, z1, z2, ztb, zqb,         &
                     zqcwb, zqcib, anu41, zesk, zqsat, zt0t, zqgleq, ddamp1, zrid, zalsn, zmin, zmax
@@ -250,13 +737,13 @@
     real(kind=8) :: zfac, zx0, zy0, zlatt, zlatv, zlont, zzlatt, zargt, zaarg, zxt, zdpi
     real(4), dimension(gnlat)     :: zfiltgt, zfiltgu, zfiltgv
     real(4), dimension(nlat)      :: zdtrdx
-    real(4), dimension(nlon,nlat) :: zu1, zv1
+    real(4), dimension(nlon,nlat) :: zu1, zv1, wkanu
     character(len=15) :: filesoil
     character(len=40) :: command
     character(len=30) :: str, name_file_mhf
     real         :: pd1, pd2, pd4, pd5, pd38, pd39
     integer      :: gnlonr, gnlatr
-    real         :: rrf
+    real         :: rrf, amf, zsum
     real(4), dimension(nlon,nlat) :: totpre_copy, conpre_copy, snfall_copy, &
                                      cswfl_copy, clwfl_copy, chflux_copy, cqflux_copy, cwvflux_copy, &
                                      cfl_heat_soil_bottom_copy, cfl_water_soil_bottom_copy, &
@@ -266,9 +753,9 @@
     real         :: zdlev, dlev_base=10., dlev_min=5.
     integer :: n_outpoint=0, i, k, flag_call_pochva=1
     integer, dimension(10) :: &
- i_outpoint=    (/ 14,   54,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1/), &
- j_outpoint=    (/ 49,   42,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1/), &
- iproc_outpoint=(/ 51,   23,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1/)
+ i_outpoint=    (/  8,   54,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1/), &
+ j_outpoint=    (/ 26,   42,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1/), &
+ iproc_outpoint=(/190,   23,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1/)
     character (len=30) :: file_outpoint
 ! <---
 
@@ -282,6 +769,7 @@
 
 #ifdef mpi
       comm = mpi_comm_world
+      use_comm = mpi_comm_world
       call mpi_init(ierr)
       if (ierr .ne. 0) then
         print *,'error starting mpi program.  terminating.'
@@ -365,6 +853,13 @@
       if (ip_oppo.gt.iprocs-1) ip_oppo = ip_oppo - iprocs
 
 #endif
+!--------------------------------------------------------------------------------------------------------
+    if (myid == 0) then
+      print *
+      print *,'    --- Bolam/Globo model Version 25.1.0 ---'
+      print *
+    endif
+!--------------------------------------------------------------------------------------------------------
 
 !--------------------------------------------------------------------------------------------------------
     if (myid == 0) then
@@ -383,6 +878,10 @@
     open (iunit_inp, file='bolam.inp', status='old')
     read (iunit_inp, model)
     close (iunit_inp)
+
+#ifdef s2s
+    nlclimate = .true.
+#endif
 
 #ifndef rad_ecmwf
     nradm = min(nradm, 1) ! No ECMWF radiation scheme
@@ -444,8 +943,6 @@
     iday  =  nfdr0(10)
     ihou  =  nfdr0(11)
     imin  =  nfdr0(12)
-
-    
 
     call calendar (nyrin, nmonin, ndayin, nhouin, nminin, iday, ihou, imin, &
                    nyrc, nmonc, ndayc, nhouc, nminc, ndayr)
@@ -552,23 +1049,66 @@
 !   enddo
 
 !******************************************************
-!  definition of vertical levels
+!  Definition of vertical levels:
+
+! P(k) = A(k) + B(k)*Ps;  A(k) = pzer*(sigma(k) - B(k))
+
+! sigint(nlev):   sigma at levels (integer)
+! sig(nlev+1) :   sigma at interfaces (half-levels)
+! dsig(nlev):     delta sigma (thickess of layer between two half-levels)
+! aka(nlev):      A(k) at levels (integer)
+! bika(nlev):     B(k) at levels (integer)
+! dbika(nlev):    delta bika on integer levels
+! akah(nlev+1):   A(k) at interfaces (half-levels)
+! bikah(nlev+1):  B(k) at interfaces (half-levels)
+! dbikah(nlev+1): dB/dsigma at half-levels (used to compute omega)
+
 !******************************************************
 
     pzer   = pdr0(36)
     alfa   = pdr0(37)
 
-    if (myid.eq.0) print*, 'Pzer =', pzer, 'alfa =', alfa
+#ifdef globo
+    vert_coord_c = pdr0(199)
+#endif
+
+    if (myid.eq.0) print*, 'Pzer =', pzer, 'alfa =', alfa,' Vert. coordinate param. c ',vert_coord_c
+
+! vert_coord_c is defined in preglobo to flatten hybrid levels above mountains in the stratosphere
+! vert_coord_c = 0. for limited area bolam
 
     sig(1) = 0.
     do jklev = 2, nlevp1
-    sig(jklev) = pdr0(38+jklev)
+      sig(jklev) = pdr0(38+jklev)
     enddo
+
     do jklev =1, nlev
-    dsig(jklev)    = sig(jklev+1)-sig(jklev)
-    sigint(jklev)  = .5*(sig(jklev+1)+sig(jklev))
-    sigalf(jklev)  = sigint(jklev)**3 * (1.+alfa*(1.-sigint(jklev))*(2.-sigint(jklev)))
-    dsigalf(jklev) = dsig(jklev)*sigint(jklev)**2 * (3.+alfa*(6.-12.*sigint(jklev)+5.*sigint(jklev)**2))
+      dsig(jklev) = sig(jklev+1)-sig(jklev)
+      sigint(jklev) = 0.5*(sig(jklev+1)+sig(jklev))
+      sigalf(jklev) = sigint(jklev)**3 * (1.+alfa*(1.-sigint(jklev))*(2.-sigint(jklev)))
+      dsigalf(jklev) = dsig(jklev)*sigint(jklev)**2 * (3.+alfa*(6.-12.*sigint(jklev)+5.*sigint(jklev)**2))
+      bika(jklev) = max( sigint(jklev)**3 * (1.+alfa*(1.-sigint(jklev))*(2.-sigint(jklev))) - vert_coord_c*(1.-sigint(jklev)), 0.)
+      aka (jklev)  = pzer*(sigint(jklev) - bika(jklev))
+    enddo
+
+    akah(1) = 0.
+    bikah(1) = 0.
+    bikah(nlevp1) = 1.
+    do jklev = 2, nlev
+      bikah(jklev) = 0.5*(bika(jklev)+bika(jklev-1))
+      akah(jklev)  = pzer*(sig(jklev) - bikah(jklev))
+    enddo
+
+    dbikah(1) = 0.
+    dbikah(nlevp1) = 1.
+    do jklev = 2, nlev
+      dbikah(jklev) = ( ( bikah(jklev+1)-bikah(jklev))*(sig(jklev)-sig(jklev-1))**2 +                      &
+                     (bikah(jklev)-bikah(jklev-1))*(sig(jklev+1)-sig(jklev))**2 ) /                    &
+                   ( (sig(jklev+1)-sig(jklev))*(sig(jklev)-sig(jklev-1))*(sig(jklev+1)-sig(jklev-1)) )
+    enddo
+
+    do jklev =1, nlev
+      dbika(jklev) = bikah(jklev+1) - bikah(jklev)
     enddo
 
 !  definition of cloud water/ice for the initial condition
@@ -660,8 +1200,26 @@
     pdrb(37) = alfa
 #endif
 
+#ifdef s2s
+      nsteps = nstep
+      nfdrs = nfdr
+      nfdrs( 2) = 240   ! nx
+      nfdrs( 3) = 121   ! ny
+      nfdrs(18) = ntswshf
+
+      nfdrs2 = nfdr
+      nfdrs2( 2) = gnlon-2   ! nx
+      nfdrs2(18) = ntswshf
+
+      pdrs(:) = pdr(:)
+      pdrs(1) = -1.5
+      pdrs(2) = 1.5
+      pdrs(4) = 90.-pdrs(1)*0.5
+      pdrs(5) = 0.
+#endif
+
 !***********************************************************************
-!  initializations
+!  Initializations
 !***********************************************************************
 
     alp0   = log(1.e5)
@@ -676,6 +1234,48 @@
     do jklev = 2, nlevg
       d(jklev)=2.*(lev_soil(jklev)-lev_soil(jklev-1))-d(jklev-1)
     enddo
+
+#ifdef s2s
+! s2s for soil output avaraged on 20 and 100 cm layers
+
+ do kout = 1, nlayer_soil_out
+
+    zsum=0.
+
+    do jklev=1,nlevg
+      if (lev_soil(jklev) > depth_soil_out(kout)) exit
+    enddo
+    klast(kout) = jklev-1
+
+    weight(0,kout)=1./depth_soil_out(kout)*lev_soil(1)*0.5
+    zsum=zsum+weight(0,kout)
+
+    if (klast(kout) >= 2) then
+
+      weight(1,kout)=1./depth_soil_out(kout)*(lev_soil(1)*0.5+(lev_soil(2)-lev_soil(1))*0.5)
+      zsum=zsum+weight(1,kout)
+
+      do jklev=2,klast(kout)-1
+        weight(jklev,kout)=1./depth_soil_out(kout)*((lev_soil(jklev)-lev_soil(jklev-1.))*0.5+ &
+(lev_soil(jklev+1)-lev_soil(jklev))*0.5)
+        zsum=zsum+weight(jklev,kout)
+      enddo
+
+      weight(klast(kout),kout)=1./depth_soil_out(kout)*((lev_soil(klast(kout))-lev_soil(klast(kout)-1.)) &
+*0.5+(depth_soil_out(kout)-lev_soil(jklev)))
+      zsum=zsum+weight(klast(kout),kout)
+
+    else
+
+      weight(1,kout)=1./depth_soil_out(kout)*(lev_soil(1)*0.5+(depth_soil_out(kout)-lev_soil(1)))
+      zsum=zsum+weight(1,kout)
+
+    endif
+
+!!!   print *,zsum    ; somma pesi, deve essere = 1
+ enddo
+
+#endif ! s2s
 
     if (.not.nlrst) then
 
@@ -717,90 +1317,6 @@
       ind_lev_soil_w_bottom(jlon,jlat) = 0
     endif
 
-!    snow(jlon,jlat) = snow(jlon,jlat)*1.e3 ! m of equiv. water ---> kg/m/m
-!
-!    if (fmask(jlon,jlat) < 0.5.and.int(suolo(jlon,jlat,1)) == nst-1) then
-!! glacier
-!      snow(jlon,jlat) = max (50., snow(jlon,jlat)) ! snow (kg/m/m)
-!    endif
-!
-!    if (fmask(jlon,jlat) >= 0.5.and.fice(jlon,jlat) >= 0.8) then
-!! sea ice
-!      snow(jlon,jlat) = max (50., snow(jlon,jlat)) ! snow (kg/m/m)
-!    endif
-!
-!    snow_lev(jlon,jlat,:) = valmiss
-!    snow_t(jlon,jlat,:) = valmiss
-!    snow_fice(jlon,jlat,:) = valmiss
-!    snow_age(jlon,jlat,:) = valmiss
-!    snow_melt_age(jlon,jlat,:) = valmiss
-!    snow_dens(jlon,jlat,:) = valmiss
-!
-!    if (snow(jlon,jlat) > 0.) then
-!      tskin(jlon,jlat) = min(tskin(jlon,jlat), tzer-0.1)
-!      zdlev=dlev_base
-!      do while (.true.)
-!        if (zdlev*float(nlev_snow-1) >= snow(jlon,jlat)) exit
-!        zdlev=zdlev+dlev_base
-!      enddo
-!      snow_lev(jlon,jlat,1)=0.
-!      if (snow(jlon,jlat) >= zdlev+dlev_min) THEN
-!        n=int(snow(jlon,jlat)/zdlev)+1
-!        if (snow(jlon,jlat)-zdlev*float(n-1) >= dlev_min) n=n+1
-!        do jklev=2,n
-!          snow_lev(jlon,jlat,jklev)=snow(jlon,jlat)-float(n-jklev)*zdlev
-!        enddo
-!        n=n-1
-!      else
-!        n=1
-!        snow_lev(jlon,jlat,2)=snow(jlon,jlat)
-!      endif
-!      snow_t(jlon,jlat,1) = tskin(jlon,jlat)
-!      if (n < 2) then
-!        snow_t(jlon,jlat,2) = min(tg(jlon,jlat,1), tzer-0.1)
-!      else
-!        snow_t(jlon,jlat,n+1) = min(tg(jlon,jlat,1), tzer-0.1)
-!        z1=1./float(n)
-!        do jklev=2,n
-!          snow_t(jlon,jlat,jklev) = snow_t(jlon,jlat,1)*(1.-z1*float(jklev-1)) + &
-! snow_t(jlon,jlat,n+1)*z1*float(jklev-1)
-!        enddo
-!      endif
-!      snow_fice(jlon,jlat,1:n+1) = 1.
-!      snow_age(jlon,jlat,1:n+1) = 10.
-!      snow_melt_age(jlon,jlat,1:n+1) = 0.
-!    endif
-!
-!    if (fmask(jlon,jlat) < 0.5.or.fice(jlon,jlat) >= 0.8) then
-!! glacier
-!      if (int(suolo(jlon,jlat,1)) == nst-1) then
-!        do jklev = 1, nlevg
-!          tg(jlon,jlat,jklev) = min(tg(jlon,jlat,jklev), tzer-0.1)
-!        enddo
-!        snow_age(jlon,jlat,1:n+1) = 180. ! snow age (days)
-!        snow_melt_age(jlon,jlat,1:n+1) = 30. ! snow age (days)
-!!print *,' Glacier ',myid,jlon,jlat
-!      endif
-!! sea ice
-!      if (fmask(jlon,jlat) > 0.5) then
-!        psi_soil(jlon,jlat,:) = 2.2 ! thermal conductivity of ice
-!        snow_age(jlon,jlat,1:n+1) = 180. ! snow age (days)
-!        do jklev = 1, nlevg
-!          if (lev_soil(jklev) > iceth(jlon,jlat)) exit
-!        enddo
-!        ind_lev_soil_h_bottom(jlon,jlat) = max(jklev-1, 3)
-!        ind_lev_soil_w_bottom(jlon,jlat) = 0
-!        do jklev = 1, ind_lev_soil_h_bottom(jlon,jlat)
-!          tg(jlon,jlat,jklev) = min(tg(jlon,jlat,jklev), tzer-0.1)
-!        enddo
-!        albedo_soil_dry(jlon,jlat) = 0.4
-!        albedo_soil_wet(jlon,jlat) = 0.4
-!        albedo(jlon,jlat) = 0.4
-!      endif
-!    endif
-!
-!    snow(jlon,jlat) = snow(jlon,jlat)*1.e-3 ! kg/m/m ---> m of equiv. water
-
 ! <---
 
     enddo
@@ -824,6 +1340,8 @@
     trd_a     = 0.
     trd_c     = 0.
     totpre    = 0.     ! total rain+snow (kg/m2) accumulated between two checkpoints
+    totprec   = 0.
+    conprec   = 0.
     conpre    = 0.     ! convective rain+snow (kg/m2) accumulated between two checkpoints
     snfall    = 0.     ! snow fall (kg/m2 of equivalent water) accumulated between two checkpoints
     raicon    = 0.     ! rain (convective) in ntsrc timesteps (kg/m2)
@@ -939,9 +1457,27 @@
 
     tvirt = t*(1. +ep*q -qcw -qci -qrain -qsnow)
 
+! Definition of pressure at integer levels
+
+    do jklev = 1, nlev
+    do jlat = 1, nlat
+    do jlon = 1, nlon
+      p(jlon,jlat,jklev) = aka(jklev) + ps(jlon,jlat)*bika(jklev)
+    enddo
+    enddo
+    enddo
+
 !  Computation of geopotential
 
     call phicomp
+
+    do jklev = nlev, 2, -1
+    do jlat = 1, nlat
+    do jlon = 1, nlon
+    phih(jlon,jlat,jklev)=.5*(phi(jlon,jlat,jklev)+phi(jlon,jlat,jklev-1))
+    enddo
+    enddo
+    enddo
 
 !  definition of albedo, emisg1, emisg2
 
@@ -1089,6 +1625,12 @@
 
     endif ! .not.nlrst
 
+!  Initialization of climate partameters: sea ice and deep sea temperature
+
+    if (nlclimate) then
+      call climupd (infy, ndayr, nyrc, nmonc, 0)
+    endif
+
     call system_clock (stime1, countrate)  ! .....elapsed time
 
 !***********************************************************************
@@ -1136,7 +1678,15 @@
 !  divergence of horizontal motion, vertical velocity and tendency of ps is made in sub. diverg
 
 #ifdef mpi
-      call u_ghost (v(:,2,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_2d(v(:,2,:), 3)    ! send to south
+
+      call u_ghost_get_2d(v(:,nlat,:), 3) ! receive from north
+
+!      call u_ghost_old (v(:,2,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
+
       if (nprocsx.eq.1) then
 
 #ifdef globo
@@ -1145,7 +1695,14 @@
 #endif
 
       else
-        call u_ghost (u(nlonm1,:,:), ip_e, u(1,:,:), ip_w, nlat*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(u(nlonm1,:,:), 2) ! send to est
+ 
+        call u_ghost_get_2d(u(1,:,:), 2)      ! receive from west
+
+!        call u_ghost_old (u(nlonm1,:,:), ip_e, u(1,:,:), ip_w, nlat*nlev)
       endif
 #else
 #ifdef globo
@@ -1168,10 +1725,23 @@
 
 #ifdef mpi
 
-      call u_ghost (ps(:,2     ), ip_s, ps(:,nlat), ip_n, nlon)
-      call u_ghost (ps(:,nlatm1), ip_n, ps(:,1   ), ip_s, nlon)
-      call u_ghost (tvirt(:,nlatm1,:), ip_n, tvirt(:,1,:), ip_s, nlon*nlev)
-      call u_ghost (div1 (:,nlatm1,:), ip_n, div1 (:,1,:), ip_s, nlon*nlev)
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_1d(ps(:,2), 3)           ! send to south
+      call u_ghost_put_1d(ps(:,nlatm1), 1)      ! send to north
+      call u_ghost_put_2d(tvirt(:,nlatm1,:), 1) ! send to north
+      call u_ghost_put_2d(div1(:,nlatm1,:), 1)  ! send to north
+
+      call u_ghost_get_1d(ps(:,nlat), 3)        ! receive from north
+      call u_ghost_get_1d(ps(:,1), 1)           ! receive from south
+      call u_ghost_get_2d(tvirt(:,1,:), 1)      ! receive from south
+      call u_ghost_get_2d(div1(:,1,:), 1)       ! receive from south
+
+!      call u_ghost_old (ps(:,2     ), ip_s, ps(:,nlat), ip_n, nlon)
+!      call u_ghost_old (ps(:,nlatm1), ip_n, ps(:,1   ), ip_s, nlon)
+!      call u_ghost_old (tvirt(:,nlatm1,:), ip_n, tvirt(:,1,:), ip_s, nlon*nlev)
+!      call u_ghost_old (div1 (:,nlatm1,:), ip_n, div1 (:,1,:), ip_s, nlon*nlev)
+
       if (nprocsx.eq.1) then
 
 #ifdef globo
@@ -1184,10 +1754,23 @@
 #endif
 
       else
-        call u_ghost (ps(2     ,:), ip_w, ps(nlon,:), ip_e, nlat)
-        call u_ghost (ps(nlonm1,:), ip_e, ps(1   ,:), ip_w, nlat)
-        call u_ghost (tvirt(2,:,:), ip_w, tvirt(nlon,:,:), ip_e, nlat*nlev)
-        call u_ghost (div1 (2,:,:), ip_w, div1 (nlon,:,:), ip_e, nlat*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(ps(2,:), 4)         ! send to west
+        call u_ghost_put_1d(ps(nlonm1,:), 2)    ! send to est
+        call u_ghost_put_2d(tvirt(2,:,:), 4)    ! send to west
+        call u_ghost_put_2d(div1(2,:,:), 4)     ! send to west
+
+        call u_ghost_get_1d(ps(nlon,:), 4)      ! receive from east
+        call u_ghost_get_1d(ps(1,:), 2)         ! receive from west
+        call u_ghost_get_2d(tvirt(nlon,:,:), 4) ! receive from east
+        call u_ghost_get_2d(div1(nlon,:,:), 4)  ! receive from east
+
+!        call u_ghost_old (ps(2     ,:), ip_w, ps(nlon,:), ip_e, nlat)
+!        call u_ghost_old (ps(nlonm1,:), ip_e, ps(1   ,:), ip_w, nlat)
+!        call u_ghost_old (tvirt(2,:,:), ip_w, tvirt(nlon,:,:), ip_e, nlat*nlev)
+!        call u_ghost_old (div1 (2,:,:), ip_w, div1 (nlon,:,:), ip_e, nlat*nlev)
       endif
 #else
 #ifdef globo
@@ -1204,9 +1787,8 @@
 
     call phicomp
 
-!  backward integration of momentum equations
-!  divergence damping
-!  the Coriolis terms must be included here
+! Backward integration of momentum equations;
+! divergence damping (the Coriolis terms must be included here).
 
     do jklev = 1, nlev
     ddamp1 = (ddamp + (1.-ddamp)/float(jklev+2)-(1.-ddamp)/float(nlev+2))*.125*dy**2/dt ! sponge at the top of the atmosphere
@@ -1215,7 +1797,7 @@
     do jlon = 2, nlonm1
     zvbar = .25*(v(jlon,jlat,jklev)+v(jlon+1,jlat,jklev)+v(jlon,jlat+1,jklev)+v(jlon+1,jlat+1,jklev))
     zpsav = .5*(ps(jlon+1,jlat)+ps(jlon,jlat))
-    zcoef = .5*rd*(ps(jlon+1,jlat)-ps(jlon,jlat))*sigalf(jklev)/(pzer*sigint(jklev)-(pzer-zpsav)*sigalf(jklev))
+    zcoef = .5*rd*(ps(jlon+1,jlat)-ps(jlon,jlat))*bika(jklev)/(aka(jklev)+zpsav*bika(jklev))
     u(jlon,jlat,jklev) = u(jlon,jlat,jklev) - ( (tvirt(jlon,jlat,jklev)+tvirt(jlon+1,jlat,jklev))*zcoef &
                        + phi(jlon+1,jlat,jklev)-phi(jlon,jlat,jklev) )*zdtrdx(jlat)                     &
                        + .5*dt*(fcorio(jlon,jlat)+fcorio(jlon+1,jlat))*zvbar                            &
@@ -1231,7 +1813,7 @@
     do jlon = 2, nlonm1
     zubar = .25*(u(jlon,jlat,jklev)+u(jlon-1,jlat,jklev)+u(jlon,jlat-1,jklev)+u(jlon-1,jlat-1,jklev))
     zpsav = .5*(ps(jlon,jlat)+ps(jlon,jlat-1))
-    zcoef = .5*rd*(ps(jlon,jlat)-ps(jlon,jlat-1))*sigalf(jklev)/(pzer*sigint(jklev)-(pzer-zpsav)*sigalf(jklev))
+    zcoef = .5*rd*(ps(jlon,jlat)-ps(jlon,jlat-1))*bika(jklev)/(aka(jklev)+zpsav*bika(jklev))
     v(jlon,jlat,jklev) = v(jlon,jlat,jklev) - ( (tvirt(jlon,jlat,jklev)+tvirt(jlon,jlat-1,jklev))*zcoef &
                        + phi(jlon,jlat,jklev)-phi(jlon,jlat-1,jklev) )*zdtrdy                           &
                        - .5*dt*(fcorio(jlon,jlat)+fcorio(jlon,jlat-1))*zubar                            &
@@ -1273,6 +1855,16 @@
 
     call wafuv (dtstep)
 
+! Definition of pressure at integer levels
+
+    do jklev = 1, nlev
+    do jlat = 1, nlat
+    do jlon = 1, nlon
+      p(jlon,jlat,jklev) = aka(jklev) + ps(jlon,jlat)*bika(jklev)
+    enddo
+    enddo
+    enddo
+
 !***********************************************************************
 !  'Physics'
 !***********************************************************************
@@ -1280,14 +1872,13 @@
     do jklev = 1, ntop  ! max. relative humidity above and at ntop is set to .2
     do jlat = 1, nlat
     do jlon = 1, nlon
-    zzpp = pzer*sigint(jklev) - (pzer-ps(jlon,jlat))*sigalf(jklev)
     zt0t = tzer/t(jlon,jlat,jklev)
     if (t(jlon,jlat,jklev).ge.tzer) then
     zesk = ezer*exp(-ccw1*log(zt0t)+ccw2*(1.-zt0t))  !  partial pressure over water
     else
     zesk = ezer*exp(-cci1*log(zt0t)+cci2*(1.-zt0t))  !  partial pressure over ice
     endif
-    zqsat = zesk*eps/(zzpp+zesk*(eps-1.))
+    zqsat = zesk*eps/(p(jlon,jlat,jklev)+zesk*(eps-1.))
     q(jlon,jlat,jklev) = min (q(jlon,jlat,jklev), .2*zqsat)
     q(jlon,jlat,jklev) = max (q(jlon,jlat,jklev), 1.e-12)
     enddo
@@ -1315,42 +1906,6 @@
     enddo
 
 !---------------------------------
-!  Update albedo and emissivity
-!---------------------------------
-
-!!!    if (mod(jstep,6*ntsrc).eq.0) call surfradpar
-    if (mod(jstep,6*ntsrc) == 0) then
-      call surfradpar (fmask, fice, qg_surf, vegeta, qsoil_max, qsoil_min, &
- albedo_soil_dry, albedo_soil_wet, emiss1_soil_dry, emiss1_soil_wet, emiss2_soil_dry, emiss2_soil_wet, &
- fveg, albedo_veg, emiss1_veg, emiss2_veg, &
- nlon, nlat, nlevg, nvt, 1, albedo, emisg1, emisg2)
-    endif
- 
-
-!---------------------------------
-!  Update veget. fraction and LAI
-!---------------------------------
-
-#ifdef globo
-    if (mod(jstep,8*jsday).eq.0) then
-      call collect (alont, gfield)
-      call collect (alatt, gfield1)
-      if (myid == 0) then
-        print *
-        call veget_param_time_series(gnlon-2, gnlat, &
- gfield(1:gnlon-2,:), gfield1(1:gnlon-2,:), x0, y0, dlon, dlat, pdr0(5), pdr0(4)+dlat*0.5, 1, ndayr, &
- gfield2(1:gnlon-2,:), lai_max, gfield3(1:gnlon-2,:), valmiss)
-        gfield2(gnlon-1:gnlon,:) = gfield2(1:2,:)
-        gfield3(gnlon-1:gnlon,:) = gfield3(1:2,:)
-        print *
-      endif
-      call disperse (gfield2, lai)
-      call disperse (gfield3, fveg)
-    endif
-#endif
- 
-
-!---------------------------------
 !  large scale precipitation
 !---------------------------------
 
@@ -1359,6 +1914,7 @@
     call micro
 
     totpre  = totpre + rainls + snowls
+    totprec = totprec + rainls + snowls
     snfall  = snfall + snowls
     totpre_zoom  = totpre_zoom + rainls + snowls
     snfall_zoom  = snfall_zoom + snowls
@@ -1388,8 +1944,8 @@
 #else
       call radiat_init(rdecli0, reqtim0, ozon, aerosol, aerotot, &
    nyrc, nmonc, ndayc, nhouc, nminc, &
-   nlon, nlat, nlev, ntaer, sig, sigint, sigalf, pzer, dlat, dlon, &
-   alatt, alont, ps, tskin, t, phig(:,:)/g, infy, infx, myid)
+   nlon, nlat, nlev, ntaer, sig, sigint, dlat, dlon, alatt, alont, &
+   ps, tskin, p, t, phig(:,:)/g, infy, infx, myid)
 #endif
     endif
 
@@ -1460,9 +2016,20 @@
 #endif
 
       else
-        call u_ghost (corrdt(2,jlat,:), ip_w, corrdt(nlon,jlat,:), ip_e, nlev)
-        call u_ghost (corvis(2,jlat), ip_w, corvis(nlon,jlat), ip_e, 1)
-        call u_ghost (corirr(2,jlat), ip_w, corirr(nlon,jlat), ip_e, 1)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(corrdt(2,jlat,:), 4)    ! send to west
+        call u_ghost_put_0d(corvis(2,jlat), 4)      ! send to west
+        call u_ghost_put_0d(corirr(2,jlat), 4)      ! send to west
+
+        call u_ghost_get_1d(corrdt(nlon,jlat,:), 4) ! receive from est
+        call u_ghost_get_0d(corvis(nlon,jlat), 4)   ! receive from est
+        call u_ghost_get_0d(corirr(nlon,jlat), 4)   ! receive from est
+
+!        call u_ghost_old (corrdt(2,jlat,:), ip_w, corrdt(nlon,jlat,:), ip_e, nlev)
+!        call u_ghost_old (corvis(2,jlat), ip_w, corvis(nlon,jlat), ip_e, 1)
+!        call u_ghost_old (corirr(2,jlat), ip_w, corirr(nlon,jlat), ip_e, 1)
       endif
 #else
 #ifdef globo
@@ -1485,11 +2052,19 @@
 
 !  latitudinal interpolation
 
-#ifdef mpi
-      call u_ghost (corrdt(2:nlonm1,2,:), ip_s, corrdt(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
-      call u_ghost (corvis(2:nlonm1,2), ip_s, corvis(2:nlonm1,nlat), ip_n, nlon-2)
-      call u_ghost (corirr(2:nlonm1,2), ip_s, corirr(2:nlonm1,nlat), ip_n, nlon-2)
-#endif
+    call u_ghost_init(use_comm)
+
+    call u_ghost_put_2d(corrdt(2:nlonm1,2,:), 3)    ! send to south
+    call u_ghost_put_1d(corvis(2:nlonm1,2), 3)      ! send to south
+    call u_ghost_put_1d(corirr(2:nlonm1,2), 3)      ! send to south
+
+    call u_ghost_get_2d(corrdt(2:nlonm1,nlat,:), 3) ! receive from north
+    call u_ghost_get_1d(corvis(2:nlonm1,nlat), 3)   ! receive from north
+    call u_ghost_get_1d(corirr(2:nlonm1,nlat), 3)   ! receive from north
+
+!    call u_ghost_old (corrdt(2:nlonm1,2,:), ip_s, corrdt(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
+!    call u_ghost_old (corvis(2:nlonm1,2), ip_s, corvis(2:nlonm1,nlat), ip_n, nlon-2)
+!    call u_ghost_old (corirr(2:nlonm1,2), ip_s, corirr(2:nlonm1,nlat), ip_n, nlon-2)
 
     do jklev = 1, nlev
     do jlat = 3, nlatm1, 2
@@ -1608,9 +2183,24 @@
 
 #endif
 
+! Definition of 3-d filtering coefficients associated with conv. precip.
+! (the grid staggering is not considered in defining anu3d for filtering u and v).
+
+    amf = 1./(g*3200.)                  ! vert. decay coeff.
+    wkanu = 3.0*raicon*fmask/mradconv   ! filter amplitude
+    do jklev = 1, nlev
+    do jlat = 1, nlat
+    do jlon = 1, nlon
+    anu3d(jlon,jlat,jklev) = min (.8, wkanu(jlon,jlat)/(1. + (max (phih(jlon,jlat,jklev+1), 0.)*amf)**6))
+    enddo
+    enddo
+    enddo
+
     endif ! end of convection
 
     totpre  = totpre  + raicon + snocon
+    totprec = totprec + raicon + snocon
+    conprec = conprec + raicon + snocon
     conpre  = conpre  + raicon + snocon
     snfall  = snfall  + snocon
     totpre_zoom  = totpre_zoom  + raicon + snocon
@@ -1646,10 +2236,16 @@
 
     call tofd
 
-#ifdef mpi
-      call u_ghost (v(:,2,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
-      call u_ghost (u(nlonm1,:,:), ip_e, u(1,:,:), ip_w, nlat*nlev)
-#endif
+       call u_ghost_init(use_comm)
+
+       call u_ghost_put_2d(v(:,2,:), 3)      ! send to south
+       call u_ghost_put_2d(u(nlonm1,:,:), 2) ! send to est
+
+       call u_ghost_get_2d(v(:,nlat,:), 3)   ! receive from north
+       call u_ghost_get_2d(u(1,:,:), 2)      ! receive from west
+
+!    call u_ghost_old (v(:,2,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
+!    call u_ghost_old (u(nlonm1,:,:), ip_e, u(1,:,:), ip_w, nlat*nlev)
 
 !!!    call vdiff_old (dtstep)
     call surface_layer (dtstep, jstep)
@@ -1713,7 +2309,7 @@
 ! pochva --->
 
     h_lev_bottom(:,:) = (phi(:,:,nlev)-phig(:,:))/g
-    p_lev_bottom(:,:) = pzer*sigint(nlev) - (pzer-ps(:,:))*sigalf(nlev)
+    p_lev_bottom(:,:) = p(:,:,nlev)
     fl_rain(:,:) = (rainls+raicon/float(ntsrc))/dtstep
     fl_snow(:,:) = (snowls+snocon/float(ntsrc))/dtstep
 ! City Heat Island, urban vegetation index is 20 
@@ -1823,7 +2419,8 @@ endif
 !  if (isnan(snow(jlon,jlat))) print *,"*5 oshibka * snow ",jstep,snow(jlon,jlat),jlon,jlat,myid
 !  if (isnan(fsnow(jlon,jlat))) print *,"*5 oshibka * fsnow ",jstep,fsnow(jlon,jlat),jlon,jlat,myid
 !  if (isnan(v(jlon,jlat,nlev))) print *,"*5 oshibka * v ",jstep,v(jlon,jlat,nlev),jlon,jlat,myid
-!  if (isnan(t(jlon,jlat,nlev))) print *,"*5 oshibka * t ",jstep,t(jlon,jlat,nlev),jlon,jlat,myid
+!  if (isnan(t(jlon,jlat,nlev))) print *,"*5 oshibka * t ",jstep,t(jlon,jlat,nlev),jlon,jlat,myid, &
+! int(psi_soil(jlon,jlat,1)*10.),mask_soil(jlon,jlat),fmask(jlon,jlat)
 !  if (isnan(q(jlon,jlat,nlev))) print *,"*5 oshibka * q ",jstep,q(jlon,jlat,nlev),jlon,jlat,myid
 !  if (isnan(tke(jlon,jlat,nlev))) print *,"*5 oshibka * tke ",jstep,tke(jlon,jlat,nlev),jlon,jlat,myid
 !  if (isnan(u(jlon,jlat,nlev))) then
@@ -1916,8 +2513,16 @@ enddo
 !  cumulated fluxes and 2m min/max temperature
 !  incoming solar radiation is computed using albedo with snow (changes with tskin as in radint and radintec)
 
-    do jlat = 2, nlatm1
+   jstart = 2
+   jend = nlatm1
+#ifdef s2s
+     jstart = 1
+     jend = nlat
+#endif
+
+    do jlat = jstart, jend
     do jlon = 2, nlonm1
+
 !    if (tskin(jlon,jlat).lt.277.) then
 !    zalsn = alsn-.1 + .2*(277.-tskin(jlon,jlat))/14.
 !    zalsn = min (zalsn, alsn+.1)
@@ -1953,6 +2558,7 @@ enddo
     t2max(jlon,jlat) = max (t2max(jlon,jlat), t2(jlon,jlat))
     t2min_zoom(jlon,jlat) = min (t2min_zoom(jlon,jlat), t2(jlon,jlat))
     t2max_zoom(jlon,jlat) = max (t2max_zoom(jlon,jlat), t2(jlon,jlat))
+
     enddo
     enddo
 
@@ -2065,110 +2671,6 @@ enddo
       call defclt (qcwb2, qcib2, tb2, nlon, nlat, nlev, tzer, 2)
 
       call rdmhf_soil (interv, 0)
-
-     if (nlclimate) then
-!!      tg(:,:,nlevg) = tgclim(:,:)  ! uncomment here for long runs (with variable soil T)
-!!      qg(:,:,nlevg) = qgclim(:,:)  ! uncomment here for long runs (with variable soil T)
-        do jlat = 2, nlatm1
-        do jlon = 2, nlonm1
-          snow(jlon,jlat) = snow(jlon,jlat)*1.e3 ! m of equiv. water ---> kg/m/m
-          if (fmask(jlon,jlat) >= 0.5) then ! sea
-            if (fice(jlon,jlat) < 0.8.and.fice_rd(jlon,jlat) >= 0.8) then ! sea point becames "soil" because of sea ice increasing until the threshold value
-              mask_soil(jlon,jlat) = 1
-              psi_soil(jlon,jlat,:) = 2.2 ! thermal conductivity of ice
-              albedo_soil_dry(jlon,jlat)=0.70
-              albedo_soil_wet(jlon,jlat)=0.70
-              emiss1_soil_dry(jlon,jlat)=0.98
-              emiss1_soil_wet(jlon,jlat)=0.98
-              emiss2_soil_dry(jlon,jlat)=0.98
-              emiss2_soil_wet(jlon,jlat)=0.98
-              snow(jlon,jlat) = max (50., snow(jlon,jlat)) ! snow (kg/m/m)
-              snow_lev(jlon,jlat,:) = valmiss
-              snow_t(jlon,jlat,:) = valmiss
-              snow_fice(jlon,jlat,:) = valmiss
-              snow_age(jlon,jlat,:) = valmiss
-              snow_melt_age(jlon,jlat,:) = valmiss
-              snow_dens(jlon,jlat,:) = valmiss
-              fl_heat_soil_bottom(jlon,jlat) = 0.
-              fl_water_soil_bottom(jlon,jlat) = 0.
-              fl_runoff(jlon,jlat) = 0.
-              fl_runoff_tot(jlon,jlat) = 0.
-              tskin(jlon,jlat) = min(tskin(jlon,jlat), tzer-0.1)
-              zdlev=dlev_base
-              do while (.true.)
-                if (zdlev*float(nlev_snow-1) >= snow(jlon,jlat)) exit
-                zdlev=zdlev+dlev_base
-              enddo
-              snow_lev(jlon,jlat,1)=0.
-              if (snow(jlon,jlat) >= zdlev+dlev_min) then
-                n=int(snow(jlon,jlat)/zdlev)+1
-                if (snow(jlon,jlat)-zdlev*float(n-1) >= dlev_min) n=n+1
-                do jklev=2,n
-                  snow_lev(jlon,jlat,jklev)=snow(jlon,jlat)-float(n-jklev)*zdlev
-                enddo
-                n=n-1
-              else
-                n=1
-                snow_lev(jlon,jlat,2)=snow(jlon,jlat)
-              endif
-              snow_t(jlon,jlat,1) = tskin(jlon,jlat)
-              if (n < 2) then
-                snow_t(jlon,jlat,2) = min(tg(jlon,jlat,1), tzer-0.1)
-              else
-                snow_t(jlon,jlat,n+1) = min(tg(jlon,jlat,1), tzer-0.1)
-                z1=1./float(n)
-                do jklev=2,n
-                  snow_t(jlon,jlat,jklev) = snow_t(jlon,jlat,1)*(1.-z1*float(jklev-1)) + &
-         snow_t(jlon,jlat,n+1)*z1*float(jklev-1)
-                enddo
-              endif
-              snow_fice(jlon,jlat,1:n+1) = 1.
-              snow_age(jlon,jlat,1:n+1) = 180.
-              snow_melt_age(jlon,jlat,1:n+1) = 0.
-              do jklev = 1, nlevg
-                if (lev_soil(jklev) > iceth(jlon,jlat)) exit
-              enddo
-              ind_lev_soil_h_bottom(jlon,jlat) = max(jklev-1, 3)
-              ind_lev_soil_w_bottom(jlon,jlat) = 0
-              do jklev = 1, ind_lev_soil_h_bottom(jlon,jlat)
-                tg(jlon,jlat,jklev) = min(tg(jlon,jlat,jklev), tzer-0.1)
-              enddo
-            endif
-            if (fice(jlon,jlat) >= 0.8.and.fice_rd(jlon,jlat) < 0.8) then ! sea point returns to be "sea" because of sea ice decreasing under the threshold value
-              mask_soil(jlon,jlat) = 0
-              psi_soil(jlon,jlat,:) = 0.57 ! thermal conductivity of water
-              albedo_soil_dry(jlon,jlat)=0.07
-              albedo_soil_wet(jlon,jlat)=0.07
-              emiss1_soil_dry(jlon,jlat)=0.97
-              emiss1_soil_wet(jlon,jlat)=0.97
-              emiss2_soil_dry(jlon,jlat)=0.97
-              emiss2_soil_wet(jlon,jlat)=0.97
-              tskin(jlon,jlat) = tgclim(jlon,jlat)
-              tg(jlon,jlat,:) = tgclim(jlon,jlat)
-              snow(jlon,jlat) = 0.
-              snow_lev(jlon,jlat,:) = valmiss
-              snow_t(jlon,jlat,:) = valmiss
-              snow_fice(jlon,jlat,:) = valmiss
-              snow_age(jlon,jlat,:) = valmiss
-              snow_melt_age(jlon,jlat,:) = valmiss
-              snow_dens(jlon,jlat,:) = valmiss
-              fl_heat_soil_bottom(jlon,jlat) = 0.
-              fl_water_soil_bottom(jlon,jlat) = 0.
-              fl_runoff(jlon,jlat) = 0.
-              fl_runoff_tot(jlon,jlat) = 0.
-            endif
-          endif
-          if (mask_soil(jlon,jlat) == 0) then  ! over sea (excluding thick sea ice)
-            tg(jlon,jlat,2:nlevg) = tgclim(jlon,jlat)
-          endif
-          snow(jlon,jlat) = snow(jlon,jlat)*1.e-3 ! kg/m/m ---> m of equiv. water
-        enddo
-        enddo
-        fice(:,:) = fice_rd(:,:)
-        iceth(:,:) = iceth_rd(:,:)
-        call collect (fice, gfield)
-        if (myid == 0) print *,'Updated fice, ',maxval(gfield),maxloc(gfield)
-       endif ! nlclimate
 
       endif ! read new boundary file
 
@@ -2372,6 +2874,172 @@ enddo
 
 #endif  ! ifndef globo
 
+!---------------------------------
+!  Update veget. fraction, veget. LAI,
+!         sea ice, deep sea temperature
+! (in the case of a long simulation)
+!---------------------------------
+
+  if (nlclimate) then
+
+    if (mod(ndayc,10) == 0.and.nhouc == 0.and.nminc <= 2.and.jstep < nstep) then
+
+! Update of vegetation parameters: LAI and fraction
+
+      call collect (alont, gfield)
+      call collect (alatt, gfield1)
+      if (myid == 0) then
+        print *
+        call veget_param_time_series(gnlon-2, gnlat, &
+ gfield(1:gnlon-2,:), gfield1(1:gnlon-2,:), x0, y0, dlon, dlat, pdr0(5), pdr0(4)+dlat*0.5, 1, ndayr, & 
+ gfield2(1:gnlon-2,:), lai_max, gfield3(1:gnlon-2,:), valmiss)
+        gfield2(gnlon-1:gnlon,:) = gfield2(1:2,:)
+        gfield3(gnlon-1:gnlon,:) = gfield3(1:2,:)
+        print *
+      endif
+      call disperse (gfield2, lai)
+      if (myid == 0) print *,'Updated LAI ',maxloc(gfield2)
+      call disperse (gfield3, fveg)
+      if (myid == 0) print *,'Updated Vegetation fraction ',maxloc(gfield3)
+
+    endif ! 1 time at 10 days
+
+    if (nhouc == 0.and.nminc <= 2.and.jstep < nstep) then
+
+!  Update of climate partameters: sea ice and deep sea temperature
+
+#ifdef globo
+      call climupd (infy, ndayr, nyrc, nmonc, 1)
+#endif
+
+      jstart = 2
+      jend = nlatm1
+
+#ifdef globo
+        if (mod(myid,nprocsy).eq.0) jstart = 1
+        if (mod(myid,nprocsy).eq.nprocsy-1) jend = nlat
+#endif
+
+      do jlat = jstart, jend
+      do jlon = 2, nlonm1
+        snow(jlon,jlat) = snow(jlon,jlat)*1.e3 ! m of equiv. water ---> kg/m/m
+        if (fmask(jlon,jlat) >= 0.5) then ! sea
+          if (fice(jlon,jlat) < 0.8.and.fice_rd(jlon,jlat) >= 0.8) then ! sea point becames "soil" because of sea ice increasing until the threshold value
+            mask_soil(jlon,jlat) = 1
+            psi_soil(jlon,jlat,:) = 2.2 ! thermal conductivity of ice
+            albedo_soil_dry(jlon,jlat)=0.70
+            albedo_soil_wet(jlon,jlat)=0.70
+            emiss1_soil_dry(jlon,jlat)=0.98
+            emiss1_soil_wet(jlon,jlat)=0.98
+            emiss2_soil_dry(jlon,jlat)=0.98
+            emiss2_soil_wet(jlon,jlat)=0.98
+            snow(jlon,jlat) = max (50., snow(jlon,jlat)) ! snow (kg/m/m)
+            snow_lev(jlon,jlat,:) = valmiss
+            snow_t(jlon,jlat,:) = valmiss
+            snow_fice(jlon,jlat,:) = valmiss
+            snow_age(jlon,jlat,:) = valmiss
+            snow_melt_age(jlon,jlat,:) = valmiss
+            snow_dens(jlon,jlat,:) = valmiss
+            fl_heat_soil_bottom(jlon,jlat) = 0.
+            fl_water_soil_bottom(jlon,jlat) = 0.
+            fl_runoff(jlon,jlat) = 0.
+            fl_runoff_tot(jlon,jlat) = 0.
+            tskin(jlon,jlat) = min(tskin(jlon,jlat), tzer-0.1)
+            zdlev=dlev_base
+            do while (.true.)
+              if (zdlev*float(nlev_snow-1) >= snow(jlon,jlat)) exit
+              zdlev=zdlev+dlev_base
+            enddo
+            snow_lev(jlon,jlat,1)=0.
+            if (snow(jlon,jlat) >= zdlev+dlev_min) then
+              n=int(snow(jlon,jlat)/zdlev)+1
+              if (snow(jlon,jlat)-zdlev*float(n-1) >= dlev_min) n=n+1
+              do jklev=2,n
+                snow_lev(jlon,jlat,jklev)=snow(jlon,jlat)-float(n-jklev)*zdlev
+              enddo
+              n=n-1
+            else
+              n=1
+              snow_lev(jlon,jlat,2)=snow(jlon,jlat)
+            endif
+            snow_t(jlon,jlat,1) = tskin(jlon,jlat)
+            if (n < 2) then
+              snow_t(jlon,jlat,2) = min(tg(jlon,jlat,1), tzer-0.1)
+            else
+              snow_t(jlon,jlat,n+1) = min(tg(jlon,jlat,1), tzer-0.1)
+              z1=1./float(n)
+              do jklev=2,n
+                snow_t(jlon,jlat,jklev) = snow_t(jlon,jlat,1)*(1.-z1*float(jklev-1)) + &
+       snow_t(jlon,jlat,n+1)*z1*float(jklev-1)
+              enddo
+            endif
+            snow_fice(jlon,jlat,1:n+1) = 1.
+            snow_age(jlon,jlat,1:n+1) = 180.
+            snow_melt_age(jlon,jlat,1:n+1) = 0.
+            do jklev = 1, nlevg
+              if (lev_soil(jklev) > iceth(jlon,jlat)) exit
+            enddo
+            ind_lev_soil_h_bottom(jlon,jlat) = max(jklev-1, 3)
+            ind_lev_soil_w_bottom(jlon,jlat) = 0
+            do jklev = 1, ind_lev_soil_h_bottom(jlon,jlat)
+              tg(jlon,jlat,jklev) = min(tg(jlon,jlat,jklev), tzer-0.1)
+            enddo
+          endif
+          if (fice(jlon,jlat) >= 0.8.and.fice_rd(jlon,jlat) < 0.8) then ! sea point returns to be "sea" because of sea ice decreasing under the threshold value
+            mask_soil(jlon,jlat) = 0
+            psi_soil(jlon,jlat,:) = 0.57 ! thermal conductivity of water
+            albedo_soil_dry(jlon,jlat)=0.07
+            albedo_soil_wet(jlon,jlat)=0.07
+            emiss1_soil_dry(jlon,jlat)=0.97
+            emiss1_soil_wet(jlon,jlat)=0.97
+            emiss2_soil_dry(jlon,jlat)=0.97
+            emiss2_soil_wet(jlon,jlat)=0.97
+            tskin(jlon,jlat) = tgclim(jlon,jlat)
+            tg(jlon,jlat,:) = tgclim(jlon,jlat)
+            snow(jlon,jlat) = 0.
+            snow_lev(jlon,jlat,:) = valmiss
+            snow_t(jlon,jlat,:) = valmiss
+            snow_fice(jlon,jlat,:) = valmiss
+            snow_age(jlon,jlat,:) = valmiss
+            snow_melt_age(jlon,jlat,:) = valmiss
+            snow_dens(jlon,jlat,:) = valmiss
+            fl_heat_soil_bottom(jlon,jlat) = 0.
+            fl_water_soil_bottom(jlon,jlat) = 0.
+            fl_runoff(jlon,jlat) = 0.
+            fl_runoff_tot(jlon,jlat) = 0.
+          endif
+        endif
+        if (mask_soil(jlon,jlat) == 0) then  ! over sea (excluding thick sea ice)
+          tg(jlon,jlat,2:nlevg) = tgclim(jlon,jlat)
+        endif
+        snow(jlon,jlat) = snow(jlon,jlat)*1.e-3 ! kg/m/m ---> m of equiv. water
+      enddo
+      enddo
+      fice(:,:) = fice_rd(:,:)
+      iceth(:,:) = iceth_rd(:,:)
+      call collect (fice, gfield)
+!      if (myid == 0) then
+!        print *
+!        print *,'Updated fice, ',maxval(gfield),maxloc(gfield)
+!        print *,'Updated tgclim in sea'
+!        print *
+!      endif
+
+    endif ! 1 time at 1 day
+
+  endif ! nlclimate
+
+!---------------------------------
+!  Update albedo and emissivity
+!---------------------------------
+
+    if (mod(jstep,6*ntsrc) == 0) then
+      call surfradpar (fmask, fice, qg_surf, vegeta, qsoil_max, qsoil_min, &
+ albedo_soil_dry, albedo_soil_wet, emiss1_soil_dry, emiss1_soil_wet, emiss2_soil_dry, emiss2_soil_wet, &
+ fveg, albedo_veg, emiss1_veg, emiss2_veg, &
+ nlon, nlat, nlevg, nvt, 1, albedo, emisg1, emisg2)
+    endif
+
 !***********************************************************************
 !  check point
 !***********************************************************************
@@ -2525,9 +3193,41 @@ enddo
     call ccloud
 
 #ifdef globo
+
+#ifndef s2s
+
     call wrshf_g(jstep) !  write SHF
-#else
+
+#else s2s
+
+        idays = iday
+        ihous = ihou
+
+        if (nlag) then ! members
+          ihous = ihous - 24 + nhouin
+          if (ihous < 0) then
+            idays = idays-1
+            ihous = ihous+24
+          endif
+          nfdrs(10) = idays
+          nfdrs(11) = ihous
+          nfdrs2(10:11) = nfdrs(10:11)
+          if (nint((jstep-1)*dtstep)/21600.lt.nint(jstep*dtstep)/21600.and.idays.ge.0) &
+ call wrshf_s2s (nhouc)
+        else ! control
+          nfdrs(10) = idays
+          nfdrs(11) = ihous
+          nfdrs2(10:11) = nfdrs(10:11)
+          if (nint((jstep-1)*dtstep)/21600.lt.nint(jstep*dtstep)/21600.or.jstep.eq.1) &
+ call wrshf_s2s (nhouc)
+        endif
+
+#endif no s2s
+
+#else ! no globo
+
     call wrshf_b(jstep) !  write SHF
+
 #endif
 
     endif
@@ -2571,33 +3271,29 @@ enddo
     subroutine phicomp
 
 ! Computes geopotential
+! The the hydrostatic equation using log (for zc1) is more accurate at high levels
 
     use mod_model
     implicit none
     integer jlon, jlat, jklev
-    real(4) zc1, zsigmed, zdsgalf, zsgalf
+    real(4) zc1
 
 !  phi is geop. at integer levels
 
-    zsigmed =.5*(1.+sigint(nlev))
-    zsgalf  = zsigmed**3 * (1.+alfa*(1.-zsigmed)*(2.-zsigmed))
-    zdsgalf = zsigmed**2 * (3.+alfa*(6.-12.*zsigmed+5.*zsigmed**2))
     do jlat = 1, nlat
     do jlon = 1, nlon
-    zc1 = ( pzer-(pzer-ps(jlon,jlat))*zdsgalf )/( pzer*zsigmed-(pzer-ps(jlon,jlat))*zsgalf )
-    phi(jlon,jlat,nlev) = phig(jlon,jlat) + rd*(1.-sigint(nlev))*zc1*tvirt(jlon,jlat,nlev)
+    zc1 = 2.*(ps(jlon,jlat)*(1.-bika(nlev))-aka(nlev))/(ps(jlon,jlat)*(1.+bika(nlev))+aka(nlev))
+    phi(jlon,jlat,nlev) = phig(jlon,jlat) + zc1*rd*tvirt(jlon,jlat,nlev)
     enddo
     enddo
 
     do jklev = nlev-1, 1, -1
-    zsigmed = .5*(sigint(jklev+1)+sigint(jklev))
-    zsgalf  = zsigmed**3 * (1.+alfa*(1.-zsigmed)*(2.-zsigmed))
-    zdsgalf = zsigmed**2 * (3.+alfa*(6.-12.*zsigmed+5.*zsigmed**2))
     do jlat = 1, nlat
     do jlon = 1, nlon
-    zc1 = ( pzer-(pzer-ps(jlon,jlat))*zdsgalf )/( pzer*zsigmed-(pzer-ps(jlon,jlat))*zsgalf )
-    phi(jlon,jlat,jklev) = phi(jlon,jlat,jklev+1) + .5*rd*(sigint(jklev+1)-sigint(jklev))*zc1* &
-                           (tvirt(jlon,jlat,jklev)+tvirt(jlon,jlat,jklev+1))
+!!    zc1 = (aka(jklev+1)-aka(jklev) + ps(jlon,jlat)*(bika(jklev+1)-bika(jklev)))/ &
+!!          (aka(jklev+1)+aka(jklev) + ps(jlon,jlat)*(bika(jklev+1)+bika(jklev)))
+    zc1 = .5*log ( (aka(jklev+1)+ps(jlon,jlat)*bika(jklev+1))/(aka(jklev)+ps(jlon,jlat)*bika(jklev)) )
+    phi(jlon,jlat,jklev) = phi(jlon,jlat,jklev+1) + zc1*rd*(tvirt(jlon,jlat,jklev)+tvirt(jlon,jlat,jklev+1))
     enddo
     enddo
     enddo
@@ -2659,12 +3355,14 @@ enddo
         endif
       enddo
 
+#ifndef globo
       if (nlclimate) then
         open (iunit_work, file=trim(file_work))
         write (iunit_work,*) nun+1
         print *,' ----- write ',nun+1,' in ',trim(file_work),'----'
         close (iunit_work)
       endif
+#endif
 
     endif
 
@@ -3861,6 +4559,42 @@ end subroutine wr_param_const
     return
     end subroutine wrec2_int
 !##################################################################################################################
+    subroutine wremap (kunit)
+ 
+    use mod_model, only : nfdrs, pdrs, gnlon, gnlat, gfield, dlon, dlat
+    implicit none
+    integer :: imap, jmap, jlon, jlat, i, j, j1, kunit
+    real, dimension(gnlon,gnlat) :: gremap, gremap_wr
+    real :: zx, zy, zzm, zzp, zrx, zry
+
+    imap = nfdrs(2)
+    jmap = nfdrs(3)
+ 
+    zrx = pdrs(2)/dlon
+    zry = abs(pdrs(1))/dlat
+
+    gfield(gnlon,:) = gfield(2,:)
+    gfield(1,:) = gfield(gnlon-1,:)
+ 
+    do j = 1, jmap
+    jlat = min (int((j-1)*zry)+1, gnlat-1)
+    zy = (j-1)*zry-jlat+1
+    j1 = jmap-j+1
+    do i = 1, imap
+    jlon = int((i-1)*zrx)+1
+    zx = (i-1)*zrx-jlon+1
+    zzm = zx*gfield(jlon+1,jlat  ) + (1.-zx)*gfield(jlon,jlat  )
+    zzp = zx*gfield(jlon+1,jlat+1) + (1.-zx)*gfield(jlon,jlat+1)
+!    gremap(i,j) = zy*zzp + (1.-zy)*zzm
+    gremap(i,j1) = zy*zzp + (1.-zy)*zzm
+    enddo
+    enddo
+
+    write (kunit) gremap(1:imap,1:jmap)
+ 
+    return
+    end
+!#################################################################################################################
     subroutine wrec2_old (kunit, nlon, nlat, vect, ilon1, ilon2, jlat1, jlat2, flag_lon)
 
 ! Used by wrmhf_atm, wrmhf_soil, wrshf_b, wrshf_g
@@ -4139,12 +4873,12 @@ end subroutine wr_param_const
 !  Computation of omega/p (omeg)
 
     use mod_model, only : nlon, nlat, nlev, nlevp1, nlonm1, nlatm1, ip_null, ip_e, ip_n, ip_s, ip_w, nadj,  &
-                          ps, pst, u, v, omeg, sigdot, sig, sigint, hxt, hxv, dsig, dx, dy, pzer,           &
-                          div1, div2, alfa, sigalf, gnlon, myid, pi, a, dlon, dlat, nprocsx, nprocsy, cpole
+                          p, ps, pst, u, v, omeg, sigdot, sig, sigint, hxt, hxv, dsig, dx, dy, pzer,           &
+                          div1, div2, alfa, bika, gnlon, myid, pi, a, dlon, dlat, nprocsx, nprocsy, cpole
     implicit none
 
     integer :: jlon, jlat, jklev, kadj, jstart, jend, jpr, ierr, comm, tag1=1, tag2=2
-    real(4) zpbs, zpbn, zrdx, zhxvt, zhxvtn, zdpdsig, zzpp, zdiv(nlon,nlev), zom1(nlon,nlev)
+    real(4) zpbs, zpbn, zrdx, zhxvt, zhxvtn, zdpdsig, zdiv(nlon,nlev), zom1(nlon,nlev)
     real(4) zsgalf, zdsgalf, zdvint(nlon,nlevp1), zpbx(nlon), zpby(nlon), zpbyn(nlon), zzz(nlev)
 
 #ifdef mpi
@@ -4273,7 +5007,7 @@ end subroutine wr_param_const
     if (ip_n.eq.ip_null) jend = nlat
 #endif
 
-    do 20 jlat = jstart, jend
+    do jlat = jstart, jend
 
     do jklev = 1, nlev
     zdsgalf = sigint(jklev)**2 * (3.+alfa*(6.-12.*sigint(jklev)+5.*sigint(jklev)**2))
@@ -4301,13 +5035,12 @@ end subroutine wr_param_const
 
     do jklev = 1, nlev
     do jlon = 2, nlonm1
-    zzpp = pzer*sigint(jklev)-(pzer-ps(jlon,jlat))*sigalf(jklev)
-    omeg(jlon,jlat,jklev) = ( sigalf(jklev)*zom1(jlon,jklev) + zdvint(jlon,jklev+1) &
-                            + zdiv(jlon,jklev)*(sig(jklev+1)-sigint(jklev)) )/zzpp
+    omeg(jlon,jlat,jklev) = ( bika(jklev)*zom1(jlon,jklev) + zdvint(jlon,jklev+1) &
+                            + zdiv(jlon,jklev)*(sig(jklev+1)-sigint(jklev)) )/ p(jlon,jlat,jklev)
     enddo
     enddo
 
- 20 continue
+    enddo      ! end of loop on jlat
 
     return
     end subroutine diverg
@@ -4319,6 +5052,7 @@ end subroutine wr_param_const
     use mod_model, only : nlon, gnlon, nlat, nlev, nlevp1, nlonm1, nlatm1, u, v,                       &
                           sigdot, hxt, hst, hxv, dsig, snt, cst, pi, dx, dy, a, dlon, dlat, ut,        &
                           vt, nsweep, nprocsy, nprocsx, myid, ip_e, ip_n, ip_s, ip_w, ip_null, ip_oppo, denomin
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_put_1d, u_ghost_get_2d, u_ghost_get_1d
     implicit none
 
     real(4), dimension(nlon)               :: zpbw1, zpbw2
@@ -4364,8 +5098,17 @@ end subroutine wr_param_const
     u(nlon,:,:) = u(2,:,:)
 #ifdef mpi
       else
-        call u_ghost (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
-        call u_ghost (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(u(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(u(2,:,:), 4)      ! send to west
+
+        call u_ghost_get_2d(u(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(u(nlon,:,:), 4)   ! receive from east
+
+!        call u_ghost_old (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
+!        call u_ghost_old (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
       endif
 #endif
 
@@ -4383,7 +5126,14 @@ end subroutine wr_param_const
     zut(:) = u(nlon-2,:,jklev)
 #ifdef mpi
       else
-        call u_ghost (u(nlon-2,:,jklev), ip_e, zut, ip_w, nlat)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(u(nlon-2,:,jklev), 2) ! send to est
+
+        call u_ghost_get_1d(zut, 2)               ! receive from west
+
+!        call u_ghost_old (u(nlon-2,:,jklev), ip_e, zut, ip_w, nlat)
       endif
 #endif
     do jlat = 2, nlatm1
@@ -4393,17 +5143,31 @@ end subroutine wr_param_const
 
 #else ! no globo
 
-#ifdef mpi
-      call u_ghost (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
-      call u_ghost (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
-#endif
+    call u_ghost_init(use_comm)
+
+    call u_ghost_put_2d(u(2,:,:), 4)      ! send to west
+    call u_ghost_put_2d(u(nlonm1,:,:), 2) ! send to est
+
+    call u_ghost_get_2d(u(nlon,:,:), 4)   ! receive from east
+    call u_ghost_get_2d(u(1,:,:), 2)      ! receive from west
+
+!    call u_ghost_old (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
+!    call u_ghost_old (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
 
     do jlon = 3, nlonm1
     ut(jlon,:,:) = .5625*(u(jlon,:,:)+u(jlon-1,:,:)) -.0625*(u(jlon+1,:,:)+u(jlon-2,:,:))
     enddo
 
 #ifdef mpi
-      call u_ghost (u(nlon-2,:,:), ip_e, zutb, ip_w, nlat*nlev)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_2d(u(nlon-2,:,:), 2) ! send to est
+
+      call u_ghost_get_2d(zutb, 2)          ! receive from west
+
+!      call u_ghost_old (u(nlon-2,:,:), ip_e, zutb, ip_w, nlat*nlev)
+
       if (ip_w.eq.ip_null) then
 #endif
     ut(1,:,:) =  u(1,:,:)
@@ -4428,9 +5192,20 @@ end subroutine wr_param_const
 #ifdef globo
 
 #ifdef mpi
-      call u_ghost (v(2:nlonm1,nlatm1,:), ip_n, v  (2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
-      call u_ghost (v(2:nlonm1,2     ,:), ip_s, v  (2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
-      call u_ghost (v(2:nlonm1,3     ,:), ip_s, zvt(2:nlonm1,     :), ip_n, (nlon-2)*nlev)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_2d(v(2:nlonm1,nlatm1,:), 1) ! send to north
+      call u_ghost_put_2d(v(2:nlonm1,2,:), 3)      ! send to south
+      call u_ghost_put_2d(v(2:nlonm1,3,:), 3)      ! send to south
+
+      call u_ghost_get_2d(v(2:nlonm1,1,:), 1)      ! receive from south
+      call u_ghost_get_2d(v(2:nlonm1,nlat,:), 3)   ! receive from north
+      call u_ghost_get_2d(zvt(2:nlonm1,:), 3)      ! receive from north
+
+!      call u_ghost_old (v(2:nlonm1,nlatm1,:), ip_n, v  (2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
+!      call u_ghost_old (v(2:nlonm1,2     ,:), ip_s, v  (2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
+!      call u_ghost_old (v(2:nlonm1,3     ,:), ip_s, zvt(2:nlonm1,     :), ip_n, (nlon-2)*nlev)
 
       if (ip_s.eq.ip_null) then   ! row of processors including south pole
 
@@ -4444,7 +5219,11 @@ end subroutine wr_param_const
       enddo
 #ifdef mpi
         else
-          call u_ghost (-v(2:nlonm1,2,:), ip_oppo, v(2:nlonm1,1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(v(2:nlonm1,2,:), 5) ! send across the poles
+          call u_ghost_get_2d(v(2:nlonm1,1,:), 5) ! receive across the poles
+          v(2:nlonm1,1,:) = -v(2:nlonm1,1,:)
+!          call u_ghost_old (-v(2:nlonm1,2,:), ip_oppo, v(2:nlonm1,1,:), ip_oppo, (nlon-2)*nlev)
         endif
 #endif
 
@@ -4501,7 +5280,11 @@ end subroutine wr_param_const
       enddo
 #ifdef mpi
         else
-          call u_ghost (-v(2:nlonm1,nlat,:), ip_oppo, zvt(2:nlonm1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(v(2:nlonm1,nlat,:), 5) ! send across the poles
+          call u_ghost_get_2d(zvt(2:nlonm1,:), 5) ! receive across the poles
+          zvt(2:nlonm1,:) = -zvt(2:nlonm1,:)
+!          call u_ghost_old (-v(2:nlonm1,nlat,:), ip_oppo, zvt(2:nlonm1,:), ip_oppo, (nlon-2)*nlev)
         endif
 #endif
     zvi = 0.
@@ -4545,11 +5328,19 @@ end subroutine wr_param_const
 
 #else ! no globo
 
-#ifdef mpi
-      call u_ghost (v(:,nlatm1,:), ip_n, v(:,1   ,:), ip_s, nlon*nlev)
-      call u_ghost (v(:,2     ,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
-      call u_ghost (v(:,3     ,:), ip_s, zvt        , ip_n, nlon*nlev)
-#endif
+       call u_ghost_init(use_comm)
+
+       call u_ghost_put_2d(v(:,nlatm1,:), 1) ! send to north
+       call u_ghost_put_2d(v(:,2,:), 3)      ! send to south
+       call u_ghost_put_2d(v(:,3,:), 3)      ! send to south
+
+       call u_ghost_get_2d(v(:,1,:), 1)      ! receive from south
+       call u_ghost_get_2d(v(:,nlat,:), 3)   ! receive from north
+       call u_ghost_get_2d(zvt, 3)           ! receive from north
+
+!    call u_ghost_old (v(:,nlatm1,:), ip_n, v(:,1   ,:), ip_s, nlon*nlev)
+!    call u_ghost_old (v(:,2     ,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
+!    call u_ghost_old (v(:,3     ,:), ip_s, zvt        , ip_n, nlon*nlev)
 
     do jlat = 2, nlat-2
     vt(:,jlat,:) = .5625*(v(:,jlat+1,:)+v(:,jlat,:))-.0625*(v(:,jlat+2,:)+v(:,jlat-1,:))
@@ -4682,8 +5473,18 @@ end subroutine wr_param_const
     enddo
 #ifdef mpi
         else
-          call u_ghost (-wz1(2:nlonm1,2,:), ip_oppo, wz1(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
-          call u_ghost (-wz2(2:nlonm1,2,:), ip_oppo, wz2(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+
+          call u_ghost_put_2d(wz1(2:nlonm1,2,:), 5) ! send across the poles
+          call u_ghost_put_2d(wz2(2:nlonm1,2,:), 5) ! send across the poles
+
+          call u_ghost_get_2d(wz1(2:nlonm1,0,:), 5) ! receive across the poles
+          call u_ghost_get_2d(wz2(2:nlonm1,0,:), 5) ! receive across the poles
+          wz1(2:nlonm1,0,:) = -wz1(2:nlonm1,0,:)
+          wz2(2:nlonm1,0,:) = -wz2(2:nlonm1,0,:)
+
+!          call u_ghost_old (-wz1(2:nlonm1,2,:), ip_oppo, wz1(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
+!          call u_ghost_old (-wz2(2:nlonm1,2,:), ip_oppo, wz2(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -4700,8 +5501,18 @@ end subroutine wr_param_const
     enddo
 #ifdef mpi
         else
-          call u_ghost (-wz1(2:nlonm1,nlatm1,:), ip_oppo, wz1(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
-          call u_ghost (-wz2(2:nlonm1,nlatm1,:), ip_oppo, wz2(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+
+          call u_ghost_put_2d(wz1(2:nlonm1,nlatm1,:), 5) ! send across the poles
+          call u_ghost_put_2d(wz2(2:nlonm1,nlatm1,:), 5) ! send across the poles
+
+          call u_ghost_get_2d(wz1(2:nlonm1,nlat+1,:), 5) ! receive across the poles
+          call u_ghost_get_2d(wz2(2:nlonm1,nlat+1,:), 5) ! receive across the poles
+          wz1(2:nlonm1,nlat+1,:) = -wz1(2:nlonm1,nlat+1,:)
+          wz2(2:nlonm1,nlat+1,:) = -wz2(2:nlonm1,nlat+1,:)
+
+!          call u_ghost_old (-wz1(2:nlonm1,nlatm1,:), ip_oppo, wz1(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
+!          call u_ghost_old (-wz2(2:nlonm1,nlatm1,:), ip_oppo, wz2(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -4729,12 +5540,30 @@ end subroutine wr_param_const
 
 #endif ! globo
 
-#ifdef mpi
-      call u_ghost (wz1(2:nlonm1,2     :3     ,:), ip_s, wz1(2:nlonm1,nlat  :nlat+1,:), ip_n, 2*(nlon-2)*nlev)
-      call u_ghost (wz1(2:nlonm1,nlat-2:nlatm1,:), ip_n, wz1(2:nlonm1,0     :1     ,:), ip_s, 2*(nlon-2)*nlev)
-      call u_ghost (wz2(2:nlonm1,2     :3     ,:), ip_s, wz2(2:nlonm1,nlat  :nlat+1,:), ip_n, 2*(nlon-2)*nlev)
-      call u_ghost (wz2(2:nlonm1,nlat-2:nlatm1,:), ip_n, wz2(2:nlonm1,0     :1     ,:), ip_s, 2*(nlon-2)*nlev)
-#endif
+    call u_ghost_init(use_comm)
+
+    call u_ghost_put_2d(wz1(2:nlonm1,2,:), 3)      ! send to south
+    call u_ghost_put_2d(wz1(2:nlonm1,3,:), 3)      ! send to south
+    call u_ghost_put_2d(wz1(2:nlonm1,nlat-2,:), 1) ! send to north
+    call u_ghost_put_2d(wz1(2:nlonm1,nlatm1,:), 1) ! send to north
+    call u_ghost_put_2d(wz2(2:nlonm1,2,:), 3)      ! send to south
+    call u_ghost_put_2d(wz2(2:nlonm1,3,:), 3)      ! send to south
+    call u_ghost_put_2d(wz2(2:nlonm1,nlat-2,:), 1) ! send to north
+    call u_ghost_put_2d(wz2(2:nlonm1,nlatm1,:), 1) ! send to north
+
+    call u_ghost_get_2d(wz1(2:nlonm1,nlat,:), 3)   ! receive from north
+    call u_ghost_get_2d(wz1(2:nlonm1,nlat+1,:), 3) ! receive from north
+    call u_ghost_get_2d(wz1(2:nlonm1,0,:), 1)      ! receive from south
+    call u_ghost_get_2d(wz1(2:nlonm1,1,:), 1)      ! receive from south
+    call u_ghost_get_2d(wz2(2:nlonm1,nlat,:), 3)   ! receive from north
+    call u_ghost_get_2d(wz2(2:nlonm1,nlat+1,:), 3) ! receive from north
+    call u_ghost_get_2d(wz2(2:nlonm1,0,:), 1)      ! receive from south
+    call u_ghost_get_2d(wz2(2:nlonm1,1,:), 1)      ! receive from south
+
+!    call u_ghost_old (wz1(2:nlonm1,2     :3     ,:), ip_s, wz1(2:nlonm1,nlat  :nlat+1,:), ip_n, 2*(nlon-2)*nlev)
+!    call u_ghost_old (wz1(2:nlonm1,nlat-2:nlatm1,:), ip_n, wz1(2:nlonm1,0     :1     ,:), ip_s, 2*(nlon-2)*nlev)
+!    call u_ghost_old (wz2(2:nlonm1,2     :3     ,:), ip_s, wz2(2:nlonm1,nlat  :nlat+1,:), ip_n, 2*(nlon-2)*nlev)
+!    call u_ghost_old (wz2(2:nlonm1,nlat-2:nlatm1,:), ip_n, wz2(2:nlonm1,0     :1     ,:), ip_s, 2*(nlon-2)*nlev)
 
 !-----------------------
 !  Horizontal advections
@@ -4841,10 +5670,31 @@ end subroutine wr_param_const
 
 #ifdef mpi
       else
-        call u_ghost (p01(nlon-2:nlonm1,jlat,:), ip_e, p01(0:1        ,jlat,:), ip_w, 2*nlev)
-        call u_ghost (p01(2:3          ,jlat,:), ip_w, p01(nlon:nlon+1,jlat,:), ip_e, 2*nlev)
-        call u_ghost (p02(nlon-2:nlonm1,jlat,:), ip_e, p02(0:1        ,jlat,:), ip_w, 2*nlev)
-        call u_ghost (p02(2:3          ,jlat,:), ip_w, p02(nlon:nlon+1,jlat,:), ip_e, 2*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(p01(nlon-2,jlat,:), 2) ! send to est
+        call u_ghost_put_1d(p01(nlonm1,jlat,:), 2) ! send to est
+        call u_ghost_put_1d(p01(2,jlat,:), 4)      ! send to west
+        call u_ghost_put_1d(p01(3,jlat,:), 4)      ! send to west
+        call u_ghost_put_1d(p02(nlon-2,jlat,:), 2) ! send to est
+        call u_ghost_put_1d(p02(nlonm1,jlat,:), 2) ! send to est
+        call u_ghost_put_1d(p02(2,jlat,:), 4)      ! send to west
+        call u_ghost_put_1d(p02(3,jlat,:), 4)      ! send to west
+
+        call u_ghost_get_1d(p01(0,jlat,:), 2)      ! receive from west
+        call u_ghost_get_1d(p01(1,jlat,:), 2)      ! receive from west
+        call u_ghost_get_1d(p01(nlon,jlat,:), 4)   ! receive from east
+        call u_ghost_get_1d(p01(nlon+1,jlat,:), 4) ! receive from east
+        call u_ghost_get_1d(p02(0,jlat,:), 2)      ! receive from west
+        call u_ghost_get_1d(p02(1,jlat,:), 2)      ! receive from west
+        call u_ghost_get_1d(p02(nlon,jlat,:), 4)   ! receive from east
+        call u_ghost_get_1d(p02(nlon+1,jlat,:), 4) ! receive from east
+
+!        call u_ghost_old (p01(nlon-2:nlonm1,jlat,:), ip_e, p01(0:1        ,jlat,:), ip_w, 2*nlev)
+!        call u_ghost_old (p01(2:3          ,jlat,:), ip_w, p01(nlon:nlon+1,jlat,:), ip_e, 2*nlev)
+!        call u_ghost_old (p02(nlon-2:nlonm1,jlat,:), ip_e, p02(0:1        ,jlat,:), ip_w, 2*nlev)
+!        call u_ghost_old (p02(2:3          ,jlat,:), ip_w, p02(nlon:nlon+1,jlat,:), ip_e, 2*nlev)
       endif
 #endif
 
@@ -4920,8 +5770,19 @@ end subroutine wr_param_const
 
 #ifdef mpi
       else
-        call u_ghost (p01(nlonm1,2:nlatm1,:), ip_e, p01(1          ,2:nlatm1,:), ip_w,   (nlat-2)*nlev)
-        call u_ghost (p01(2:3   ,2:nlatm1,:), ip_w, p01(nlon:nlon+1,2:nlatm1,:), ip_e, 2*(nlat-2)*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(p01(nlonm1,2:nlatm1,:), 2) ! send to est
+        call u_ghost_put_2d(p01(2,2:nlatm1,:), 4)      ! send to west
+        call u_ghost_put_2d(p01(3,2:nlatm1,:), 4)      ! send to west
+
+        call u_ghost_get_2d(p01(1,2:nlatm1,:), 2)      ! receive from west
+        call u_ghost_get_2d(p01(nlon,2:nlatm1,:), 4)   ! receive from east
+        call u_ghost_get_2d(p01(nlon+1,2:nlatm1,:), 4)  ! receive from east
+
+!        call u_ghost_old (p01(nlonm1,2:nlatm1,:), ip_e, p01(1          ,2:nlatm1,:), ip_w,   (nlat-2)*nlev)
+!        call u_ghost_old (p01(2:3   ,2:nlatm1,:), ip_w, p01(nlon:nlon+1,2:nlatm1,:), ip_e, 2*(nlat-2)*nlev)
       endif
 #endif
 
@@ -4938,11 +5799,19 @@ end subroutine wr_param_const
 !  back to wind points: v (fourth order)
 !---------------------------------------
 
-#ifdef mpi
-      call u_ghost (p02(2:nlonm1,nlatm1,:), ip_n, p02(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
-      call u_ghost (p02(2:nlonm1,2     ,:), ip_s, p02(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
-      call u_ghost (p02(2:nlonm1,nlat-2,:), ip_n, zvt(2:nlonm1     ,:), ip_s, (nlon-2)*nlev)
-#endif
+    call u_ghost_init(use_comm)
+
+    call u_ghost_put_2d(p02(2:nlonm1,nlatm1,:), 1) ! send to north
+    call u_ghost_put_2d(p02(2:nlonm1,2,:), 3)      ! send to south
+    call u_ghost_put_2d(p02(2:nlonm1,nlat-2,:), 1) ! send to north
+
+    call u_ghost_get_2d(p02(2:nlonm1,1,:), 1)      ! receive from south
+    call u_ghost_get_2d(p02(2:nlonm1,nlat,:), 3)   ! receive from north
+    call u_ghost_get_2d(zvt(2:nlonm1,:), 1)        ! receive from south
+
+!    call u_ghost_old (p02(2:nlonm1,nlatm1,:), ip_n, p02(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
+!    call u_ghost_old (p02(2:nlonm1,2     ,:), ip_s, p02(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
+!    call u_ghost_old (p02(2:nlonm1,nlat-2,:), ip_n, zvt(2:nlonm1     ,:), ip_s, (nlon-2)*nlev)
 
 #ifdef globo
 
@@ -4962,7 +5831,11 @@ end subroutine wr_param_const
     enddo
 #ifdef mpi
         else
-          call u_ghost (-p02(2:nlonm1,2,:), ip_oppo, zvt(2:nlonm1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(p02(2:nlonm1,2,:), 5) ! send across the poles
+          call u_ghost_get_2d(zvt(2:nlonm1,:), 5)   ! receive across the poles
+          zvt(2:nlonm1,:) = -zvt(2:nlonm1,:)
+!          call u_ghost_old (-p02(2:nlonm1,2,:), ip_oppo, zvt(2:nlonm1,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -4983,7 +5856,11 @@ end subroutine wr_param_const
     enddo
 #ifdef mpi
         else
-          call u_ghost (-p02(2:nlonm1,nlatm1,:), ip_oppo, v(2:nlonm1,nlat,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(p02(2:nlonm1,nlatm1,:), 5) ! send across the poles
+          call u_ghost_get_2d(v(2:nlonm1,nlat,:), 5)     ! receive across the poles
+          v(2:nlonm1,nlat,:) = -v(2:nlonm1,nlat,:)
+!          call u_ghost_old (-p02(2:nlonm1,nlatm1,:), ip_oppo, v(2:nlonm1,nlat,:), ip_oppo, (nlon-2)*nlev)
         endif
 #endif
     v(2:nlonm1,nlat,:) = .5625*(p02(2:nlonm1,nlat,:)+p02(2:nlonm1,nlatm1,:)) &
@@ -5024,6 +5901,7 @@ end subroutine wr_param_const
 
     use mod_model, only : nlon, gnlon, nlat, nlev, nlevp1, nlonm1, nlatm1, u, v, sigdot, hxt, hxv, dsig, pi, &
             dx, dy, a, dlat, nprocsy, nprocsx, nsweep, myid, ip_e, ip_n, ip_s, ip_w, ip_null, ip_oppo, cpole, denomin
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_get_2d
 
     implicit none
     real(4), dimension(nlon,nlat,nlev)     :: var, dvarx
@@ -5146,10 +6024,21 @@ end subroutine wr_param_const
 #endif
 #endif
 
-#ifdef mpi
-      call u_ghost (wz(2:nlonm1,2     :3     ,:), ip_s, wz(2:nlonm1,nlat  :nlat+1,:), ip_n, 2*(nlon-2)*nlev)
-      call u_ghost (wz(2:nlonm1,nlat-2:nlatm1,:), ip_n, wz(2:nlonm1,0     :1     ,:), ip_s, 2*(nlon-2)*nlev)
-#endif
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_2d(wz(2:nlonm1,2,:), 3) ! send to south
+      call u_ghost_put_2d(wz(2:nlonm1,3     ,:), 3) ! send to south
+      call u_ghost_put_2d(wz(2:nlonm1,nlat-2,:), 1) ! send to north
+      call u_ghost_put_2d(wz(2:nlonm1,nlatm1,:), 1) ! send to north
+
+      call u_ghost_get_2d(wz(2:nlonm1,nlat,:), 3)   ! receive from north
+      call u_ghost_get_2d(wz(2:nlonm1,nlat+1,:), 3) ! receive from north
+      call u_ghost_get_2d(wz(2:nlonm1,0,:), 1)      ! receive from south
+      call u_ghost_get_2d(wz(2:nlonm1,1,:), 1)      ! receive from south
+
+!      call u_ghost_old (wz(2:nlonm1,2     :3     ,:), ip_s, wz(2:nlonm1,nlat  :nlat+1,:), ip_n, 2*(nlon-2)*nlev)
+!      call u_ghost_old (wz(2:nlonm1,nlat-2:nlatm1,:), ip_n, wz(2:nlonm1,0     :1     ,:), ip_s, 2*(nlon-2)*nlev)
 
 #ifdef globo
 
@@ -5166,7 +6055,10 @@ end subroutine wr_param_const
     enddo
 #ifdef mpi
         else
-          call u_ghost ( wz(2:nlonm1,2,:), ip_oppo, wz(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(wz(2:nlonm1,2,:), 5) ! send across the poles
+          call u_ghost_get_2d(wz(2:nlonm1,0,:), 5) ! receive across the poles
+!          call u_ghost_old ( wz(2:nlonm1,2,:), ip_oppo, wz(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -5182,7 +6074,10 @@ end subroutine wr_param_const
     enddo
 #ifdef mpi
         else
-          call u_ghost ( wz(2:nlonm1,nlatm1,:), ip_oppo, wz(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(wz(2:nlonm1,nlatm1,:), 5) ! send across the poles
+          call u_ghost_get_2d(wz(2:nlonm1,nlat+1,:), 5) ! receive across the poles
+!          call u_ghost_old ( wz(2:nlonm1,nlatm1,:), ip_oppo, wz(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -5322,8 +6217,21 @@ end subroutine wr_param_const
 
 #ifdef mpi
       else
-        call u_ghost (p0(nlon-2:nlonm1,:,:), ip_e, p0(0:1        ,:,:), ip_w, 2*nlat*nlev)
-        call u_ghost (p0(2:3          ,:,:), ip_w, p0(nlon:nlon+1,:,:), ip_e, 2*nlat*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(p0(nlon-2,:,:), 2) ! send to est
+        call u_ghost_put_2d(p0(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(p0(2,:,:), 4)      ! send to west
+        call u_ghost_put_2d(p0(3,:,:), 4)      ! send to west
+
+        call u_ghost_get_2d(p0(0,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(p0(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(p0(nlon,:,:), 4)   ! receive from east
+        call u_ghost_get_2d(p0(nlon+1,:,:), 4) ! receive from east
+
+!        call u_ghost_old (p0(nlon-2:nlonm1,:,:), ip_e, p0(0:1        ,:,:), ip_w, 2*nlat*nlev)
+!        call u_ghost_old (p0(2:3          ,:,:), ip_w, p0(nlon:nlon+1,:,:), ip_e, 2*nlat*nlev)
       endif
 #endif
 
@@ -5365,15 +6273,515 @@ end subroutine wr_param_const
     return
     end subroutine wafone
 !##################################################################################################################
+subroutine adv_ff_micro
+
+! Horizontal advection of hydrometeors in flux form (dispersive).
+! Backward-upstream scheme.
+
+use mod_model, only: nlon, nlat, nlev, nlonm1, nlatm1, ntop, ip_e, ip_n, ip_s, ip_w, u, v, pzer, &
+                         dx, dy, dtstep, qcw, qci, qrain, qsnow, qhail, hxt, hxv, ps, dbika, dsig,   &
+                         gnlon, cpole, ip_n, ip_s, ip_null, comm_row
+use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_get_2d
+implicit none
+
+real :: zdp, zdpmx, zdpmy, zdpds, zflux, zfluy, zfluxm, zfluym, zfluxp, zfluyp, zrden, zdppx, zdppy
+real, dimension(nlev) :: zc, zcg, zcw, zcwg, zci, zcig
+#ifdef mpi
+  include 'mpif.h'
+#endif
+integer :: jlon, jlat, jklev, itop, ierr
+
+    itop = nlev-ntop+1
+
+#ifdef mpi
+  call u_ghost_init(use_comm)
+
+  call u_ghost_put_2d(u(nlonm1,:,ntop:nlev), 2) ! send to est
+  call u_ghost_put_2d(v(:,2,ntop:nlev), 3)      ! send to south
+
+  call u_ghost_get_2d(u(1,:,ntop:nlev), 2)      ! receive from west
+  call u_ghost_get_2d(v(:,nlat,ntop:nlev), 3)   ! receive from north
+
+!  call u_ghost_old (u(nlonm1,:,ntop:nlev), ip_e, u(1   ,:,ntop:nlev), ip_w, nlat*itop)
+!  call u_ghost_old (v(:,2     ,ntop:nlev), ip_s, v(:,nlat,ntop:nlev), ip_n, nlon*itop)
+#endif
+
+#ifdef globo
+#ifdef mpi
+  if (ip_s.eq.ip_null) then  ! South Pole
+#endif
+    do jklev = ntop, nlev
+    zc (jklev) = 0.
+    zcw(jklev) = 0.
+    zci(jklev) = 0.
+    do jlon = 2, nlonm1
+    zdp = (pzer*dsig(jklev) - (pzer-ps(jlon,2))*dbika(jklev))/ &
+          (pzer*dsig(jklev) - (pzer-ps(jlon,1))*dbika(jklev))
+    zc (jklev) = zc (jklev) + max (v(jlon,2,jklev), 0.)*cpole*dtstep
+    zcw(jklev) = zcw(jklev) + min (v(jlon,2,jklev), 0.)*cpole*dtstep*qcw(jlon,2,jklev)*zdp
+    zci(jklev) = zci(jklev) + min (v(jlon,2,jklev), 0.)*cpole*dtstep*qci(jlon,2,jklev)*zdp
+    enddo
+    enddo
+
+#ifdef mpi
+  if (nlon.eq.gnlon) then
+#endif
+    zcg  = zc
+    zcwg = zcw
+    zcig = zci
+#ifdef mpi
+  else          !  global average and broadcast
+  call mpi_allreduce (zc (ntop:nlev), zcg (ntop:nlev), itop, mpi_real, mpi_sum, comm_row, ierr)
+  call mpi_allreduce (zcw(ntop:nlev), zcwg(ntop:nlev), itop, mpi_real, mpi_sum, comm_row, ierr)
+  call mpi_allreduce (zci(ntop:nlev), zcig(ntop:nlev), itop, mpi_real, mpi_sum, comm_row, ierr)
+  endif
+#endif
+
+    do jklev = ntop, nlev
+    do jlon = 2, nlonm1
+    qcw(jlon,1,jklev) = (qcw(jlon,1,jklev) - zcwg(jklev)) / (1. + zcg(jklev))
+    qci(jlon,1,jklev) = (qci(jlon,1,jklev) - zcig(jklev)) / (1. + zcg(jklev))
+    enddo
+    enddo
+#ifdef mpi
+  endif  ! SP
+#endif
+#endif
+
+#ifdef mpi
+  call u_ghost_init(use_comm)
+
+  call u_ghost_put_2d(qcw(nlonm1,:,ntop:nlev), 2) ! send to est
+  call u_ghost_put_2d(qcw(:,nlatm1,ntop:nlev), 1) ! send to north
+  call u_ghost_put_2d(qci(nlonm1,:,ntop:nlev), 2) ! send to est
+  call u_ghost_put_2d(qci(:,nlatm1,ntop:nlev), 1) ! send to north
+
+  call u_ghost_get_2d(qcw(1,:,ntop:nlev), 2)      ! receive from west
+  call u_ghost_get_2d(qcw(:,1,ntop:nlev), 1)      ! receive from south
+  call u_ghost_get_2d(qci(1,:,ntop:nlev), 2)      ! receive from west
+  call u_ghost_get_2d(qci(:,1,ntop:nlev), 1)      ! receive from south
+
+!  call u_ghost_old (qcw  (nlonm1,:,ntop:nlev), ip_e, qcw  (1,:,ntop:nlev), ip_w, nlat*itop)
+!  call u_ghost_old (qcw  (:,nlatm1,ntop:nlev), ip_n, qcw  (:,1,ntop:nlev), ip_s, nlon*itop)
+!  call u_ghost_old (qci  (nlonm1,:,ntop:nlev), ip_e, qci  (1,:,ntop:nlev), ip_w, nlat*itop)
+!  call u_ghost_old (qci  (:,nlatm1,ntop:nlev), ip_n, qci  (:,1,ntop:nlev), ip_s, nlon*itop)
+#endif
+
+#ifndef globo
+#ifdef mpi
+  call u_ghost_init(use_comm)
+
+  call u_ghost_put_2d(qrain(nlonm1,:,ntop:nlev), 2) ! send to est
+  call u_ghost_put_2d(qrain(:,nlatm1,ntop:nlev), 1) ! send to north
+  call u_ghost_put_2d(qsnow(nlonm1,:,ntop:nlev), 2) ! send to est
+  call u_ghost_put_2d(qsnow(:,nlatm1,ntop:nlev), 1) ! send to north
+  call u_ghost_put_2d(qhail(nlonm1,:,ntop:nlev), 2) ! send to est
+  call u_ghost_put_2d(qhail(:,nlatm1,ntop:nlev), 1) ! send to north
+
+  call u_ghost_get_2d(qrain(1,:,ntop:nlev), 2)      ! receive from west
+  call u_ghost_get_2d(qrain(:,1,ntop:nlev), 1)      ! receive from south
+  call u_ghost_get_2d(qsnow(1,:,ntop:nlev), 2)      ! receive from west
+  call u_ghost_get_2d(qsnow(:,1,ntop:nlev), 1)      ! receive from south
+  call u_ghost_get_2d(qhail(1,:,ntop:nlev), 2)      ! receive from west
+  call u_ghost_get_2d(qhail(:,1,ntop:nlev), 1)      ! receive from south
+
+!  call u_ghost_old (qrain(nlonm1,:,ntop:nlev), ip_e, qrain(1,:,ntop:nlev), ip_w, nlat*itop)
+!  call u_ghost_old (qrain(:,nlatm1,ntop:nlev), ip_n, qrain(:,1,ntop:nlev), ip_s, nlon*itop)
+!  call u_ghost_old (qsnow(nlonm1,:,ntop:nlev), ip_e, qsnow(1,:,ntop:nlev), ip_w, nlat*itop)
+!  call u_ghost_old (qsnow(:,nlatm1,ntop:nlev), ip_n, qsnow(:,1,ntop:nlev), ip_s, nlon*itop)
+!  call u_ghost_old (qhail(nlonm1,:,ntop:nlev), ip_e, qhail(1,:,ntop:nlev), ip_w, nlat*itop)
+!  call u_ghost_old (qhail(:,nlatm1,ntop:nlev), ip_n, qhail(:,1,ntop:nlev), ip_s, nlon*itop)
+#endif
+#endif
+
+    do jklev = ntop, nlev
+    do jlat = 2, nlatm1
+    do jlon = 2, nlonm1
+    zdp   = pzer*dsig(jklev) - (pzer-ps(jlon  ,jlat))*dbika(jklev)
+    zdpmx = pzer*dsig(jklev) - (pzer-ps(jlon-1,jlat))*dbika(jklev)
+    zdpmy = pzer*dsig(jklev) - (pzer-ps(jlon,jlat-1))*dbika(jklev)
+    zdpds = zdp*hxt(jlat)
+    zflux = zdp*dtstep*max(u(jlon,jlat,jklev),0.)/dx
+    zfluy = zdp*dtstep*hxv(jlat+1)*max(v(jlon,jlat+1,jklev),0.)/dy
+    zfluxm= zdpmx*dtstep*max(u(jlon-1,jlat,jklev),0.)/dx
+    zfluym= zdpmy*dtstep*hxv(jlat)*max(v(jlon,jlat,jklev),0.)/dy
+    zrden = 1./(zdpds + zflux + zfluy)
+
+    qcw(jlon,jlat,jklev) = (qcw(jlon,jlat,jklev)*zdpds + qcw(jlon,jlat-1,jklev)*zfluym + &
+                            qcw(jlon-1,jlat,jklev)*zfluxm)*zrden
+    qci(jlon,jlat,jklev) = (qci(jlon,jlat,jklev)*zdpds + qci(jlon,jlat-1,jklev)*zfluym + &
+                            qci(jlon-1,jlat,jklev)*zfluxm)*zrden
+
+#ifndef globo
+    qrain(jlon,jlat,jklev) = (qrain(jlon,jlat,jklev)*zdpds + qrain(jlon,jlat-1,jklev)*zfluym + &
+                              qrain(jlon-1,jlat,jklev)*zfluxm)*zrden
+    qsnow(jlon,jlat,jklev) = (qsnow(jlon,jlat,jklev)*zdpds + qsnow(jlon,jlat-1,jklev)*zfluym + &
+                              qsnow(jlon-1,jlat,jklev)*zfluxm)*zrden
+    qhail(jlon,jlat,jklev) = (qhail(jlon,jlat,jklev)*zdpds + qhail(jlon,jlat-1,jklev)*zfluym + &
+                              qhail(jlon-1,jlat,jklev)*zfluxm)*zrden
+#endif
+
+    enddo
+    enddo
+    enddo
+
+#ifdef globo
+#ifdef mpi
+  if (ip_n.eq.ip_null) then  ! North Pole
+#endif
+    do jklev = ntop, nlev
+    zc (jklev) = 0.
+    zcw(jklev) = 0.
+    zci(jklev) = 0.
+    do jlon = 2, nlonm1
+    zdp = (pzer*dsig(jklev) - (pzer-ps(jlon,nlatm1))*dbika(jklev))/ &
+          (pzer*dsig(jklev) - (pzer-ps(jlon,nlat))*dbika(jklev))
+    zc (jklev) = zc (jklev) + min (v(jlon,nlat,jklev), 0.)*cpole*dtstep
+    zcw(jklev) = zcw(jklev) + max (v(jlon,nlat,jklev), 0.)*cpole*dtstep*qcw(jlon,nlatm1,jklev)*zdp
+    zci(jklev) = zci(jklev) + max (v(jlon,nlat,jklev), 0.)*cpole*dtstep*qci(jlon,nlatm1,jklev)*zdp
+    enddo
+    enddo
+
+#ifdef mpi
+  if (nlon.eq.gnlon) then
+#endif
+    zcg  = zc
+    zcwg = zcw
+    zcig = zci
+#ifdef mpi
+  else          !  global average and broadcast
+  call mpi_allreduce (zc (ntop:nlev), zcg (ntop:nlev), itop, mpi_real, mpi_sum, comm_row, ierr)
+  call mpi_allreduce (zcw(ntop:nlev), zcwg(ntop:nlev), itop, mpi_real, mpi_sum, comm_row, ierr)
+  call mpi_allreduce (zci(ntop:nlev), zcig(ntop:nlev), itop, mpi_real, mpi_sum, comm_row, ierr)
+  endif
+#endif
+
+    do jklev = ntop, nlev
+    do jlon = 2, nlonm1
+    qcw(jlon,nlat,jklev) = (qcw(jlon,nlat,jklev) + zcwg(jklev)) / (1. - zcg(jklev))
+    qci(jlon,nlat,jklev) = (qci(jlon,nlat,jklev) + zcig(jklev)) / (1. - zcg(jklev))
+    enddo
+    enddo
+#ifdef mpi
+  endif  ! NP
+#endif
+#endif
+
+#ifdef mpi
+  call u_ghost_init(use_comm)
+
+  call u_ghost_put_2d(qcw(:,2,ntop:nlev), 3)      ! send to south
+  call u_ghost_put_2d(qcw(2,:,ntop:nlev), 4)      ! send to west
+  call u_ghost_put_2d(qci(:,2,ntop:nlev), 3)      ! send to south
+  call u_ghost_put_2d(qci(2,:,ntop:nlev), 4)      ! send to west
+
+  call u_ghost_get_2d(qcw(:,nlat,ntop:nlev), 3)   ! receive from north
+  call u_ghost_get_2d(qcw(nlon,:,ntop:nlev), 4)   ! receive from east
+  call u_ghost_get_2d(qci(:,nlat,ntop:nlev), 3)   ! receive from north
+  call u_ghost_get_2d(qci(nlon,:,ntop:nlev), 4)   ! receive from east
+
+!  call u_ghost_old (qcw(:,2,ntop:nlev), ip_s, qcw(:,nlat,ntop:nlev), ip_n, nlon*itop)
+!  call u_ghost_old (qcw(2,:,ntop:nlev), ip_w, qcw(nlon,:,ntop:nlev), ip_e, nlat*itop)
+!  call u_ghost_old (qci(:,2,ntop:nlev), ip_s, qci(:,nlat,ntop:nlev), ip_n, nlon*itop)
+!  call u_ghost_old (qci(2,:,ntop:nlev), ip_w, qci(nlon,:,ntop:nlev), ip_e, nlat*itop)
+#endif
+
+#ifndef globo
+#ifdef mpi
+  call u_ghost_init(use_comm)
+
+  call u_ghost_put_2d(qrain(:,2,ntop:nlev), 3)      ! send to south
+  call u_ghost_put_2d(qrain(2,:,ntop:nlev), 4)      ! send to west
+  call u_ghost_put_2d(qsnow(:,2,ntop:nlev), 3)      ! send to south
+  call u_ghost_put_2d(qsnow(2,:,ntop:nlev), 4)      ! send to west
+  call u_ghost_put_2d(qhail(:,2,ntop:nlev), 3)      ! send to south
+  call u_ghost_put_2d(qhail(2,:,ntop:nlev), 4)      ! send to west
+
+  call u_ghost_get_2d(qrain(:,nlat,ntop:nlev), 3)   ! receive from north
+  call u_ghost_get_2d(qrain(nlon,:,ntop:nlev), 4)   ! receive from east
+  call u_ghost_get_2d(qsnow(:,nlat,ntop:nlev), 3)   ! receive from north
+  call u_ghost_get_2d(qsnow(nlon,:,ntop:nlev), 4)   ! receive from east
+  call u_ghost_get_2d(qhail(:,nlat,ntop:nlev), 3)   ! receive from north
+  call u_ghost_get_2d(qhail(nlon,:,ntop:nlev), 4)   ! receive from east
+
+!  call u_ghost_old (qrain(:,2,ntop:nlev), ip_s, qrain(:,nlat,ntop:nlev), ip_n, nlon*itop)
+!  call u_ghost_old (qrain(2,:,ntop:nlev), ip_w, qrain(nlon,:,ntop:nlev), ip_e, nlat*itop)
+!  call u_ghost_old (qsnow(:,2,ntop:nlev), ip_s, qsnow(:,nlat,ntop:nlev), ip_n, nlon*itop)
+!  call u_ghost_old (qsnow(2,:,ntop:nlev), ip_w, qsnow(nlon,:,ntop:nlev), ip_e, nlat*itop)
+!  call u_ghost_old (qhail(:,2,ntop:nlev), ip_s, qhail(:,nlat,ntop:nlev), ip_n, nlon*itop)
+!  call u_ghost_old (qhail(2,:,ntop:nlev), ip_w, qhail(nlon,:,ntop:nlev), ip_e, nlat*itop)
+#endif
+#endif
+
+    do jklev = ntop, nlev
+    do jlat = nlatm1, 2, -1
+    do jlon = nlonm1, 2, -1
+    zdp   = pzer*dsig(jklev) - (pzer-ps(jlon  ,jlat))*dbika(jklev)
+    zdppx = pzer*dsig(jklev) - (pzer-ps(jlon+1,jlat))*dbika(jklev)
+    zdppy = pzer*dsig(jklev) - (pzer-ps(jlon,jlat+1))*dbika(jklev)
+    zdpds = zdp*hxt(jlat)
+    zflux = zdp*dtstep*min(u(jlon-1,jlat,jklev),0.)/dx
+    zfluy = zdp*dtstep*hxv(jlat)*min(v(jlon,jlat,jklev),0.)/dy
+    zfluxp= zdppx*dtstep*min(u(jlon,jlat,jklev),0.)/dx
+    zfluyp= zdppy*dtstep*hxv(jlat+1)*min(v(jlon,jlat+1,jklev),0.)/dy
+    zrden = 1./(zdpds - zflux - zfluy)
+
+    qcw(jlon,jlat,jklev) = (qcw(jlon,jlat,jklev)*zdpds - qcw(jlon,jlat+1,jklev)*zfluyp - &
+                            qcw(jlon+1,jlat,jklev)*zfluxp)*zrden
+    qci(jlon,jlat,jklev) = (qci(jlon,jlat,jklev)*zdpds - qci(jlon,jlat+1,jklev)*zfluyp - &
+                            qci(jlon+1,jlat,jklev)*zfluxp)*zrden
+
+#ifndef globo
+    qrain(jlon,jlat,jklev) = (qrain(jlon,jlat,jklev)*zdpds - qrain(jlon,jlat+1,jklev)*zfluyp - &
+                              qrain(jlon+1,jlat,jklev)*zfluxp)*zrden
+    qsnow(jlon,jlat,jklev) = (qsnow(jlon,jlat,jklev)*zdpds - qsnow(jlon,jlat+1,jklev)*zfluyp - &
+                              qsnow(jlon+1,jlat,jklev)*zfluxp)*zrden
+    qhail(jlon,jlat,jklev) = (qhail(jlon,jlat,jklev)*zdpds - qhail(jlon,jlat+1,jklev)*zfluyp - &
+                              qhail(jlon+1,jlat,jklev)*zfluxp)*zrden
+#endif
+
+    enddo
+    enddo
+    enddo
+
+return
+end subroutine adv_ff_micro
+!##################################################################################################################
+!    subroutine adv_ff_micro_globo_mensile
+!! Scommentate !$
+!
+!! Horizontal advection of hydrometeors in flux form (dispersive).
+!! Backward-upstream scheme.
+!
+!    use mod_model, only: nlon, nlat, nlev, nlonm1, nlatm1, ntop, ip_e, ip_n, ip_s, ip_w, u, v, pzer, &
+!                         dx, dy, dtstep, qcw, qci, qrain, qsnow, qhail, hxt, hxv, ps, dbika, dsig,   &
+!                         gnlon, cpole, ip_n, ip_s, ip_null, comm_row
+!    implicit none
+!    real(4) zdp, zdpmx, zdpmy, zdpds, zflux, zfluy, zfluxm, zfluym, zfluxp, zfluyp, zrden, zdppx, zdppy
+!    real(4) zc(nlev), zcg(nlev), zcw(nlev), zcwg(nlev), zci(nlev), zcig(nlev)
+!  include 'mpif.h'
+!    integer jlon, jlat, jklev, itop, ierr
+!
+!    itop = nlev-ntop+1
+!
+!! mpi --->
+!  call u_ghost_old_2 (u(nlonm1,:,ntop:nlev), ip_e, u(1   ,:,ntop:nlev), ip_w, nlat*itop)
+!  call u_ghost_old_2 (v(:,2     ,ntop:nlev), ip_s, v(:,nlat,ntop:nlev), ip_n, nlon*itop)
+!! <---
+!
+!#ifdef globo
+!! mpi --->
+!  if (ip_s.eq.ip_null) then  ! South Pole
+!! <---
+!    do jklev = ntop, nlev
+!    zc (jklev) = 0.
+!    zcw(jklev) = 0.
+!    zci(jklev) = 0.
+!    do jlon = 2, nlonm1
+!    zdp = (pzer*dsig(jklev) - (pzer-ps(jlon,2))*dbika(jklev))/ &
+!          (pzer*dsig(jklev) - (pzer-ps(jlon,1))*dbika(jklev))
+!    zc (jklev) = zc (jklev) + max (v(jlon,2,jklev), 0.)*cpole*dtstep
+!    zcw(jklev) = zcw(jklev) + min (v(jlon,2,jklev), 0.)*cpole*dtstep*qcw(jlon,2,jklev)*zdp
+!    zci(jklev) = zci(jklev) + min (v(jlon,2,jklev), 0.)*cpole*dtstep*qci(jlon,2,jklev)*zdp
+!    enddo
+!    enddo
+!
+!! mpi --->
+!  if (nlon.eq.gnlon) then
+!! <---
+!    zcg  = zc
+!    zcwg = zcw
+!    zcig = zci
+!! mpi --->
+!  else          !  global average and broadcast
+!  call mpi_allreduce (zc (ntop:nlev), zcg (ntop:nlev), itop, mpi_real, mpi_sum, comm_row, ierr)
+!  call mpi_allreduce (zcw(ntop:nlev), zcwg(ntop:nlev), itop, mpi_real, mpi_sum, comm_row, ierr)
+!  call mpi_allreduce (zci(ntop:nlev), zcig(ntop:nlev), itop, mpi_real, mpi_sum, comm_row, ierr)
+!  endif
+!! <---
+!
+!    do jklev = ntop, nlev
+!    do jlon = 2, nlonm1
+!    qcw(jlon,1,jklev) = (qcw(jlon,1,jklev) - zcwg(jklev)) / (1. + zcg(jklev))
+!    qci(jlon,1,jklev) = (qci(jlon,1,jklev) - zcig(jklev)) / (1. + zcg(jklev))
+!    enddo
+!    enddo
+!! mpi --->
+!  endif  ! SP
+!! <---
+!#endif
+!
+!! mpi --->
+!  call u_ghost_old_2 (qcw  (nlonm1,:,ntop:nlev), ip_e, qcw  (1,:,ntop:nlev), ip_w, nlat*itop)
+!  call u_ghost_old_2 (qcw  (:,nlatm1,ntop:nlev), ip_n, qcw  (:,1,ntop:nlev), ip_s, nlon*itop)
+!  call u_ghost_old_2 (qci  (nlonm1,:,ntop:nlev), ip_e, qci  (1,:,ntop:nlev), ip_w, nlat*itop)
+!  call u_ghost_old_2 (qci  (:,nlatm1,ntop:nlev), ip_n, qci  (:,1,ntop:nlev), ip_s, nlon*itop)
+!! <---
+!
+!#ifndef globo
+!! mpi --->
+!  call u_ghost_old_2 (qrain(nlonm1,:,ntop:nlev), ip_e, qrain(1,:,ntop:nlev), ip_w, nlat*itop)
+!  call u_ghost_old_2 (qrain(:,nlatm1,ntop:nlev), ip_n, qrain(:,1,ntop:nlev), ip_s, nlon*itop)
+!  call u_ghost_old_2 (qsnow(nlonm1,:,ntop:nlev), ip_e, qsnow(1,:,ntop:nlev), ip_w, nlat*itop)
+!  call u_ghost_old_2 (qsnow(:,nlatm1,ntop:nlev), ip_n, qsnow(:,1,ntop:nlev), ip_s, nlon*itop)
+!  call u_ghost_old_2 (qhail(nlonm1,:,ntop:nlev), ip_e, qhail(1,:,ntop:nlev), ip_w, nlat*itop)
+!  call u_ghost_old_2 (qhail(:,nlatm1,ntop:nlev), ip_n, qhail(:,1,ntop:nlev), ip_s, nlon*itop)
+!! <---
+!#endif
+!
+!    do jklev = ntop, nlev
+!    do jlat = 2, nlatm1
+!    do jlon = 2, nlonm1
+!    zdp   = pzer*dsig(jklev) - (pzer-ps(jlon  ,jlat))*dbika(jklev)
+!    zdpmx = pzer*dsig(jklev) - (pzer-ps(jlon-1,jlat))*dbika(jklev)
+!    zdpmy = pzer*dsig(jklev) - (pzer-ps(jlon,jlat-1))*dbika(jklev)
+!    zdpds = zdp*hxt(jlat)
+!    zflux = zdp*dtstep*max(u(jlon,jlat,jklev),0.)/dx
+!    zfluy = zdp*dtstep*hxv(jlat+1)*max(v(jlon,jlat+1,jklev),0.)/dy
+!    zfluxm= zdpmx*dtstep*max(u(jlon-1,jlat,jklev),0.)/dx
+!    zfluym= zdpmy*dtstep*hxv(jlat)*max(v(jlon,jlat,jklev),0.)/dy
+!    zrden = 1./(zdpds + zflux + zfluy)
+!
+!    qcw(jlon,jlat,jklev) = (qcw(jlon,jlat,jklev)*zdpds + qcw(jlon,jlat-1,jklev)*zfluym + &
+!                            qcw(jlon-1,jlat,jklev)*zfluxm)*zrden
+!    qci(jlon,jlat,jklev) = (qci(jlon,jlat,jklev)*zdpds + qci(jlon,jlat-1,jklev)*zfluym + &
+!                            qci(jlon-1,jlat,jklev)*zfluxm)*zrden
+!
+!#ifndef globo
+!    qrain(jlon,jlat,jklev) = (qrain(jlon,jlat,jklev)*zdpds + qrain(jlon,jlat-1,jklev)*zfluym + &
+!                              qrain(jlon-1,jlat,jklev)*zfluxm)*zrden
+!    qsnow(jlon,jlat,jklev) = (qsnow(jlon,jlat,jklev)*zdpds + qsnow(jlon,jlat-1,jklev)*zfluym + &
+!                              qsnow(jlon-1,jlat,jklev)*zfluxm)*zrden
+!    qhail(jlon,jlat,jklev) = (qhail(jlon,jlat,jklev)*zdpds + qhail(jlon,jlat-1,jklev)*zfluym + &
+!                              qhail(jlon-1,jlat,jklev)*zfluxm)*zrden
+!#endif
+!
+!    enddo
+!    enddo
+!    enddo
+!
+!#ifdef globo
+!! mpi --->
+!  if (ip_n.eq.ip_null) then  ! North Pole
+!! <---
+!    do jklev = ntop, nlev
+!    zc (jklev) = 0.
+!    zcw(jklev) = 0.
+!    zci(jklev) = 0.
+!    do jlon = 2, nlonm1
+!    zdp = (pzer*dsig(jklev) - (pzer-ps(jlon,nlatm1))*dbika(jklev))/ &
+!          (pzer*dsig(jklev) - (pzer-ps(jlon,nlat))*dbika(jklev))
+!    zc (jklev) = zc (jklev) + min (v(jlon,nlat,jklev), 0.)*cpole*dtstep
+!    zcw(jklev) = zcw(jklev) + max (v(jlon,nlat,jklev), 0.)*cpole*dtstep*qcw(jlon,nlatm1,jklev)*zdp
+!    zci(jklev) = zci(jklev) + max (v(jlon,nlat,jklev), 0.)*cpole*dtstep*qci(jlon,nlatm1,jklev)*zdp
+!    enddo
+!    enddo
+!
+!! mpi --->
+!  if (nlon.eq.gnlon) then
+!! <---
+!    zcg  = zc
+!    zcwg = zcw
+!    zcig = zci
+!! mpi --->
+!  else          !  global average and broadcast
+!  call mpi_allreduce (zc (ntop:nlev), zcg (ntop:nlev), itop, mpi_real, mpi_sum, comm_row, ierr)
+!  call mpi_allreduce (zcw(ntop:nlev), zcwg(ntop:nlev), itop, mpi_real, mpi_sum, comm_row, ierr)
+!  call mpi_allreduce (zci(ntop:nlev), zcig(ntop:nlev), itop, mpi_real, mpi_sum, comm_row, ierr)
+!  endif
+!! <---
+!
+!    do jklev = ntop, nlev
+!    do jlon = 2, nlonm1
+!    qcw(jlon,nlat,jklev) = (qcw(jlon,nlat,jklev) + zcwg(jklev)) / (1. - zcg(jklev))
+!    qci(jlon,nlat,jklev) = (qci(jlon,nlat,jklev) + zcig(jklev)) / (1. - zcg(jklev))
+!    enddo
+!    enddo
+!! mpi --->
+!  endif  ! NP
+!! <---
+!#endif
+!
+!! mpi --->
+!  call u_ghost_old_2 (qcw(:,2,ntop:nlev), ip_s, qcw(:,nlat,ntop:nlev), ip_n, nlon*itop)
+!  call u_ghost_old_2 (qcw(2,:,ntop:nlev), ip_w, qcw(nlon,:,ntop:nlev), ip_e, nlat*itop)
+!  call u_ghost_old_2 (qci(:,2,ntop:nlev), ip_s, qci(:,nlat,ntop:nlev), ip_n, nlon*itop)
+!  call u_ghost_old_2 (qci(2,:,ntop:nlev), ip_w, qci(nlon,:,ntop:nlev), ip_e, nlat*itop)
+!! <---
+!
+!#ifndef globo
+!! mpi --->
+!  call u_ghost_old_2 (qrain(:,2,ntop:nlev), ip_s, qrain(:,nlat,ntop:nlev), ip_n, nlon*itop)
+!  call u_ghost_old_2 (qrain(2,:,ntop:nlev), ip_w, qrain(nlon,:,ntop:nlev), ip_e, nlat*itop)
+!  call u_ghost_old_2 (qsnow(:,2,ntop:nlev), ip_s, qsnow(:,nlat,ntop:nlev), ip_n, nlon*itop)
+!  call u_ghost_old_2 (qsnow(2,:,ntop:nlev), ip_w, qsnow(nlon,:,ntop:nlev), ip_e, nlat*itop)
+!  call u_ghost_old_2 (qhail(:,2,ntop:nlev), ip_s, qhail(:,nlat,ntop:nlev), ip_n, nlon*itop)
+!  call u_ghost_old_2 (qhail(2,:,ntop:nlev), ip_w, qhail(nlon,:,ntop:nlev), ip_e, nlat*itop)
+!! <---
+!#endif
+!
+!    do jklev = ntop, nlev
+!    do jlat = nlatm1, 2, -1
+!    do jlon = nlonm1, 2, -1
+!    zdp   = pzer*dsig(jklev) - (pzer-ps(jlon  ,jlat))*dbika(jklev)
+!    zdppx = pzer*dsig(jklev) - (pzer-ps(jlon+1,jlat))*dbika(jklev)
+!    zdppy = pzer*dsig(jklev) - (pzer-ps(jlon,jlat+1))*dbika(jklev)
+!    zdpds = zdp*hxt(jlat)
+!    zflux = zdp*dtstep*min(u(jlon-1,jlat,jklev),0.)/dx
+!    zfluy = zdp*dtstep*hxv(jlat)*min(v(jlon,jlat,jklev),0.)/dy
+!    zfluxp= zdppx*dtstep*min(u(jlon,jlat,jklev),0.)/dx
+!    zfluyp= zdppy*dtstep*hxv(jlat+1)*min(v(jlon,jlat+1,jklev),0.)/dy
+!    zrden = 1./(zdpds - zflux - zfluy)
+!
+!    qcw(jlon,jlat,jklev) = (qcw(jlon,jlat,jklev)*zdpds - qcw(jlon,jlat+1,jklev)*zfluyp - &
+!                            qcw(jlon+1,jlat,jklev)*zfluxp)*zrden
+!    qci(jlon,jlat,jklev) = (qci(jlon,jlat,jklev)*zdpds - qci(jlon,jlat+1,jklev)*zfluyp - &
+!                            qci(jlon+1,jlat,jklev)*zfluxp)*zrden
+!
+!#ifndef globo
+!    qrain(jlon,jlat,jklev) = (qrain(jlon,jlat,jklev)*zdpds - qrain(jlon,jlat+1,jklev)*zfluyp - &
+!                              qrain(jlon+1,jlat,jklev)*zfluxp)*zrden
+!    qsnow(jlon,jlat,jklev) = (qsnow(jlon,jlat,jklev)*zdpds - qsnow(jlon,jlat+1,jklev)*zfluyp - &
+!                              qsnow(jlon+1,jlat,jklev)*zfluxp)*zrden
+!    qhail(jlon,jlat,jklev) = (qhail(jlon,jlat,jklev)*zdpds - qhail(jlon,jlat+1,jklev)*zfluyp - &
+!                              qhail(jlon+1,jlat,jklev)*zfluxp)*zrden
+!#endif
+!
+!    enddo
+!    enddo
+!    enddo
+!
+!    return
+!    end subroutine adv_ff_micro_globo_mensile
+!!##################################################################################################################
+!    subroutine u_ghost_old_2 (bufsend, ip_to, bufrecv, ip_from, nbuf)
+!! Scommentate !$
+!
+!    implicit none
+!    include 'mpif.h'
+!    integer :: nbuf, ip_to, ip_from, ierr, comm, tag=1, status(mpi_status_size), isend, irecv
+!    real    :: bufsend(nbuf), bufrecv(nbuf)
+!    comm  = mpi_comm_world
+!
+!    call mpi_isend (bufsend, nbuf, mpi_real, ip_to,   tag, comm, isend, ierr)
+!    call mpi_irecv (bufrecv, nbuf, mpi_real, ip_from, tag, comm, irecv, ierr)
+!    call mpi_wait  (isend, status, ierr)
+!    call mpi_wait  (irecv, status, ierr)
+!!    call mpi_send (bufsend, nbuf, mpi_real, ip_to  , tag, comm,         ierr)
+!!    call mpi_recv (bufrecv, nbuf, mpi_real, ip_from, tag, comm, status, ierr)
+!
+!    return
+!    end subroutine u_ghost_old_2
+!##################################################################################################################
     subroutine surface_layer (pstep, kstep)
 
 ! Computes parameters and variables of the turbulent exchanging in the surface layer
 ! Computes heat and specific humidity fluxes at the ground
 ! Fluxes are positive upward
 
-    use mod_model, only: nlon, nlat, nlev, nlonm1, nlatm1, ps, u, v, t, q, tvirt, roscd,                    &
+    use mod_model, only: nlon, nlat, nlev, nlonm1, nlatm1, ps, p, u, v, t, q, tvirt, roscd,                    &
                          rd, cpd, g, ep, rdrcp, phig, tskin, qskin, sigint, pzer, alp0, dx, phi, fmask, fice, &
-                         rgm, rgq, rgmd, sigalf, fsnow, t2, q2, u10, v10, ustar, tstar, rought, psih, rich, &
+                         rgm, rgq, rgmd, fsnow, t2, q2, u10, v10, ustar, tstar, rought, psih, rich, &
                          kturb_surf_m, kturb_surf_h, kturb_surf_q, hflux, qflux,                            &
                          n_std_lev_atm, n_std_lev_sl, std_lev_atm, t_std_lev, u_std_lev, v_std_lev, q_std_lev, &
                          nstep_sl_filter, myid, kturb_surf_h_mem, kturb_surf_q_mem
@@ -5437,8 +6845,7 @@ end subroutine wr_param_const
 
     do jlon = 2, nlonm1
 
-    zzpp = pzer*sigint(nlev) - (pzer-ps(jlon,jlat))*sigalf(nlev)
-    zconv = exp(rdrcp*(alp0-log(zzpp)))
+    zconv = exp(rdrcp*(alp0-log(p(jlon,jlat,nlev))))
     ztetav_bottom = tvirt(jlon,jlat,nlev)*zconv
 
     zza   = (phi(jlon,jlat,nlev)-phig(jlon,jlat))/g + rgm(jlon,jlat) !  sigma=1 is located at z=rgm
@@ -5682,8 +7089,7 @@ end subroutine wr_param_const
 
  do jlat = 2, nlatm1
  do jlon = 2, nlonm1
-   zzpp = pzer*sigint(nlev) - (pzer-ps(jlon,jlat))*sigalf(nlev)
-   zconv = exp(rdrcp*(alp0-log(zzpp)))
+   zconv = exp(rdrcp*(alp0-log(p(jlon,jlat,nlev))))
    ztetav_bottom = tvirt(jlon,jlat,nlev)*zconv
    zconvg = exp(rdrcp*(alp0-log(ps(jlon,jlat))))*(1.+ep*qskin(jlon,jlat))
    ztevg = tskin(jlon,jlat)*zconvg
@@ -5731,9 +7137,9 @@ end subroutine wr_param_const
 
 ! Computes vertical diffusion of u, v, q, thetav and tke using TKE-l closure
 
-    use mod_model, only: nlon, nlat, nlev, ntop, nlonm1, nlatm1, nlevp1, ps, u, v, t, q, tke, lml, tvirt,        &
+    use mod_model, only: nlon, nlat, nlev, ntop, nlonm1, nlatm1, nlevp1, ps, p, u, v, t, q, tke, lml, tvirt,        &
                          rd, cpd, g, ep, eps, rdrcp, phig, tskin, qskin, sigint, dsig, pzer, tzer, ezer, alp0,   &
-                         dx, ccw1, ccw2, phi, phih, tkemin, sigalf, dsigalf, ylwv, ustar, tstar,                &
+                         dx, ccw1, ccw2, phi, phih, tkemin, dbika, ylwv, ustar, tstar,                &
                          kturb_surf_m, kturb_surf_h, kturb_surf_q, trd_a, trd_c, qcw, qci, rich, bvf, myid
 
 #ifdef chem
@@ -5784,11 +7190,10 @@ end subroutine wr_param_const
 
     do jklev = 1, nlev   ! loop on half levels
     do jlon = 2, nlonm1
-     zzpp = pzer*sigint(jklev) - (pzer-ps(jlon,jlat))*sigalf(jklev)
-     zconv(jlon,jklev) = exp(rdrcp*(alp0-log(zzpp)))
+     zconv(jlon,jklev) = exp(rdrcp*(alp0-log(p(jlon,jlat,jklev))))
      zt0t = tzer/t(jlon,jlat,jklev)
      zesk = ezer*exp(-ccw1*log(zt0t)+ccw2*(1.-zt0t))     ! partial pressure over water
-     zqs(jlon,jklev)     = zesk*eps/(zzpp+zesk*(eps-1.))
+     zqs(jlon,jklev)     = zesk*eps/(p(jlon,jlat,jklev)+zesk*(eps-1.))
      ztetav(jlon,jklev)  = tvirt(jlon,jlat,jklev)*zconv(jlon,jklev)
      zhlev(jlon,jklev+1) = (phih(jlon,jlat,jklev+1)-phig(jlon,jlat))/g
     enddo
@@ -5838,7 +7243,7 @@ end subroutine wr_param_const
     zcdq = kturb_surf_q(jlon,jlat)/zlev_bottom
 
     zros = ps(jlon,jlat)/(rd*tskin(jlon,jlat)*(1.+ep*qskin(jlon,jlat)))
-    zdpn = pzer*dsig(nlev) - (pzer-ps(jlon,jlat))*dsigalf(nlev)
+    zdpn = pzer*dsig(nlev) - (pzer-ps(jlon,jlat))*dbika(nlev)
     zzc  = -pstep*g*zros/zdpn
     zcm(jlon,nlev) = zzc*zcdm
     zct(jlon) = zzc*zcdt
@@ -5961,14 +7366,14 @@ end subroutine wr_param_const
     do jlon = 2, nlonm1
     zkk   = .5*(lml(jlon,jlat,jklev+1)+lml(jlon,jlat,jklev))*          &
             sqrt(zce*.5*(tke(jlon,jlat,jklev+1)+tke(jlon,jlat,jklev)))
-    zp    = pzer*sigint(jklev-1)-(pzer-ps(jlon,jlat))*sigalf(jklev-1)
-    zpp   = pzer*sigint(jklev  )-(pzer-ps(jlon,jlat))*sigalf(jklev  )
+    zp    = p(jlon,jlat,jklev-1)
+    zpp   = p(jlon,jlat,jklev  )
     zdpk  = zpp-zp
-    zdpkp = pzer*dsig(jklev) - (pzer-ps(jlon,jlat))*dsigalf(jklev)
+    zdpkp = pzer*dsig(jklev) - (pzer-ps(jlon,jlat))*dbika(jklev)
     zdzp  = zhlev(jlon,jklev)-zhlev(jlon,jklev+1)
     zc(jlon,jklev) = -pstep*zdpkp/(zdpk*zdzp**2)*zkk
       if(jklev.lt.nlev) then
-      zppp  = pzer*sigint(jklev+1)-(pzer-ps(jlon,jlat))*sigalf(jklev+1)
+      zppp  = p(jlon,jlat,jklev+1)
       za(jlon,jklev+1) = zc(jlon,jklev)*zdpk/(zppp-zpp)
       endif
     enddo
@@ -6015,11 +7420,11 @@ end subroutine wr_param_const
     zkkm = lml(jlon,jlat,jklev+1)*sqrt(zce*tke(jlon,jlat,jklev+1))
     zkkh = zkkm/prandtl(jlon,jklev+1)
 
-    zp     = pzer*sigint(jklev  ) - (pzer-ps(jlon,jlat))*sigalf(jklev  )
-    zpp    = pzer*sigint(jklev+1) - (pzer-ps(jlon,jlat))*sigalf(jklev+1)
+    zp     = p(jlon,jlat,jklev  )
+    zpp    = p(jlon,jlat,jklev+1)
     zdpkp  = zpp-zp
-    zdpk   = pzer*dsig(jklev  ) - (pzer-ps(jlon,jlat))*dsigalf(jklev  )
-    zdpkp1 = pzer*dsig(jklev+1) - (pzer-ps(jlon,jlat))*dsigalf(jklev+1)
+    zdpk   = pzer*dsig(jklev  ) - (pzer-ps(jlon,jlat))*dbika(jklev  )
+    zdpkp1 = pzer*dsig(jklev+1) - (pzer-ps(jlon,jlat))*dbika(jklev+1)
     zdz    = (phi(jlon,jlat,jklev)-phi(jlon,jlat,jklev+1))/g
     zcm(jlon,jklev  ) = -pstep*zdpkp/(zdpk*zdz**2)*zkkm
     zam(jlon,jklev+1) =  zcm(jlon,jklev)*zdpk/zdpkp1
@@ -6133,7 +7538,7 @@ end subroutine wr_param_const
 
 !      call tmass (ps, nlon, nlat, hxt, dlon, dlat, myid, nprocsx, nprocsy, zmass)
       call tqmass (ps, q, nlon, nlat, nlev, hxt, dlon, dlat, myid, nprocsx, nprocsy, &
-                   dsig, dsigalf, pzer, g, zmass)
+                   dsig, dbika, pzer, g, zmass)
 
 #ifdef mpi
         call mpi_reduce(zmass, zdummy, 1, mpi_real, mpi_sum, 0, mpi_comm_world, ierr)
@@ -6229,9 +7634,9 @@ end subroutine wr_param_const
 
 ! Microphysics: explicit cloud and precipitation processes
 
-    use mod_model, only: nlon, nlat, nlev, ntop, q, qcw, qci, qrain, qsnow, qhail, t, ps, tke,            &
+    use mod_model, only: nlon, nlat, nlev, ntop, q, qcw, qci, qrain, qsnow, qhail, t, p, ps, tke,            &
                          ccw1, ccw2, cci1, cci2, cpd, cpv, rd, rv, eps, cw, ci, yliv, yliw, ylwv, tzer,   &
-                         pzer, ezer, pi, dtstep, fmask, rainls, snowls, sigint, sigalf, dsig, dsigalf, g, &
+                         pzer, ezer, pi, dtstep, fmask, rainls, snowls, dbika, dsig, sigdot, g, &
                          dqcwdt, dqcidt, dqrndt, dqsndt, &
                          nlatm1, ip_n, ip_s, ip_null, myid
 
@@ -6272,7 +7677,7 @@ end subroutine wr_param_const
     real zexpw, zexpi, z31, zgalfw1, zgalfwb, zgalfw2, zgalfi1, zgalfib, zgalfi2
     real zgar1, zgar2, zgar3, zgar4, zgas1, zgas2, zgas3, zgas4, zgah1, zgah2, zgah3, zgah4
     real zzcdw, zzcdi, zzafm, zzncw, zznci, cc_rcw, cc_scw, cc_sci, cc_hcw, cc_hci, cc_rs
-    real zp, zro, zt, zqv, zqcw, zqci, zqpw, zqpi1, zqpi2, yncw, ynci
+    real zp, zdp, zzww, zro, zt, zqv, zqcw, zqci, zqpw, zqpi1, zqpi2, yncw, ynci
     real zt0t, zesk, zqsw, zqsi, ssw, ssi, yncwc, yncic, zqtot, zcoe, zctot, zh, zw, z1
     real zdqcw, zqdci, zdq, zdnn, zdw, zdi, zcond, zbase, zpote, zridu, zdcon, zdfre, zdsub, zeffi
     real zsubl, zarg, zgammacw, zgammaci, zbetw, zbeti, zdqtr, zdqmlt, zdqci
@@ -6313,7 +7718,7 @@ end subroutine wr_param_const
       zgah3 = eugamma (.5*ynh+2.5)
       zgah4 = eugamma (bh+ynh+1. )
 
-! constants
+! Constants
 
       zexpw = 1./bcw
       zexpi = 1./bci
@@ -6322,7 +7727,7 @@ end subroutine wr_param_const
       zzafm = 2.*pi*fvent*yka/yliw
       z31   = .31*schmidt**(1./3.)/sqrt(ymu)
 
-! collection coefficients
+! Collection coefficients
 
       cc_rcw = .25*pi*ee_rcw*yn0r*ykr*zgar1*dtstep
       cc_rs  = .25*pi*ee_rs *yn0r*ykr*zgar1*dtstep
@@ -6331,7 +7736,7 @@ end subroutine wr_param_const
       cc_hcw = .25*pi*ee_hcw*yn0h*ykh*zgah1*dtstep
       cc_hci = .25*pi*ee_hci*yn0h*ykh*zgah1*dtstep
 
-!-------------------------------------------------------------------------------------
+!----------------------------------------------------------------
 
       jstart = 2
       jend = nlatm1
@@ -6341,20 +7746,21 @@ end subroutine wr_param_const
       if (ip_n.eq.ip_null) jend = nlat
 #endif
 
-      do 1000 jlat = jstart, jend
+      do jlat = jstart, jend   ! loop on jlat
 
-! Initial values of terminal fall speeds
-      zfsqcw = -.002
-      zfsqci = -.002
-      zfsrain = -.1
-      zfssnow = -.01
-      zfshail = -.1
+! Initial values of terminal fall speeds (in Pa/sec)
+
+      zfsqcw  = .002*g
+      zfsqci  = .002*g
+      zfsrain = .1  *g
+      zfssnow = .01 *g
+      zfshail = .1  *g
 
       do jklev = ntop, nlev
       do jlon = 2, nlon-1
 
       zt    = t    (jlon,jlat,jklev)
-      zp    = pzer*sigint(jklev)-(pzer-ps(jlon,jlat))*sigalf(jklev)
+      zp    = p    (jlon,jlat,jklev)
       zqv   = q    (jlon,jlat,jklev)
       zqcw  = qcw  (jlon,jlat,jklev)
       zqci  = qci  (jlon,jlat,jklev)
@@ -6369,27 +7775,27 @@ end subroutine wr_param_const
       zro   = zp/((rd*(1.-zqtot)+rv*zqv)*zt)        ! air density
       zcoe  = sqrt(1./zro)                          ! coefficient to increase terminal velocity with height
 
-! calculation of enthalpy zh before microphysical processes
+! Calculation of enthalpy zh before microphysical processes
 
       zctot =  (1.-zqtot)*cpd + zqtot*ci
       zh = zctot*zt + (yliv+(cpv-ci)*(zt-tzer))*zqv + (yliw+(cw-ci)*(zt-tzer))*(zqcw+zqpw)
 
-! saturation specific humidity with respect to water and ice
+! Saturation specific humidity with respect to water and ice
 
       zt0t = tzer/zt
-      zesk = ezer*exp(-ccw1*log(zt0t)+ccw2*(1.-zt0t)) !  saturated pressure over water (in Pa)
-      zqsw = max( zesk*eps/(zp+zesk*(eps-1.)), 1.e-9)
+      zesk = ezer*exp(-ccw1*log(zt0t)+ccw2*(1.-zt0t)) !  saturation pressure over water (in Pa)
+      zqsw = max (zesk*eps/(zp+zesk*(eps-1.)), 1.e-9)
       if (zt.lt.tzer) then
-      zesk = ezer*exp(-cci1*log(zt0t)+cci2*(1.-zt0t)) !  saturated pressure over ice (in Pa)
-      zqsi = zesk*eps/(zp+zesk*(eps-1.))
+      zesk = ezer*exp(-cci1*log(zt0t)+cci2*(1.-zt0t)) !  saturation pressure over ice (in Pa)
+      zqsi = max (zesk*eps/(zp+zesk*(eps-1.)), 1.e-9)
       else
       zqsi = zqsw
       endif
       zqsi = max( zqsi, 1.e-9)
 
-! 1) (no) nucleation of cloud water
+! 1) (No) nucleation of cloud water
 
-! 2) evaporation-condensation rate of cloud water
+! 2) Evaporation-condensation rate of cloud water
 
       if (zt.gt.233.) then
       if (zqv.gt.zqsw.or.zqcw.gt.zqmin) then
@@ -6412,7 +7818,7 @@ end subroutine wr_param_const
       endif
       endif
 
-! 3) spontaneous freezing (homogeneous nucleation) of cloud water
+! 3) Spontaneous freezing (homogeneous nucleation) of cloud water
 
       if (zt.lt.245.and.zqcw.gt.zqmin) then
       zbase = zqcw*zro/yncw
@@ -6423,21 +7829,22 @@ end subroutine wr_param_const
       zqci  = zqci + zdfre
       endif
 
-! 4) heterogeneous nucleation of cloud ice (formation of pristine crystals)
+! 4) Heterogeneous nucleation of cloud ice (formation of pristine crystals)
 
       if (zt.lt.269.) then
-      ssi = min( (zqv-zqsi)/zqsi, 3.25) ! ---> yncic=1.e18 as maximum (it was happen value 7, so yncic=1.e72 = Floating-point exception
-        if (ssi.gt.0) then
-        yncic = 1.e4*min (1.,.25*(269.-zt) ) * exp(-.639+12.96*ssi)
+      ssi = (zqv-zqsi)/zqsi
+        if (ssi.gt.0.) then
+        ssi = min (ssi, 2.5)
+        yncic = 1.e4*min (1.,.25*(269.-zt))*exp(-.639 + 12.96*ssi)
           if (1.e-12*yncic.gt.zqci) then
-          zdqci = min (1.e-12*yncic-zqci, zqv)
+          zdqci = min (1.e-12*yncic-zqci, .85*zqv)
           zqci  = zqci + zdqci
           zqv   = zqv  - zdqci
           endif
         endif
       endif
 
-! 5) sublimation rate of cloud ice in both directions (part of Bergeron-Findeisen process)
+! 5) Sublimation rate of cloud ice in both directions (part of Bergeron-Findeisen process)
 
       if (zt.lt.tzer) then
       if (zqv.gt.zqsi.or.zqci.gt.zqmin) then
@@ -6445,10 +7852,7 @@ end subroutine wr_param_const
       zdi= zqv-zqsi
       z1 = zqsi*yliv**2*chi*zro/(yka*rv*zt**2)
       zsubl = 2.*pi*fvent*zdi*chi/(1.+z1)
-
-! AUGH FIXME: see similar solution above
-
-      zbase = max(zqci, 1.e-9)*zro/ynci ! poisk
+      zbase = max (zqci, 1.e-10)*zro/ynci
       zpote = zbase**zexpi
       zridu  = 1./(1.+zqsi*yliv**2/(rv*zctot*zt**2))
         if (zdi.gt.0.) then
@@ -6472,7 +7876,7 @@ end subroutine wr_param_const
       endif
       endif
 
-! 6) melting of cloud ice
+! 6) Melting of cloud ice
 
       if (zt.gt.tzer.and.zqci.gt.zqmin) then
       yncic = max (ynci, 1.e4)
@@ -6484,9 +7888,9 @@ end subroutine wr_param_const
       zqci  = zqci - zdsmi
       endif
 
-!-------------------------------------------------------------------------------------------------------------
+!----------------------------------------------------------------
 
-! 7) cloud water converted into cloud ice due to cloud ice-water interaction
+! 7) Cloud water converted into cloud ice due to cloud ice-water interaction
 
      if (zt.lt.tzer-.5.and.zqcw.gt.zqmin.and.zqci.gt.zqmin) then
      zdfre = min(5.*zro**2*dtstep*zqcw*zqci, .5*zqcw)
@@ -6494,7 +7898,7 @@ end subroutine wr_param_const
      zqci = zqci + zdfre
      endif
 
-! 8) autoconversion of cloud water into rain
+! 8) Autoconversion of cloud water into rain
 
       if (zqcw.gt.zqcwth) then
       zbetw = ((zgalfwb*acw*yncw)/(zqcw*zro*zgalfw1))**zexpw
@@ -6507,7 +7911,7 @@ end subroutine wr_param_const
       endif
       endif
 
-! 9) autoconversion of cloud ice into snow
+! 9) Autoconversion of cloud ice into snow
 
       if (zqci.gt.zqcith.and.zt.lt.tzer) then
       zbeti = ((zgalfib*aci*ynci)/(zqci*zro*zgalfi1))**zexpi
@@ -6520,9 +7924,9 @@ end subroutine wr_param_const
       endif
       endif
 
-!-------------------------------------------------------------------------------------------------------------
+!----------------------------------------------------------------
 
-! 10) graupel/hail from freezing rain
+! 10) Graupel/hail from freezing rain
 
       if (zqpw.gt.zqpwth.and.zt.lt.ztcrit) then
        if (zt.gt.245.) then
@@ -6536,7 +7940,7 @@ end subroutine wr_param_const
        endif
       endif
 
-! 11) melting of snow depending on wet bulb temperature
+! 11) Melting of snow depending on wet bulb temperature
 
       if (zt.gt.tzer.and.(zqpi1.gt.zqmin.or.zqpi2.gt.zqmin)) then
       zrh = zqv/zqsw
@@ -6545,7 +7949,7 @@ end subroutine wr_param_const
        else
         ztwfg = zt + (0.04*(zt-276.) + 1.)*(8.4 + 5.6e-5*(800.e2 - zp))*(zrh - 1.) ! 1st guess of wet bulb t
         zt0tw = tzer/ztwfg
-        zesk = ezer*exp(-ccw1*log(zt0tw)+ccw2*(1.-zt0tw)) ! saturated pressure over water (in Pa)
+        zesk = ezer*exp(-ccw1*log(zt0tw)+ccw2*(1.-zt0tw)) ! saturation pressure over water (in Pa)
         zzqsw = zesk*eps/(zp+zesk*(eps-1.))
 !        zzqsw = zesk*eps(zp-zesk)                ! with mixing ratio
         ztw = zt + yliv/cpd*(zqv-zzqsw) ! wet bulb temperature for ice
@@ -6563,7 +7967,7 @@ end subroutine wr_param_const
        zqpw   = zqpw  + zdq
        endif
 
-! 12) melting of graupel/hail depending on wet bulb temperature
+! 12) Melting of graupel/hail depending on wet bulb temperature
 
        if (ztw.gt.tzer.and.zqpi2.gt.zqmin) then
        zlambdhl = log(zro*zqpi2/(yn0h*ah*zgah2))/(bh+1.)
@@ -6577,9 +7981,9 @@ end subroutine wr_param_const
        endif
       endif
 
-!-------------------------------------------------------------------------------------------------------------
+!----------------------------------------------------------------
 
-! 13) sublimation of snow
+! 13) Sublimation of snow
 
       if (zqpi1.gt.zqmin.and.zqv.lt.zqsi) then
       zlambdsl = log(zro*zqpi1/(yn0s*as*zgas2))/(bs+1.)
@@ -6595,7 +7999,7 @@ end subroutine wr_param_const
       zqpi1  = zqpi1- zdq
       endif
 
-! 14) sublimation of graupel/hail
+! 14) Sublimation of graupel/hail
 
       if (zqpi2.gt.zqmin.and.zqv.lt.zqsi) then
       zlambdhl = log(zro*zqpi2/(yn0h*ah*zgah2))/(bh+1.)
@@ -6626,11 +8030,11 @@ end subroutine wr_param_const
       zqpw   = zqpw - zdq
       endif
 
-!-------------------------------------------------------------------------------------------------------------
-!  fall of precipitation - collection processes
-!-------------------------------------------------------------------------------------------------------------
+!----------------------------------------------
+! Fall of precipitation - collection processes
+!----------------------------------------------
 
-! 16) rain from cloud water and rain (indep. of temp.)
+! 16) Rain from cloud water and rain (indep. of temp.)
 
       if (zqpw.gt.zqmin.and.zqcw.gt.zqmin) then
       zlambrm1 = (zro*zqpw/(yn0r*ar*6.))**((ynr+3.)/(br+1.))
@@ -6651,9 +8055,9 @@ end subroutine wr_param_const
       zqpw = zqpw + zdq
       endif
 
-! 17) rain and snow-graupel/hail interaction
-!     part of supercooled rain is converted to graupel/hail below tzer-1. (by enthalpy conservation);
-!     else, intercepted snow-graupel/hail is converted to rain
+! 17) Rain and snow-graupel/hail interaction.
+!     Part of supercooled rain is converted to graupel/hail below tzer-1. (by enthalpy conservation);
+!     else, intercepted snow-graupel/hail is converted to rain.
 
       if (zt.lt.tzer-1..or.zt.gt.tzer+.5) then
         if (zqpw.gt.zqmin.and.(zqpi1+zqpi2).gt.zqmin) then
@@ -6672,7 +8076,7 @@ end subroutine wr_param_const
         endif
       endif
 
-! 18) cloud ice intercepted by snow below freezing
+! 18) Cloud ice intercepted by snow below freezing
 
       if (zqpi1.gt.zqmin.and.zqci.gt.zqmin.and.zt.lt.tzer) then
       zlambsm1 = (zro*zqpi1/(yn0s*as*zgas2))**((yns+3.)/(bs+1.))
@@ -6682,8 +8086,8 @@ end subroutine wr_param_const
       zqpi1 = zqpi1 + zdq
       endif
 
-! 19) snow and cloud water interaction: riming of snow below tzer-1.
-!     snow melting due to enthalpy of cloud water above tzer
+! 19) Snow and cloud water interaction: riming of snow below tzer-1.
+!     Snow melting due to enthalpy of cloud water above tzer.
 
       if (zqpi1.gt.zqmin.and.zqcw.gt.zqmin) then
       zlambsm1 = (zro*zqpi1/(yn0s*as*zgas2))**((yns+3.)/(bs+1.))
@@ -6713,7 +8117,7 @@ end subroutine wr_param_const
         endif
       endif
 
-! 20) graupel/hail from cloud ice and graupel/hail below freezing
+! 20) Graupel/hail from cloud ice and graupel/hail below freezing
 
       if (zqpi2.gt.zqmin.and.zqci.gt.zqmin.and.zt.lt.tzer.and.zt.gt.253) then ! negleg. for t<-20 C (Houze)
       zlambhm1 = (zro*zqpi2/(yn0h*ah*zgah2))**((ynh+3.)/(bh+1.))
@@ -6723,8 +8127,8 @@ end subroutine wr_param_const
       zqpi2 = zqpi2 + zdq
       endif
 
-! 21) graupel/hail from freezing cloud water
-!     rain from cloud water and melting graupel/hail
+! 21) Graupel/hail from freezing cloud water.
+!     Rain from cloud water and melting graupel/hail.
 
       if (zqpi2.gt.zqmin.and.zqcw.gt.zqmin) then
       zlambhm1 = (zro*zqpi2/(yn0h*ah*zgah2))**((ynh+3.)/(bh+1.))
@@ -6751,32 +8155,32 @@ end subroutine wr_param_const
         endif
       endif
 
-! computation of terminal fall speeds of cloud, rain, snow, and graupel/hail
+! Computation of terminal fall speeds of cloud, rain, snow, and graupel/hail (in Pa/sec)
 
       if (zqcw.gt.zqmin) then
       zbeta  = (yncw*acw*zgalfwb/(zro*zqcw*zgalfw1))**(zexpw*ync)
-      zfsqcw(jlon,jklev) = -ykc*zgacw1/(zgalfwb*zbeta)
+      zfsqcw(jlon,jklev) = ykc*zgacw1/(zgalfwb*zbeta) *zro*g
       endif
       if (zqci.gt.zqmin) then
       zbeta  = (ynci*aci*zgalfib/(zro*zqci*zgalfi1))**(zexpi*ync)
-      zfsqci(jlon,jklev) = -ykc*zgaci1/(zgalfib*zbeta)
+      zfsqci(jlon,jklev) = ykc*zgaci1/(zgalfib*zbeta) *zro*g
       endif
       if (zqpw.gt.zqmin) then
-      zfsrain(jlon,jklev) = -zcoe*ykr*zgar4/6.   *(zro*zqpw /(yn0r*ar*6.   ))**(ynr/(br+1.))
+      zfsrain(jlon,jklev) = zcoe*ykr*zgar4/6.   *(zro*zqpw /(yn0r*ar*6.   ))**(ynr/(br+1.))*zro*g
       endif
       if (zqpi1.gt.zqmin) then
-      zfssnow(jlon,jklev) = -zcoe*yks*zgas4/zgas2*(zro*zqpi1/(yn0s*as*zgas2))**(yns/(bs+1.))
+      zfssnow(jlon,jklev) = zcoe*yks*zgas4/zgas2*(zro*zqpi1/(yn0s*as*zgas2))**(yns/(bs+1.)) *zro*g
         if (zt.gt.tzer) then
         zwes = min(1.,(zt-tzer)/3.5) ! larger fall speed of melting snow
         zfssnow(jlon,jklev) = (1.-zwes)*zfssnow(jlon,jklev) + zwes*zfsrain(jlon,jklev) ! speed of melting snow
         endif
       endif
       if (zqpi2.gt.zqmin) then
-      zfshail(jlon,jklev) = -zcoe*ykh*zgah4/zgah2*(zro*zqpi2/(yn0h*ah*zgah2))**(ynh/(bh+1.))
+      zfshail(jlon,jklev) = zcoe*ykh*zgah4/zgah2*(zro*zqpi2/(yn0h*ah*zgah2))**(ynh/(bh+1.)) *zro*g
       endif
 
-! model variables after microphysical processes
-! new temperature by conservation of enthalpy
+! Model variables after microphysical processes.
+! New temperature by conservation of enthalpy.
 
       t(jlon,jlat,jklev) = (zh -(yliv-(cpv-ci)*tzer)*zqv -(yliw-(cw-ci)*tzer)*(zqcw+zqpw))/  &
                            (zctot +(cpv-ci)*zqv +(cw-ci)*(zqcw+zqpw))
@@ -6791,53 +8195,43 @@ end subroutine wr_param_const
       enddo  ! end loop on longitude
       enddo  ! end loop on levels
 
-!  fall of precipitation by a backward-upstream scheme
-!  accumulation of precipitation at the ground
-
-      zflucw = 0.
-      zfluci = 0.
-      zflurn = 0.
-      zflusn = 0.
-      zfluha = 0.
+! Fall of precipitation by a backward-upstream scheme
+! (hydrometeor fluxes are formally defined on half-levels but with
+! concentrations and fall speeds computed at the upstream level)
+! accumulation of precipitation at the ground.
 
       do jklev = ntop-1, nlev
       do jlon = 2, nlon-1
-      zp = pzer*sigint(jklev)-(pzer-ps(jlon,jlat))*sigalf(jklev)
-      zro = zp/(rd*t(jlon,jlat,jklev))
-      zrodz(jlon,jklev)  = (pzer*dsig(jklev)-(pzer-ps(jlon,jlat))*dsigalf(jklev))/g
-      zflucw(jlon,jklev) = zfsqcw (jlon,jklev)*zro*dtstep
-      zfluci(jlon,jklev) = zfsqci (jlon,jklev)*zro*dtstep
-      zflurn(jlon,jklev) = zfsrain(jlon,jklev)*zro*dtstep
-      zflusn(jlon,jklev) = zfssnow(jlon,jklev)*zro*dtstep
-      zfluha(jlon,jklev) = zfshail(jlon,jklev)*zro*dtstep
+      zdp  =  pzer*dsig(jklev) - (pzer-ps(jlon,jlat))*dbika(jklev)
+      zrodz(jlon,jklev) = zdp/g
+      zzww = sigdot(jlon,jlat,jklev+1)*zdp/dsig(jklev)
+      zflucw(jlon,jklev) = max(zzww + zfsqcw (jlon,jklev),0.)*dtstep/g
+      zfluci(jlon,jklev) = max(zzww + zfsqci (jlon,jklev),0.)*dtstep/g
+      zflurn(jlon,jklev) = max(zzww + zfsrain(jlon,jklev),0.)*dtstep/g
+      zflusn(jlon,jklev) = max(zzww + zfssnow(jlon,jklev),0.)*dtstep/g
+      zfluha(jlon,jklev) = max(zzww + zfshail(jlon,jklev),0.)*dtstep/g
       enddo
       enddo
 
       do jklev = ntop, nlev
       do jlon = 2, nlon-1
-      zqcwnew  = (qcw  (jlon,jlat,jklev)*zrodz(jlon,jklev)-qcw  (jlon,jlat,jklev-1)*zflucw(jlon,jklev-1)) &
-                /(zrodz(jlon,jklev)-zflucw(jlon,jklev))
-      zqcinew  = (qci  (jlon,jlat,jklev)*zrodz(jlon,jklev)-qci  (jlon,jlat,jklev-1)*zfluci(jlon,jklev-1)) &
-                /(zrodz(jlon,jklev)-zfluci(jlon,jklev))
-      zqpwnew  = (qrain(jlon,jlat,jklev)*zrodz(jlon,jklev)-qrain(jlon,jlat,jklev-1)*zflurn(jlon,jklev-1)) &
-                /(zrodz(jlon,jklev)-zflurn(jlon,jklev))
-      zqpi1new = (qsnow(jlon,jlat,jklev)*zrodz(jlon,jklev)-qsnow(jlon,jlat,jklev-1)*zflusn(jlon,jklev-1)) &
-                /(zrodz(jlon,jklev)-zflusn(jlon,jklev))
-      zqpi2new = (qhail(jlon,jlat,jklev)*zrodz(jlon,jklev)-qhail(jlon,jlat,jklev-1)*zfluha(jlon,jklev-1)) &
-                /(zrodz(jlon,jklev)-zfluha(jlon,jklev))
+      qcw  (jlon,jlat,jklev) = (qcw  (jlon,jlat,jklev)*zrodz(jlon,jklev) + qcw  (jlon,jlat,jklev-1)*zflucw(jlon,jklev-1)) &
+                             / (zrodz(jlon,jklev) + zflucw(jlon,jklev))
+      qci  (jlon,jlat,jklev) = (qci  (jlon,jlat,jklev)*zrodz(jlon,jklev) + qci  (jlon,jlat,jklev-1)*zfluci(jlon,jklev-1)) &
+                             / (zrodz(jlon,jklev) + zfluci(jlon,jklev))
+      qrain(jlon,jlat,jklev) = (qrain(jlon,jlat,jklev)*zrodz(jlon,jklev) + qrain(jlon,jlat,jklev-1)*zflurn(jlon,jklev-1)) &
+                             / (zrodz(jlon,jklev) + zflurn(jlon,jklev))
+      qsnow(jlon,jlat,jklev) = (qsnow(jlon,jlat,jklev)*zrodz(jlon,jklev) + qsnow(jlon,jlat,jklev-1)*zflusn(jlon,jklev-1)) &
+                             / (zrodz(jlon,jklev) + zflusn(jlon,jklev))
+      qhail(jlon,jlat,jklev) = (qhail(jlon,jlat,jklev)*zrodz(jlon,jklev) + qhail(jlon,jlat,jklev-1)*zfluha(jlon,jklev-1)) &
+                             / (zrodz(jlon,jklev) + zfluha(jlon,jklev))
 
-!  heat capacity of precipitation (cloud excluded)
+! Heat capacity of precipitation (cloud excluded)
 
-      zdqwat=abs(zflurn(jlon,jklev-1)*qrain(jlon,jlat,jklev-1))
-      zdqice=abs(zflusn(jlon,jklev-1)*qsnow(jlon,jlat,jklev-1))+abs(zfluha(jlon,jklev-1)*qhail(jlon,jlat,jklev-1))
-      t(jlon,jlat,jklev)=( cpd*zrodz(jlon,jklev)*t(jlon,jlat,jklev)+(zdqwat*cw+zdqice*ci)*t(jlon,jlat,jklev-1)) &
+      zdqwat = abs(zflurn(jlon,jklev-1)*qrain(jlon,jlat,jklev-1))
+      zdqice = abs(zflusn(jlon,jklev-1)*qsnow(jlon,jlat,jklev-1)) + abs(zfluha(jlon,jklev-1)*qhail(jlon,jlat,jklev-1))
+      t(jlon,jlat,jklev) = ( cpd*zrodz(jlon,jklev)*t(jlon,jlat,jklev) + (zdqwat*cw+zdqice*ci)*t(jlon,jlat,jklev-1)) &
                         /(cpd*zrodz(jlon,jklev)+zdqwat*cw+zdqice*ci)
-
-      qcw  (jlon,jlat,jklev) = zqcwnew
-      qci  (jlon,jlat,jklev) = zqcinew
-      qrain(jlon,jlat,jklev) = zqpwnew
-      qsnow(jlon,jlat,jklev) = zqpi1new
-      qhail(jlon,jlat,jklev) = zqpi2new
 
 #ifdef chem
 
@@ -6850,20 +8244,61 @@ end subroutine wr_param_const
       enddo
       enddo
 
-!  instantaneous rain, snow and graupel/hail (mm) reaching the ground
+!  Instantaneous rain, snow and graupel/hail (mm) reaching the ground
 
-      rainls(:,jlat) = -zflurn(:,nlev)*qrain(:,jlat,nlev) -zflucw(:,nlev)*qcw(:,jlat,nlev)
-      snowls(:,jlat) = -zflusn(:,nlev)*qsnow(:,jlat,nlev) -zfluci(:,nlev)*qci(:,jlat,nlev)  &
-                       -zfluha(:,nlev)*qhail(:,jlat,nlev)
+      rainls(2:nlon-1,jlat) = zflurn(2:nlon-1,nlev)*qrain(2:nlon-1,jlat,nlev) + &
+                              zflucw(2:nlon-1,nlev)*  qcw(2:nlon-1,jlat,nlev)
+      snowls(2:nlon-1,jlat) = zflusn(2:nlon-1,nlev)*qsnow(2:nlon-1,jlat,nlev) + &
+                              zfluci(2:nlon-1,nlev)*  qci(2:nlon-1,jlat,nlev) + &
+                              zfluha(2:nlon-1,nlev)*qhail(2:nlon-1,jlat,nlev)
 
-!  melting of residual snow and graupel/hail at the lowest level, after fall
-!  latent heat of fusion subtracted from the lowest level
+! "There and backward again" (PM)
+
+      do jklev = nlev, ntop, -1
+      do jlon = 2, nlon-1
+      zdp  = pzer*dsig(jklev) - (pzer-ps(jlon,jlat))*dbika(jklev)
+      zzww = sigdot(jlon,jlat,jklev)*zdp/dsig(jklev)
+      zflucw(jlon,jklev) = min(zzww + zfsqcw (jlon,jklev),0.)*dtstep
+      zfluci(jlon,jklev) = min(zzww + zfsqci (jlon,jklev),0.)*dtstep
+      zflurn(jlon,jklev) = min(zzww + zfsrain(jlon,jklev),0.)*dtstep
+      zflusn(jlon,jklev) = min(zzww + zfssnow(jlon,jklev),0.)*dtstep
+      zfluha(jlon,jklev) = min(zzww + zfshail(jlon,jklev),0.)*dtstep
+      enddo
+      enddo
+
+      do jlon = 2, nlon-1
+      zdp  =  pzer*dsig(nlev) - (pzer-ps(jlon,jlat))*dbika(nlev)
+      qcw  (jlon,jlat,nlev) = qcw  (jlon,jlat,nlev)*zdp / (zdp - zflucw(jlon,nlev))
+      qci  (jlon,jlat,nlev) = qci  (jlon,jlat,nlev)*zdp / (zdp - zfluci(jlon,nlev))
+      qrain(jlon,jlat,nlev) = qrain(jlon,jlat,nlev)*zdp / (zdp - zflurn(jlon,nlev))
+      qsnow(jlon,jlat,nlev) = qsnow(jlon,jlat,nlev)*zdp / (zdp - zflusn(jlon,nlev))
+      qhail(jlon,jlat,nlev) = qhail(jlon,jlat,nlev)*zdp / (zdp - zfluha(jlon,nlev))
+      enddo
+
+      do jklev = nlev-1, ntop, -1
+      do jlon = 2, nlon-1
+      zdp  =  pzer*dsig(jklev) - (pzer-ps(jlon,jlat))*dbika(jklev)
+      qcw  (jlon,jlat,jklev) = (qcw  (jlon,jlat,jklev)*zdp - qcw  (jlon,jlat,jklev+1)*zflucw(jlon,jklev+1)) &
+                               / (zdp - zflucw(jlon,jklev))
+      qci  (jlon,jlat,jklev) = (qci  (jlon,jlat,jklev)*zdp - qci  (jlon,jlat,jklev+1)*zfluci(jlon,jklev+1)) &
+                               / (zdp - zfluci(jlon,jklev))
+      qrain(jlon,jlat,jklev) = (qrain(jlon,jlat,jklev)*zdp - qrain(jlon,jlat,jklev+1)*zflurn(jlon,jklev+1)) &
+                               / (zdp - zflurn(jlon,jklev))
+      qsnow(jlon,jlat,jklev) = (qsnow(jlon,jlat,jklev)*zdp - qsnow(jlon,jlat,jklev+1)*zflusn(jlon,jklev+1)) &
+                               / (zdp - zflusn(jlon,jklev))
+      qhail(jlon,jlat,jklev) = (qhail(jlon,jlat,jklev)*zdp - qhail(jlon,jlat,jklev+1)*zfluha(jlon,jklev+1)) &
+                               / (zdp - zfluha(jlon,jklev))
+      enddo
+      enddo
+
+! Melting of residual snow and graupel/hail at the lowest level, after fall.
+! Latent heat of fusion subtracted from the lowest level.
 
       do jlon = 2, nlon-1
       if (t(jlon,jlat,nlev).gt.tzer.and.t(jlon,jlat,nlev).lt.tzer+10.) then
        zt = t(jlon,jlat,nlev)
        zt0t = tzer/zt
-       zesk = ezer*exp(-ccw1*log(zt0t)+ccw2*(1.-zt0t)) ! saturated pressure over water (in Pa)
+       zesk = ezer*exp(-ccw1*log(zt0t)+ccw2*(1.-zt0t)) ! saturation pressure over water (in Pa)
        zqsw = zesk*eps/(ps(jlon,jlat)+zesk*(eps-1.))
        zrh = q(jlon,jlat,nlev)/zqsw ! relat. humidity
         if(zrh.ge.1.) then
@@ -6871,13 +8306,13 @@ end subroutine wr_param_const
         else
          ztwfg = zt + (0.04*(zt-276.)+1.)*(8.4 + 5.6e-5*(800.e2 - ps(jlon,jlat)))*(zrh - 1.) ! 1st guess of wet bulb t
          zt0tw = tzer/ztwfg
-         zesk = ezer*exp(-ccw1*log(zt0tw)+ccw2*(1.-zt0tw)) ! saturated pressure over water (in Pa)
+         zesk = ezer*exp(-ccw1*log(zt0tw)+ccw2*(1.-zt0tw)) ! saturation pressure over water (in Pa)
          zzqsw = zesk*eps/(ps(jlon,jlat)+zesk*(eps-1.))
          ztw = zt + yliv/cpd*(q(jlon,jlat,nlev)-zzqsw) ! wet bulb temperature for ice
          ztw = 0.5*ztw + 0.5*ztwfg                     ! empirical approx.
         endif
        if (ztw.gt.tzer+0.7) then  ! offset value empirical but important for snowfall
-       zcapt = g*(pzer*dsig(nlev)-(pzer-ps(jlon,jlat))*dsigalf(nlev))*cpd
+       zcapt = g*(pzer*dsig(nlev)-(pzer-ps(jlon,jlat))*dbika(nlev))*cpd
        zmelmax = (ztw-tzer)*zcapt/yliw
        zmeltsn = min (snowls(jlon,jlat), zmelmax)
        rainls(jlon,jlat) = rainls(jlon,jlat) + zmeltsn
@@ -6887,21 +8322,28 @@ end subroutine wr_param_const
       endif
       enddo
 
-!-----------------------------------------------------------------------
-! elimination of residuals of hydrometeors
-!-----------------------------------------------------------------------
+!-----------------------------------------
+! Elimination of residuals of hydrometeors
+!-----------------------------------------
 
       do jklev = ntop, nlev
       do jlon = 2, nlon-1
-      if(qcw  (jlon,jlat,jklev).lt.1.e-9) qcw  (jlon,jlat,jklev)=0.
-      if(qci  (jlon,jlat,jklev).lt.1.e-9) qci  (jlon,jlat,jklev)=0.
-      if(qrain(jlon,jlat,jklev).lt.1.e-8) qrain(jlon,jlat,jklev)=0.
-      if(qsnow(jlon,jlat,jklev).lt.1.e-8) qsnow(jlon,jlat,jklev)=0.
-      if(qhail(jlon,jlat,jklev).lt.1.e-8) qhail(jlon,jlat,jklev)=0.
+      if(qcw  (jlon,jlat,jklev).lt.1.e-9) qcw  (jlon,jlat,jklev) = 0.
+      if(qci  (jlon,jlat,jklev).lt.1.e-9) qci  (jlon,jlat,jklev) = 0.
+      if(qrain(jlon,jlat,jklev).lt.1.e-8) qrain(jlon,jlat,jklev) = 0.
+      if(qsnow(jlon,jlat,jklev).lt.1.e-8) qsnow(jlon,jlat,jklev) = 0.
+      if(qhail(jlon,jlat,jklev).lt.1.e-8) qhail(jlon,jlat,jklev) = 0.
       enddo
       enddo
 
- 1000 continue
+      enddo      ! end of loop on jlat
+
+!------------------------------------------------------
+! Advection computed as divergence of horizontal fluxes
+!------------------------------------------------------
+
+!!!    call adv_ff_micro
+! Non gira neanche in variante di globo mensile
 
     return
 
@@ -6949,8 +8391,8 @@ end subroutine wr_param_const
 !##################################################################################################################
 subroutine radiat_init(rds, ret, ozon, aerosol, aerotot, &
    nyrc, nmonc, ndayc, nhouc, nminc, &
-   nlon, nlat, nlev, ntaer, sig, sigint, sigalf, pzer, dlat, dlon, &
-   alat, alon, ps, tsurf, t, htop, infy, infx, proc_id)
+   nlon, nlat, nlev, ntaer, sig, sigint, dlat, dlon, &
+   alat, alon, ps, tsurf, p, t, htop, infy, infx, proc_id)
 
 ! Initialization of astronomical parameters and
 ! total aerosols content for Ritter-Geleyn radiation scheme;
@@ -6966,9 +8408,9 @@ implicit none
 ! Input and output variables
 
 integer, intent(in) :: nyrc, nmonc, ndayc, nhouc, nminc, nlon, nlat, nlev, ntaer, infy, infx, proc_id
-real, intent(in) :: pzer, dlat, dlon
+real, intent(in) :: dlat, dlon
 real, dimension(nlev+1), intent(in) :: sig
-real, dimension(nlev), intent(in) :: sigint, sigalf
+real, dimension(nlev), intent(in) :: sigint
 real, dimension(nlon,nlat), intent(in) :: alat, alon, ps, tsurf, htop
 real, dimension(nlon,nlat,nlev), intent(in) :: t
 
@@ -7116,7 +8558,7 @@ real, dimension(nlev+1) :: zetah
 
    do jklev = 1,nlev
      do jlon = 1,nlon
-       pap5(jlon,jklev) = pzer*sigint(jklev) - (pzer-ps(jlon,jlat))*sigalf(jklev)
+       pap5(jlon,jklev) = p(jlon,jlat,jklev)
      enddo
    enddo
 
@@ -7231,9 +8673,9 @@ end subroutine radiat_init
 
 !  Interface to radial
 
-      use mod_model, only : nlon, nlat, nlev, nlonm1, nlevp1, sig, sigint, dsig, ps, t, q, qcw, qci, emisg1,  &
+      use mod_model, only : nlon, nlat, nlev, nlonm1, nlevp1, sig, dsig, ps, p3d=>p, t, q, qcw, qci, emisg1,  &
                             fsnow, albedo, alsn, fmask, tskin, qskin, rd, g, pzer, dtstep, cpd, cpv, pi,      &
-                            geldt, gelvis, gelirr, sigalf, dsigalf, alfa, qrain, qsnow, alont, alatt, nlatm1, &
+                            geldt, gelvis, gelirr, dbika, alfa, qrain, qsnow, alont, alatt, nlatm1, &
                             myid, aerotot, fice, fcloud, cloudt, dlon, nprocsy, hst, rdecli0, reqtim0, myid
       implicit none
       common /radiazio/ stefan, ro, xts, gg, sdec, cdec, zalpn(nlon),                        &
@@ -7294,8 +8736,8 @@ end subroutine radiat_init
       qfs  (jlon,jklev) = q  (jlon,jlat,jklev)
       zqli (jlon,jklev) = qcw(jlon,jlat,jklev)
       zqice(jlon,jklev) = qci(jlon,jlat,jklev) + 0.2*qsnow(jlon,jlat,jklev)
-      dp   (jlon,jklev) = pzer*dsig(jklev) - (pzer-ps(jlon,jlat))*dsigalf(jklev)
-      pm   (jlon,jklev) = pzer*sigint(jklev) - (pzer-ps(jlon,jlat))*sigalf(jklev)
+      dp   (jlon,jklev) = pzer*dsig(jklev) - (pzer-ps(jlon,jlat))*dbika(jklev)
+      pm   (jlon,jklev) = p3d(jlon,jlat,jklev)
       zneb (jlon,jklev) = fcloud(jlon,jlat,jklev)
       enddo
       enddo
@@ -8606,6 +10048,7 @@ end subroutine radiat_init
 !  Filter of 'T points' 3D fields  -  it is assumed that ghostlines are not updated
 
     use mod_model, only: nlon, nlat, nlev, nlonm1, nlatm1, nprocsx, ip_e, ip_n, ip_s, ip_w, ip_oppo, ip_null
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_get_2d
     real(4) p(nlon,nlat,nlev), p2(nlon,0:nlat+1,nlev)
 
     if (anu.lt.1.e-6) return
@@ -8623,8 +10066,17 @@ end subroutine radiat_init
 !------------------------
 
 #ifdef mpi
-      call u_ghost (p(2:nlonm1,nlatm1,:), ip_n, p(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
-      call u_ghost (p(2:nlonm1,2     ,:), ip_s, p(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_2d(p(2:nlonm1,nlatm1,:), 1) ! send to north
+      call u_ghost_put_2d(p(2:nlonm1,2,:), 3)      ! send to south
+
+      call u_ghost_get_2d(p(2:nlonm1,1,:), 1)      ! receive from south
+      call u_ghost_get_2d(p(2:nlonm1,nlat,:), 3)   ! receive from north
+
+!      call u_ghost_old (p(2:nlonm1,nlatm1,:), ip_n, p(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
+!      call u_ghost_old (p(2:nlonm1,2     ,:), ip_s, p(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
       if (nprocsx.eq.1) then
 #endif
 
@@ -8635,8 +10087,17 @@ end subroutine radiat_init
 
 #ifdef mpi
       else
-        call u_ghost (p(nlonm1,:,:), ip_e, p(1   ,:,:), ip_w, nlat*nlev)
-        call u_ghost (p(2     ,:,:), ip_w, p(nlon,:,:), ip_e, nlat*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(p(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(p(2,:,:), 4)      ! send to west
+
+        call u_ghost_get_2d(p(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(p(nlon,:,:), 4)   ! receive from east
+
+!        call u_ghost_old (p(nlonm1,:,:), ip_e, p(1   ,:,:), ip_w, nlat*nlev)
+!        call u_ghost_old (p(2     ,:,:), ip_w, p(nlon,:,:), ip_e, nlat*nlev)
       endif
 #endif
 
@@ -8665,7 +10126,10 @@ end subroutine radiat_init
     enddo
 #ifdef mpi
         else
-          call u_ghost (p2(2:nlonm1,2,:), ip_oppo, p2(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(p2(2:nlonm1,2,:), 5) ! send across the poles
+          call u_ghost_get_2d(p2(2:nlonm1,0,:), 5) ! receive across the poles
+!          call u_ghost_old (p2(2:nlonm1,2,:), ip_oppo, p2(2:nlonm1,0,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
       if (ip_n.eq.ip_null) then
@@ -8678,7 +10142,10 @@ end subroutine radiat_init
     enddo
 #ifdef mpi
         else
-          call u_ghost (p2(2:nlonm1,nlatm1,:), ip_oppo, p2(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(p2(2:nlonm1,nlatm1,:), 5) ! send across the poles
+          call u_ghost_get_2d(p2(2:nlonm1,nlat+1,:), 5) ! receive across the poles
+!          call u_ghost_old (p2(2:nlonm1,nlatm1,:), ip_oppo, p2(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -8701,6 +10168,7 @@ end subroutine radiat_init
 !  Filter of 'T-points' 2D fields  -  it is assumed that ghostlines are not updated
 
     use mod_model, only: nlon, nlat, nlonm1, nlatm1, nprocsx, ip_e, ip_n, ip_s, ip_w, ip_oppo, ip_null
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_1d, u_ghost_get_1d
     real(4) p(nlon,nlat), p2(nlon,0:nlat+1)
 
     if (anu.lt.1.e-6) return
@@ -8718,8 +10186,17 @@ end subroutine radiat_init
 !------------------------
 
 #ifdef mpi
-      call u_ghost (p(2:nlonm1,nlatm1), ip_n, p(2:nlonm1,1   ), ip_s, nlon-2)
-      call u_ghost (p(2:nlonm1,2     ), ip_s, p(2:nlonm1,nlat), ip_n, nlon-2)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_1d(p(2:nlonm1,nlatm1), 1) ! send to north
+      call u_ghost_put_1d(p(2:nlonm1,2), 3)      ! send to south
+
+      call u_ghost_get_1d(p(2:nlonm1,1), 1)      ! receive from south
+      call u_ghost_get_1d(p(2:nlonm1,nlat), 3)   ! receive from north
+
+!      call u_ghost_old (p(2:nlonm1,nlatm1), ip_n, p(2:nlonm1,1   ), ip_s, nlon-2)
+!      call u_ghost_old (p(2:nlonm1,2     ), ip_s, p(2:nlonm1,nlat), ip_n, nlon-2)
       if (nprocsx.eq.1) then
 #endif
 
@@ -8730,8 +10207,17 @@ end subroutine radiat_init
 
 #ifdef mpi
       else
-        call u_ghost (p(nlonm1,:), ip_e, p(1   ,:), ip_w, nlat)
-        call u_ghost (p(2     ,:), ip_w, p(nlon,:), ip_e, nlat)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(p(nlonm1,:), 2) ! send to est
+        call u_ghost_put_1d(p(2,:), 4)      ! send to west
+
+        call u_ghost_get_1d(p(1,:), 2)      ! receive from west
+        call u_ghost_get_1d(p(nlon,:), 4)   ! receive from east
+
+!        call u_ghost_old (p(nlonm1,:), ip_e, p(1   ,:), ip_w, nlat)
+!        call u_ghost_old (p(2     ,:), ip_w, p(nlon,:), ip_e, nlat)
       endif
 #endif
 
@@ -8758,7 +10244,10 @@ end subroutine radiat_init
     enddo
 #ifdef mpi
         else
-          call u_ghost (p2(2:nlonm1,2), ip_oppo, p2(2:nlonm1,0), ip_oppo, nlon-2)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_1d(p2(2:nlonm1,2), 5) ! send across the poles
+          call u_ghost_get_1d(p2(2:nlonm1,0), 5) ! receive across the poles
+!          call u_ghost_old (p2(2:nlonm1,2), ip_oppo, p2(2:nlonm1,0), ip_oppo, nlon-2)
         endif
       endif
       if (ip_n.eq.ip_null) then
@@ -8771,7 +10260,10 @@ end subroutine radiat_init
     enddo
 #ifdef mpi
         else
-          call u_ghost (p2(2:nlonm1,nlatm1), ip_oppo, p2(2:nlonm1,nlat+1), ip_oppo, nlon-2)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_1d(p2(2:nlonm1,nlatm1), 5) ! send across the poles
+          call u_ghost_get_1d(p2(2:nlonm1,nlat+1), 5) ! receive across the poles
+!          call u_ghost_old (p2(2:nlonm1,nlatm1), ip_oppo, p2(2:nlonm1,nlat+1), ip_oppo, nlon-2)
         endif
       endif
 #endif
@@ -8791,6 +10283,7 @@ end subroutine radiat_init
 
     use mod_model, only: nlon, nlat, nlev, nlonm1, nlatm1, nprocsx, nprocsy, dlon, pi, snt, cst, u, v, &
                          myid, ip_e, ip_n, ip_s, ip_w, ip_oppo, ip_null
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_get_2d
     real(4) zu2(nlon,nlat), zv2(nlon,nlat+1,nlev), zvi(2,nlev), zvo(2,nlev)
     integer :: ierr, comm, tag1=1, tag2=2
 
@@ -8815,10 +10308,23 @@ end subroutine radiat_init
 !------------------------
 
 #ifdef mpi
-      call u_ghost (u(2:nlonm1,nlatm1,:), ip_n, u(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
-      call u_ghost (u(2:nlonm1,2     ,:), ip_s, u(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
-      call u_ghost (v(2:nlonm1,nlatm1,:), ip_n, v(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
-      call u_ghost (v(2:nlonm1,2     ,:), ip_s, v(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_2d(u(2:nlonm1,nlatm1,:), 1) ! send to north
+      call u_ghost_put_2d(u(2:nlonm1,2,:), 3)      ! send to south
+      call u_ghost_put_2d(v(2:nlonm1,nlatm1,:), 1) ! send to north
+      call u_ghost_put_2d(v(2:nlonm1,2,:), 3)      ! send to south
+
+      call u_ghost_get_2d(u(2:nlonm1,1,:), 1)      ! receive from south
+      call u_ghost_get_2d(u(2:nlonm1,nlat,:), 3)   ! receive from north
+      call u_ghost_get_2d(v(2:nlonm1,1,:), 1)      ! receive from south
+      call u_ghost_get_2d(v(2:nlonm1,nlat,:), 3)   ! receive from north
+
+!      call u_ghost_old (u(2:nlonm1,nlatm1,:), ip_n, u(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
+!      call u_ghost_old (u(2:nlonm1,2     ,:), ip_s, u(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
+!      call u_ghost_old (v(2:nlonm1,nlatm1,:), ip_n, v(2:nlonm1,1   ,:), ip_s, (nlon-2)*nlev)
+!      call u_ghost_old (v(2:nlonm1,2     ,:), ip_s, v(2:nlonm1,nlat,:), ip_n, (nlon-2)*nlev)
 
       if (nprocsx.eq.1) then
 #endif
@@ -8830,14 +10336,25 @@ end subroutine radiat_init
     v(nlon,:,:) = v(2     ,:,:)
 #endif
 
-#ifdef mpi
       else
-        call u_ghost (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
-        call u_ghost (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
-        call u_ghost (v(nlonm1,:,:), ip_e, v(1   ,:,:), ip_w, nlat*nlev)
-        call u_ghost (v(2     ,:,:), ip_w, v(nlon,:,:), ip_e, nlat*nlev)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(u(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(u(2,:,:), 4)      ! send to west
+        call u_ghost_put_2d(v(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(v(2,:,:), 4)      ! send to west
+
+        call u_ghost_get_2d(u(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(u(nlon,:,:), 4)   ! receive from east
+        call u_ghost_get_2d(v(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(v(nlon,:,:), 4)   ! receive from east
+
+!        call u_ghost_old (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
+!        call u_ghost_old (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
+!        call u_ghost_old (v(nlonm1,:,:), ip_e, v(1   ,:,:), ip_w, nlat*nlev)
+!        call u_ghost_old (v(2     ,:,:), ip_w, v(nlon,:,:), ip_e, nlat*nlev)
       endif
-#endif
 
 !----------------------------------
 !  Second order diffusion of wind
@@ -8866,7 +10383,11 @@ end subroutine radiat_init
     enddo
 #ifdef mpi
         else
-          call u_ghost (-zv2(2:nlonm1,2,:), ip_oppo, zv2(2:nlonm1,1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(zv2(2:nlonm1,2,:), 5) ! send across the poles
+          call u_ghost_get_2d(zv2(2:nlonm1,1,:), 5) ! receive across the poles
+          zv2(2:nlonm1,1,:) = -zv2(2:nlonm1,1,:)
+!          call u_ghost_old (-zv2(2:nlonm1,2,:), ip_oppo, zv2(2:nlonm1,1,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -8882,7 +10403,11 @@ end subroutine radiat_init
     enddo
 #ifdef mpi
         else
-          call u_ghost (-zv2(2:nlonm1,nlat,:), ip_oppo, zv2(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_2d(zv2(2:nlonm1,nlat,:), 5)   ! send across the poles
+          call u_ghost_get_2d(zv2(2:nlonm1,nlat+1,:), 5) ! receive across the poles
+          zv2(2:nlonm1,nlat+1,:) = -zv2(2:nlonm1,nlat+1,:)
+!          call u_ghost_old (-zv2(2:nlonm1,nlat,:), ip_oppo, zv2(2:nlonm1,nlat+1,:), ip_oppo, (nlon-2)*nlev)
         endif
       endif
 #endif
@@ -8995,6 +10520,7 @@ end subroutine radiat_init
 ! Horizontal diffusion (5 points)
 
     use mod_model, only: nlon, nlat, nlev, nlonm1, nlatm1, ip_e, ip_n, ip_s, ip_w
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_1d, u_ghost_get_1d
     implicit none
 
     integer :: nt, jlon, jlat, k, ierr, comm, tag1=1, tag2=2, isend1, isend2, irecv1, irecv2
@@ -9010,23 +10536,39 @@ end subroutine radiat_init
 !  Update all ghostlines
 !------------------------
 
-#ifdef mpi
-      do k = 1, nt
-!  qui non uso la u_ghost perche' perde un sacco di tempo... perche'?
-!        call u_ghost (p(2:nlonm1,nlatm1,k), ip_n, p(2:nlonm1,1   ,k), ip_s, nlon-2)
-!        call u_ghost (p(2:nlonm1,2     ,k), ip_s, p(2:nlonm1,nlat,k), ip_n, nlon-2)
-        call mpi_isend (p(2:nlonm1,nlatm1,k), nlon-2, mpi_real, ip_n, tag1, comm, isend1, ierr)
-        call mpi_isend (p(2:nlonm1,2     ,k), nlon-2, mpi_real, ip_s, tag2, comm, isend2, ierr)
-        call mpi_irecv (p(2:nlonm1,1     ,k), nlon-2, mpi_real, ip_s, tag1, comm, irecv1, ierr)
-        call mpi_irecv (p(2:nlonm1,nlat  ,k), nlon-2, mpi_real, ip_n, tag2, comm, irecv2, ierr)
-        call mpi_wait  (isend1, status, ierr)
-        call mpi_wait  (isend2, status, ierr)
-        call mpi_wait  (irecv1, status, ierr)
-        call mpi_wait  (irecv2, status, ierr)
-        call u_ghost (p(nlonm1,:,k), ip_e, p(1   ,:,k), ip_w, nlat)
-        call u_ghost (p(2     ,:,k), ip_w, p(nlon,:,k), ip_e, nlat)
-      enddo
-#endif
+    do k = 1, nt
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_1d(p(2:nlonm1,nlatm1,k), 1) ! send to north
+      call u_ghost_put_1d(p(2:nlonm1,2,k), 3)      ! send to south
+
+      call u_ghost_get_1d(p(2:nlonm1,1,k), 1)      ! receive from south
+      call u_ghost_get_1d(p(2:nlonm1,nlat,k), 3)   ! receive from north
+
+!!  qui non uso la u_ghost perche' perde un sacco di tempo... perche'?
+!!      call u_ghost_old (p(2:nlonm1,nlatm1,k), ip_n, p(2:nlonm1,1   ,k), ip_s, nlon-2)
+!!      call u_ghost_old (p(2:nlonm1,2     ,k), ip_s, p(2:nlonm1,nlat,k), ip_n, nlon-2)
+!      call mpi_isend (p(2:nlonm1,nlatm1,k), nlon-2, mpi_real, ip_n, tag1, comm, isend1, ierr)
+!      call mpi_isend (p(2:nlonm1,2     ,k), nlon-2, mpi_real, ip_s, tag2, comm, isend2, ierr)
+!      call mpi_irecv (p(2:nlonm1,1     ,k), nlon-2, mpi_real, ip_s, tag1, comm, irecv1, ierr)
+!      call mpi_irecv (p(2:nlonm1,nlat  ,k), nlon-2, mpi_real, ip_n, tag2, comm, irecv2, ierr)
+!      call mpi_wait  (isend1, status, ierr)
+!      call mpi_wait  (isend2, status, ierr)
+!      call mpi_wait  (irecv1, status, ierr)
+!      call mpi_wait  (irecv2, status, ierr)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_1d(p(nlonm1,:,k), 2) ! send to est
+      call u_ghost_put_1d(p(2,:,k), 4)      ! send to west
+
+      call u_ghost_get_1d(p(1,:,k), 2)      ! receive from west
+      call u_ghost_get_1d(p(nlon,:,k), 4)   ! receive from east
+
+!      call u_ghost_old (p(nlonm1,:,k), ip_e, p(1   ,:,k), ip_w, nlat)
+!      call u_ghost_old (p(2     ,:,k), ip_w, p(nlon,:,k), ip_e, nlat)
+    enddo
 
 !-----------------------
 !  Horizontal diffusion
@@ -9314,6 +10856,7 @@ end subroutine surfradpar
 
     use mod_model, only : nlon, nlat, nlev, nlonm1, nlatm1, myid, nprocsx, nprocsy, ip_oppo, cpole, &
                           ip_e, ip_n, ip_s, ip_w, ip_null, ps, u, v, hxt, hxv, dx, dy, dt, div2, denomin
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_1d, u_ghost_get_1d
 
     real(4) denrx(nlon,nlat), denry(nlon,nlat), waflux(nlon,nlat), waflux1(nlon), psex(0:nlon+1,0:nlat+1)
     real(4) zzz(nlev)
@@ -9366,11 +10909,29 @@ end subroutine surfradpar
 
 #ifdef mpi
       else
-        call u_ghost (psex(nlon-2,1:nlat), ip_e, psex(0     ,1:nlat), ip_w, nlat)
-        call u_ghost (psex(3     ,1:nlat), ip_w, psex(nlon+1,1:nlat), ip_e, nlat)
+
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(psex(nlon-2,1:nlat), 2) ! send to est
+        call u_ghost_put_1d(psex(3,1:nlat), 4)      ! send to west
+ 
+        call u_ghost_get_1d(psex(0,1:nlat), 2)      ! receive from west
+        call u_ghost_get_1d(psex(nlon+1,1:nlat), 4) ! receive from east
+
+!        call u_ghost_old (psex(nlon-2,1:nlat), ip_e, psex(0     ,1:nlat), ip_w, nlat)
+!        call u_ghost_old (psex(3     ,1:nlat), ip_w, psex(nlon+1,1:nlat), ip_e, nlat)
       endif
-      call u_ghost (psex(0:nlon+1,nlat-2), ip_n, psex(0:nlon+1,0     ), ip_s, nlon+2)
-      call u_ghost (psex(0:nlon+1,3     ), ip_s, psex(0:nlon+1,nlat+1), ip_n, nlon+2)
+
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_1d(psex(0:nlon+1,nlat-2), 1)   ! send to north
+      call u_ghost_put_1d(psex(0:nlon+1,3), 3)        ! send to south
+
+      call u_ghost_get_1d(psex(0:nlon+1,0), 1)        ! receive from south
+      call u_ghost_get_1d(psex(0:nlon+1,nlat+1), 3)   ! receive from north
+
+!      call u_ghost_old (psex(0:nlon+1,nlat-2), ip_n, psex(0:nlon+1,0     ), ip_s, nlon+2)
+!      call u_ghost_old (psex(0:nlon+1,3     ), ip_s, psex(0:nlon+1,nlat+1), ip_n, nlon+2)
 #endif
 
 #ifdef globo
@@ -9386,7 +10947,10 @@ end subroutine surfradpar
     enddo
 #ifdef mpi
         else
-          call u_ghost (psex(0:nlon+1,2), ip_oppo, psex(0:nlon+1,0), ip_oppo, nlon+2)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_1d(psex(0:nlon+1,2), 5) ! send across the poles
+          call u_ghost_get_1d(psex(0:nlon+1,0), 5) ! receive across the poles
+!          call u_ghost_old (psex(0:nlon+1,2), ip_oppo, psex(0:nlon+1,0), ip_oppo, nlon+2)
         endif
       endif
 
@@ -9400,7 +10964,10 @@ end subroutine surfradpar
     enddo
 #ifdef mpi
         else
-          call u_ghost (psex(0:nlon+1,nlatm1), ip_oppo, psex(0:nlon+1,nlat+1), ip_oppo, nlon+2)
+          call u_ghost_init(use_comm)
+          call u_ghost_put_1d(psex(0:nlon+1,nlatm1), 5) ! send across the poles
+          call u_ghost_get_1d(psex(0:nlon+1,nlat+1), 5) ! receive across the poles
+!          call u_ghost_old (psex(0:nlon+1,nlatm1), ip_oppo, psex(0:nlon+1,nlat+1), ip_oppo, nlon+2)
         endif
       endif
 #endif
@@ -9673,7 +11240,7 @@ end subroutine surfradpar
 
 !  Oct. 2008 - parameterization of convection using conservation of liquid water static energy
 
-      use mod_model, only : nlon, nlat, nlev, hxt, phig, ps, u, v, t, q, omeg, phi, sigint, sigalf, dsigalf, &
+      use mod_model, only : nlon, nlat, nlev, hxt, phig, ps, p, u, v, t, q, omeg, phi, dbika, &
                             dsig, pzer, r=>rd, rv, ep, g, cp=>cpd, cv=>cvd, dx0=>dx, dy, t00=>tzer, cpv,     &
                             hst, snocon, raicon, dtdt, dqdt, dqcwdt, dqcidt, dqrndt, dqsndt, ntsrc, dtstep,  &
                             nlonm1, nlatm1, nprocsy, myid
@@ -9743,8 +11310,8 @@ end subroutine surfradpar
       l5 = 1
       do 15 k = 1, kznew
       nk = nlev-k+1
-      p0(k)  = pzer*sigint(nk)- (pzer-ps(jlon,jlat))*sigalf(nk)
-      dp(k)  = pzer*dsig(nk)  - (pzer-ps(jlon,jlat))*dsigalf(nk)  ! dp is the pressure interval between sigma levels
+      p0(k)  = p(jlon,jlat,nk)
+      dp(k)  = pzer*dsig(nk)  - (pzer-ps(jlon,jlat))*dbika(nk)  ! dp is the pressure interval between sigma levels
       t0(k)  = t(jlon,jlat,nk)
       q0(k)  = max(q(jlon,jlat,nk), 1.e-10)
       u0(k)  = .5*(u(jlon,jlat,nk)+u(jlon-1,jlat,nk))
@@ -10887,9 +12454,10 @@ end subroutine surfradpar
 
 ! Computes orographic wave drag
 
-      use mod_model, only: nlon, nlat, nlev, nlevp1, nlonm1, nlatm1, phig, ps, u, v, hxt, phih, &
-                           pzer, sigint, sigalf, dsig, dsigalf, rd, g, dtstep, dlon, dlat,      &
+      use mod_model, only: nlon, nlat, nlev, nlevp1, nlonm1, nlatm1, phig, ps, p, u, v, hxt, phih, &
+                           pzer, dsig, dbika, rd, g, dtstep, dlon, dlat,      &
                            ip_e, ip_n, ip_s, ip_w, bvf, rich, tvirt, orogvar
+      use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_get_2d
       implicit none
       real, dimension(nlon,nlat,nlevp1) :: fmx, fmy
       real, dimension(nlon,nlat)        :: zorxx, zoryy, ordragx, ordragy
@@ -10956,10 +12524,16 @@ end subroutine surfradpar
 ! Brunt-Vaisala freq. (squared) bvf is computed in vdiff over the 3 lowest layers)
 ! zuav and zvav are averaged on T points
 
-#ifdef mpi
-        call u_ghost (u(nlonm1,:,:), ip_e, u(1,:,:), ip_w, nlat*nlev)
-        call u_ghost (v(:,2,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
-#endif
+       call u_ghost_init(use_comm)
+
+       call u_ghost_put_2d(u(nlonm1,:,:), 2) ! send to est
+       call u_ghost_put_2d(v(:,2,:), 3)      ! send to south
+
+       call u_ghost_get_2d(u(1,:,:), 2)      ! receive from west
+       call u_ghost_get_2d(v(:,nlat,:), 3)   ! receive from north
+
+!      call u_ghost_old (u(nlonm1,:,:), ip_e, u(1,:,:), ip_w, nlat*nlev)
+!      call u_ghost_old (v(:,2,:), ip_s, v(:,nlat,:), ip_n, nlon*nlev)
 
       do jlat = 2, nlatm1
       do jlon = 2, nlonm1
@@ -10974,7 +12548,7 @@ end subroutine surfradpar
 
       zn  = sqrt(max(bvf(jlon,jlat), 0.)) ! bvf is the square of Brunt-Vaisala frequency near surface
       if (zn.gt.1.5e-2) zn = 1.5e-2 ! to limit g.w. drag for high static stability
-      zro = (pzer*sigint(nlev)-(pzer-ps(jlon,jlat))*sigalf(nlev))/(rd*tvirt(jlon,jlat,nlev)) ! density at nlev
+      zro = p(jlon,jlat,nlev)/(rd*tvirt(jlon,jlat,nlev)) ! density at nlev
       ordragx(jlon,jlat) = zdragc*zro*zn*zuav*zorxx(jlon,jlat)
       ordragy(jlon,jlat) = zdragc*zro*zn*zvav*zoryy(jlon,jlat)
 
@@ -11053,17 +12627,23 @@ end subroutine surfradpar
 !  5- Divergence of momentum flux and u,v update
 !-----------------------------------------------
 
-#ifdef mpi
-        call u_ghost (fmx(2,:,:), ip_w, fmx(nlon,:,:), ip_e, nlat*nlev)
-        call u_ghost (fmy(:,nlatm1,:), ip_n, fmy(:,1,:), ip_s, nlon*nlev)
-#endif
+       call u_ghost_init(use_comm)
+
+       call u_ghost_put_2d(fmy(:,nlatm1,:), 1) ! send to north
+       call u_ghost_put_2d(fmx(2,:,:), 4)      ! send to west
+
+       call u_ghost_get_2d(fmy(:,1,:), 1)      ! receive from south
+       call u_ghost_get_2d(fmx(nlon,:,:), 4)   ! receive from east
+
+!      call u_ghost_old (fmx(2,:,:), ip_w, fmx(nlon,:,:), ip_e, nlat*nlev)
+!      call u_ghost_old (fmy(:,nlatm1,:), ip_n, fmy(:,1,:), ip_s, nlon*nlev)
 
       do jlat = 2, nlatm1
       do jlon = 2, nlonm1
       if (iormask(jlon,jlat).eq.1) then
       lc = lcrit(jlon,jlat)
       do jklev = lc, nlev
-      zdp = pzer*dsig(jklev)-(pzer-ps(jlon,jlat))*dsigalf(jklev)
+      zdp = pzer*dsig(jklev)-(pzer-ps(jlon,jlat))*dbika(jklev)
       zinx = .5*dtstep*g/zdp*((fmx(jlon,jlat,jklev+1)+fmx(jlon+1,jlat,jklev+1))- &
                              (fmx(jlon,jlat,jklev  )+fmx(jlon+1,jlat,jklev  )))
       ziny = .5*dtstep*g/zdp*((fmy(jlon,jlat-1,jklev+1)+fmy(jlon,jlat,jklev+1))- &
@@ -11083,9 +12663,10 @@ end subroutine surfradpar
 
 ! Computes drag due to orographic flow blocking
 
-      use mod_model, only: nlon, nlat, nlev, nlonm1, nlatm1, dlon, dlat, phig, ps, u, v, hxt, &
-                           phi, rd, g, sigint, sigalf, dtstep, bvf, tvirt, orogvar, pzer,     &
+      use mod_model, only: nlon, nlat, nlev, nlonm1, nlatm1, dlon, dlat, phig, ps, p, u, v, hxt, &
+                           phi, rd, g, dtstep, bvf, tvirt, orogvar, pzer,     &
                            ip_e, ip_n, ip_s, ip_w
+      use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_1d, u_ghost_get_1d
       implicit none
       real, dimension(nlon,nlat)    :: zorx, zory, zostdx, zostdy
       integer, dimension(nlon,nlat) :: iblmaskx, iblmasky
@@ -11129,10 +12710,16 @@ end subroutine surfradpar
 
       endif  ! end of computations at the first instant only
 
-#ifdef mpi
-        call u_ghost (bvf(2,     :), ip_w, bvf(nlon,:), ip_e, nlat)
-        call u_ghost (bvf(:,nlatm1), ip_n, bvf(:,1   ), ip_s, nlon)
-#endif
+      call u_ghost_init(use_comm)
+
+      call u_ghost_put_1d(bvf(:,nlatm1), 1) ! send to north
+      call u_ghost_put_1d(bvf(2,:), 4)      ! send to west
+
+      call u_ghost_get_1d(bvf(:,1), 1)      ! receive from south
+      call u_ghost_get_1d(bvf(nlon,:), 4)   ! receive from east
+
+!      call u_ghost_old (bvf(2,     :), ip_w, bvf(nlon,:), ip_e, nlat)
+!      call u_ghost_old (bvf(:,nlatm1), ip_n, bvf(:,1   ), ip_s, nlon)
 
 !----------------------------------------------------------------------------------
 !  Computation of momentum flux at the surface (bldragx, bldragy) on u and v points
@@ -11152,9 +12739,9 @@ end subroutine surfradpar
         if(znx.gt.3.e-3.and.znx*(abs(zorx(jlon,jlat))+.35*zostdx(jlon,jlat)).gt.1.) then
         zuav = (u(jlon,jlat,nlev) + u(jlon,jlat,nlev-1) + u(jlon,jlat,nlev-2))/3.
         zuav = sign(sqrt(abs(zuav)), zuav) ! to reduce drag for high speed
-        zpsx = .5*(ps(jlon,jlat) + ps(jlon+1,jlat))
+        zpsx = .5*(p(jlon,jlat,nlev) + p(jlon+1,jlat,nlev))
         ztx = .5*(tvirt(jlon,jlat,nlev) + tvirt(jlon+1,jlat,nlev))
-        zro = (pzer*sigint(nlev)-(pzer-zpsx)*sigalf(nlev))/rd/ztx ! density at nlev (u points)
+        zro = zpsx/rd/ztx ! density at nlev (u points)
         bldragx = sign(max(zbldragc*zro*znx*zuav*zorx(jlon,jlat), 0.), zuav) ! Orog. slope drag applied only at upslope flow
         bldragx = bldragx + .35*zbldragc*zro*znx*zuav*zostdx(jlon,jlat)      ! Orographic std. drag added
 
@@ -11184,9 +12771,9 @@ end subroutine surfradpar
         if(zny.gt.3.e-3.and.zny*(abs(zory(jlon,jlat))+.35*zostdy(jlon,jlat)).gt.1.) then
         zvav = (v(jlon,jlat,nlev)+v(jlon,jlat,nlev-1)+v(jlon,jlat,nlev-2))/3.
         zvav = sign(sqrt(abs(zvav)), zvav) ! to reduce drag for high wind speed
-        zpsy = .5*(ps(jlon,jlat-1) + ps(jlon,jlat))
+        zpsy = .5*(p(jlon,jlat-1,nlev) + p(jlon,jlat,nlev))
         zty = .5*(tvirt(jlon,jlat-1,nlev) + tvirt(jlon,jlat,nlev))
-        zro = (pzer*sigint(nlev)-(pzer-zpsy)*sigalf(nlev))/rd/zty ! density at nlev
+        zro = zpsy/rd/zty ! density at nlev
         bldragy = sign(max(zbldragc*zro*zny*zvav*zory(jlon,jlat), 0.), zvav) ! Orog. slope drag applied only at upslope flow
         bldragy = bldragy + .35*zbldragc*zro*zny*zvav*zostdy(jlon,jlat)      ! Orographic std. drag added
 
@@ -11214,16 +12801,18 @@ end subroutine surfradpar
       return
       end subroutine blockdrag
 !##################################################################################################################
-#ifdef mpi
 
-      subroutine u_ghost (bufsend, ip_to, bufrecv, ip_from, nbuf)
+      subroutine u_ghost_old (bufsend, ip_to, bufrecv, ip_from, nbuf)
 
       use mod_model, only: nbuffer
       implicit none
+#ifdef mpi
       include 'mpif.h'
+#endif
       integer :: nbuf, ip_to, ip_from, ierr, comm, tag=1, status(mpi_status_size), isend, irecv
       real    :: bufsend(nbuf), bufrecv(nbuf)
       comm  = mpi_comm_world
+#ifdef mpi
 
       call mpi_isend (bufsend, nbuf, mpi_real, ip_to,   tag, comm, isend, ierr)
       call mpi_irecv (bufrecv, nbuf, mpi_real, ip_from, tag, comm, irecv, ierr)
@@ -11232,10 +12821,10 @@ end subroutine surfradpar
 !      call mpi_send (bufsend, nbuf, mpi_real, ip_to  , tag, comm,         ierr)
 !      call mpi_recv (bufrecv, nbuf, mpi_real, ip_from, tag, comm, status, ierr)
 
-      return
-      end subroutine u_ghost
-
 #endif
+      return
+      end subroutine u_ghost_old
+
 !##################################################################################################################
     subroutine wrshf_b (jstep)
 
@@ -11270,7 +12859,7 @@ end subroutine surfradpar
     zss = 6.5e-03     ! Average stability with climatological value of 6.5 K/km
     do jlat = 1, nlat
     do jlon = 1, nlon
-    zzpp = pzer*sigint(nlev-1)-(pzer-ps(jlon,jlat))*sigalf(nlev-1)
+    zzpp = p(jlon,jlat,nlev-1)
     ztz0(jlon,jlat) = t(jlon,jlat,nlev-1) + zss*(phi(jlon,jlat,nlev-1)/g)
     ztg  = t(jlon,jlat,nlev-1) + zss*log(ps(jlon,jlat)/zzpp)*rd/g*t(jlon,jlat,nlev)*(1.+ep*q(jlon,jlat,nlev))
     ztbarv = .5*(ztz0(jlon,jlat)+ztg) * (1.+ep*q(jlon,jlat,nlev))
@@ -11388,8 +12977,7 @@ end subroutine surfradpar
       do jlon = 1, nlon
 
         do jklev = 1, nlev
-          zzpp = pzer*sigint(jklev)-(pzer-ps(jlon,jlat))*sigalf(jklev)
-          zlnp(jklev) = log(zzpp)
+          zlnp(jklev) = log(p(jlon,jlat,jklev))
         enddo
         zlnp(nlevp1) = log(slp(jlon,jlat)) ! auxiliary sea level
 
@@ -11500,8 +13088,7 @@ end subroutine surfradpar
 
         do jklev = 1,nlev
           jklev1 = nlev-jklev+1
-          zzpp = pzer*sigint(jklev) - (pzer-ps(jlon,jlat))*sigalf(jklev)
-          zzee = zzpp*q(jlon,jlat,jklev)/(eps+q(jlon,jlat,jklev)*(1.-eps))
+          zzee = p(jlon,jlat,jklev)*q(jlon,jlat,jklev)/(eps+q(jlon,jlat,jklev)*(1.-eps))
           if (t(jlon,jlat,jklev) >= tzer) then
             zaux(jklev1) = (tzer-33.65/17.40*log(zzee/611.))/(1.-1./17.40*log(zzee/611.))
           else
@@ -11518,8 +13105,7 @@ end subroutine surfradpar
 
         do jklev = 1,nlev
           jklev1 = nlev-jklev+1
-          zzpp = pzer*sigint(jklev) - (pzer-ps(jlon,jlat))*sigalf(jklev)
-          zzee = zzpp*q(jlon,jlat,jklev)/(eps+q(jlon,jlat,jklev)*(1.-eps))
+          zzee = p(jlon,jlat,jklev)*q(jlon,jlat,jklev)/(eps+q(jlon,jlat,jklev)*(1.-eps))
           zt0t = tzer/t(jlon,jlat,jklev)
           zesk = ezer*exp(-ccw1*log(zt0t)+ccw2*(1.-zt0t))  ! saturated pressure over water (Pa)
           zaux(jklev1) = zzee/zesk*100.
@@ -11620,7 +13206,7 @@ end subroutine surfradpar
 !  3 - product template index (0 instant, 8 statistical, 32 forecast satellite, 1 instant individual ensemble, 11 statistical individual ensemble)
 !  4 - time unit index (0 minute, 1 hour, 2 day, 3 month, 4 year, 13 second)
 !  5 - statistical elaboration type (for statistical products only) : 0 average, 1 accumulation, 2 maximum, 3 minimum
-!  6 - production status of data (0 Operational products, 2 Research products, 3 Re-analysis products, 7 Sub-seasonal to seasonal prediction S2S)
+!  6 - production status of data (0 Operational products, 2 Research products, 3 Re-analysis products, 7 Sub-seasonal to seasonal prediction s2s)
 !  7 - type of data (0 Analysis, 1 Forecast, 2 Analysis and forecast, 3 Control forecast, 4 Perturbed forecast)
 !  8 - indicator of time unit for the increment between successive fields used for statistical elaboration
 ! 10 - level (layer) type (for forecast satellite products code of satellite platform and sensor)
@@ -12040,7 +13626,7 @@ end subroutine surfradpar
     zss = 6.0e-3     ! average stability in value k/km
     do jlat = 1, nlat
     do jlon = 1, nlon
-    zzpp = pzer*sigint(nlev-1)-(pzer-ps(jlon,jlat))*sigalf(nlev-1)
+    zzpp = p(jlon,jlat,nlev-1)
     ztz0(jlon,jlat) = t(jlon,jlat,nlev-1) + zss*(phi(jlon,jlat,nlev-1)/g)
     ztg  = t(jlon,jlat,nlev-1) + zss*log(ps(jlon,jlat)/zzpp)*rd/g*t(jlon,jlat,nlev)*(1.+ep*q(jlon,jlat,nlev))
     ztbarv = .5*(ztz0(jlon,jlat)+ztg) * (1.+ep*q(jlon,jlat,nlev))
@@ -12077,8 +13663,7 @@ end subroutine surfradpar
     do jlon = 1, nlon
 
     do jklev = 1, nlev
-    zzpp = pzer*sigint(jklev)-(pzer-ps(jlon,jlat))*sigalf(jklev)
-    zlnp(jklev) = log(zzpp)
+    zlnp(jklev) = log(p(jlon,jlat,jklev))
     enddo
     zlnp(nlevp1) = log(slp(jlon,jlat)) !! livello ausiliario sea level
 
@@ -12148,7 +13733,7 @@ end subroutine surfradpar
 !  3 - product template index (0 instant, 8 statistical, 32 forecast satellite, 1 instant individual ensemble, 11 statistical individual ensemble)
 !  4 - time unit index (0 minute, 1 hour, 2 day, 3 month, 4 year, 13 second)
 !  5 - statistical elaboration type (for statistical products only) : 0 average, 1 accumulation, 2 maximum, 3 minimum
-!  6 - production status of data (0 Operational products, 2 Research products, 3 Re-analysis products, 7 Sub-seasonal to seasonal prediction S2S)
+!  6 - production status of data (0 Operational products, 2 Research products, 3 Re-analysis products, 7 Sub-seasonal to seasonal prediction s2s)
 !  7 - type of data (0 Analysis, 1 Forecast, 2 Analysis and forecast, 3 Control forecast, 4 Perturbed forecast)
 !  8 - indicator of time unit for the increment between successive fields used for statistical elaboration
 ! 10 - level (layer) type (for forecast satellite products code of satellite platform and sensor)
@@ -12523,6 +14108,802 @@ end subroutine surfradpar
     return
     end subroutine wrshf_g
 !##################################################################################################################
+    subroutine wrshf_s2s (nhouc)
+
+    use mod_model
+    implicit none
+    integer :: iunit1=26, iunit2=27, iunit_work=29, &
+ jlon, jlat, j, jklev, nlevint, nhouc, imin, kout, &
+ ilon1=1, ilon2=gnlon-2, jlat1=1, jlat2=gnlat, flag_lon=0
+    real :: zzpp, ztg, zt0t, zw, zesk, zqsat, ztbarv, zss, zalf, zalp(10), ze1, ze2, zzee, zlog, zqrel
+    real, dimension(nlevp1)       :: zlnp, zaux
+    real, dimension(nlon,nlat)    :: ztz0, slp, q2rel, td2, zsst, zfsice
+    real, dimension(nlon,nlat,10) :: zgph, ztpl, zqpl, zupl, zvpl, zompl
+    real, dimension(nlon,nlat)    :: atg1, at2, atd2, acloudt, asnow
+    real, dimension(nlon,nlat,nlayer_soil_out) :: tg_aveg_out, qg_aveg_out, atg_aveg_out, aqg_aveg_out
+    save atg1, at2, atd2, acloudt, asnow, atg_aveg_out, aqg_aveg_out
+    integer, dimension(50)     :: grib2_descript = 0
+    integer, parameter         :: ivalmiss1 = 4294967295, ivalmiss2 = 255 
+    character(len=30)          :: file_out1, file_out2
+
+!  COMPUTATION OF SLP (Pascal)
+
+    zss = 6.0e-3     ! AVERAGE STABILITY IN VALUE K/KM
+    do jlat = 1, nlat
+    do jlon = 1, nlon
+    zzpp = pzer*sigint(nlev-1)-(pzer-ps(jlon,jlat))*bika(nlev-1)
+    ztz0(jlon,jlat) = t(jlon,jlat,nlev-1) + zss*(phi(jlon,jlat,nlev-1)/g)
+    ztg  = t(jlon,jlat,nlev-1) + zss*log(ps(jlon,jlat)/zzpp)*rd/g*t(jlon,jlat,nlev)*(1.+ep*q(jlon,jlat,nlev))
+    ztbarv = .5*(ztz0(jlon,jlat)+ztg) * (1.+ep*q(jlon,jlat,nlev))
+    slp(jlon,jlat) = ps(jlon,jlat)*exp(phig(jlon,jlat)/(ztbarv*rd))
+    enddo
+    enddo
+    call filt2t1 (slp, 1.)
+    call filt2t1 (slp, 1.)
+    call filt2t1 (slp, 1.)
+    call filt2t1 (slp, 1.)
+
+!  Computation of relative humidity at 2m (in per cent) and dew point
+
+    do jlat = 1, nlat
+    do jlon = 1, nlon
+    zt0t = tzer/t2(jlon,jlat)
+    zesk = ezer*exp(-ccw1*log(zt0t)+ccw2*(1.-zt0t))  !! partial pressure over water
+    zqsat = zesk*eps/(ps(jlon,jlat)+zesk*(eps-1.))
+    q2rel(jlon,jlat) = q2(jlon,jlat)/zqsat*100.
+    zzee = ps(jlon,jlat)*q2(jlon,jlat)/(eps+q2(jlon,jlat)*(1.-eps))
+    zlog = log(zzee/611.)
+     if (t2(jlon,jlat).ge.tzer) then
+     td2(jlon,jlat) = (tzer-33.65/17.40*zlog)/(1.-1./17.40*zlog)
+     else
+     td2(jlon,jlat) = (tzer- 0.75/22.45*zlog)/(1.-1./22.45*zlog)
+     endif
+    enddo
+    enddo
+
+    if (nfdrs(10).eq.0.and.nfdrs(11).eq.0) then ! first call of s2s output: define initial value of cumulated
+!    totprec = rainls + snowls
+    olrtotc = olr*dtstep
+    if (myid.eq.0) print*, 'reset cumulated fields'
+    endif
+
+!  Computation of Soil temperature and moisture (subsequently averaged on top 20 and 100 cm layers, following s2s 
+!  https://confluence.ecmwf.int/display/S2S/S2S+Soil+Moisture+Top+20+cm)
+
+    do kout = 1, nlayer_soil_out ! 20, 100 cm
+      tg_aveg_out(:,:,kout) = 0.
+      qg_aveg_out(:,:,kout) = 0.
+      tg_aveg_out(:,:,kout) = tg_aveg_out(:,:,kout)+tskin(:,:)*weight(0,kout)
+      qg_aveg_out(:,:,kout) = qg_aveg_out(:,:,kout)+qg(:,:,1)*weight(0,kout)
+      do jklev=1,klast(kout)
+        tg_aveg_out(:,:,kout) = tg_aveg_out(:,:,kout)+tg(:,:,jklev)*weight(jklev,kout)
+        qg_aveg_out(:,:,kout) = qg_aveg_out(:,:,kout)+qg(:,:,jklev)*weight(jklev,kout)
+      enddo
+    enddo
+
+  if (myid == 0) then
+
+    ishf=ishf+1
+
+    if (.not.nlclimate) then
+      write (file_out1,'(a,i3.3,a)') 'globo2s_',ishf,'.shf'
+      write (file_out2,'(a,i3.3,a)') 'globo2s_full_',ishf,'.shf'
+    else
+      write (file_out1,'(a,i5.5,a)') 'globos2s_',ishf,'.shf'
+      write (file_out2,'(a,i5.5,a)') 'globos2s_full_',ishf,'.shf'
+    endif
+
+    open (iunit1, file=trim(file_out1), form='unformatted', status='unknown')
+    open (iunit2, file=trim(file_out2), form='unformatted', status='unknown')
+
+    write (iunit1) nfdrs
+    write (iunit1) pdrs
+
+    write (iunit2) nfdrs2
+    write (iunit2) pdr
+  endif
+
+  if (nhouc.eq.0) then
+
+!-----------------------------------------------------------
+!  INTERPOLATION OF VARIABLES ON CONSTANT PRESSURE SURFACES
+!-----------------------------------------------------------
+
+    zalf = .7 
+    zalp(1) = log(1000.e2)
+    zalp(2) = log(925.e2)
+    zalp(3) = log(850.e2)
+    zalp(4) = log(700.e2)
+    zalp(5) = log(500.e2)
+    zalp(6) = log(300.e2)
+    zalp(7) = log(200.e2)
+    zalp(8) = log(100.e2)
+    zalp(9) = log(50.e2)
+    zalp(10)= log(10.e2)
+
+    do jlat = 1, nlat
+    do jlon = 1, nlon 
+
+    do jklev = 1, nlev
+    zzpp = pzer*sigint(jklev)-(pzer-ps(jlon,jlat))*bika(jklev)
+    zlnp(jklev) = log(zzpp)
+    enddo
+    zlnp(nlevp1) = log(slp(jlon,jlat)) !! livello ausiliario sea level
+
+! IN CASE ZLNP(NLEVP1) <= ZLNP(NLEV) (LOWEST MODEL LEVEL BELOW SEA LEVEL) THE AUXILIARY LEVEL
+! AT SEA LEVEL PRESSURE CANNOT BE USED - THIS CONCERNS VERT. INTERPOLATION OF T AND PHI ONLY 
+
+    IF (ZLNP(NLEVP1).LE.ZLNP(NLEV)) THEN 
+    nlevint = nlev 
+    else
+    nlevint = nlevp1
+    endif
+
+!  INTERPOLATION OF GEOPOTENTIAL (CONVERTED TO GEOPOTENTIAL METERS)
+
+    ze1 = 1.
+    ze2 = 1.
+    zaux(1:nlev) = phi(jlon,jlat,1:nlev)/9.8
+    zaux(nlevp1) = 0.
+    call INTERP (zalf, ze1, ze2, nlevint, zlnp, zaux, zalp, zgph(jlon,jlat,1:10), 10)
+
+!  INTERPOLATION OF T
+!print*, "myid, min max t", myid, minval(t), maxval(t)
+    ze1 = .4 
+!    ze2 = .0 
+    ze2 = .4 
+    zaux(1:nlev) = t(jlon,jlat,1:nlev)
+    zaux(nlevp1) = ztz0(jlon,jlat)
+    call INTERP (zalf, ze1, ze2, nlevint, zlnp, zaux, zalp, ztpl(jlon,jlat,1:10), 10)
+!print*, "post interp"
+!print*, "myid, min max t post", myid, minval(ztpl), maxval(ztpl)
+
+!  INTERPOLATION OF Q
+!print*, "poisk 1 myid, min max q", myid, minval(q), maxval(q)
+    ze1 = .4 
+    ze2 = .4 
+    zaux(1:nlev) = q(jlon,jlat,1:nlev)
+    call comp_esk(zesk,zqsat,tskin(jlon,jlat),ps(jlon,jlat),1)
+    zqrel = qskin(jlon,jlat)/zqsat                   ! rel. humidity at the surface
+    call comp_esk(zesk,zqsat,ztz0,slp(jlon,jlat),1)  ! saturation humidity at the sea level
+    zaux(nlevp1) = zqrel*zqsat                       ! q at the sea level
+    call INTERP (zalf, ze1, ze2, nlevint, zlnp, zaux, zalp, zqpl(jlon,jlat,1:10), 10)
+!print*, "poisk 2 myid, min max q post", myid, minval(zqpl), maxval(zqpl)
+
+!  INTERPOLATION OF U,V
+
+    ze1 = .4 
+    ze2 = .4 
+    zaux(1:nlev) = u(jlon,jlat,1:nlev)
+    zaux(nlevp1) = 0.
+    call INTERP (zalf, ze1, ze2, nlevint, zlnp, zaux, zalp, zupl(jlon,jlat,1:10), 10)
+    zaux(1:nlev) = v(jlon,jlat,1:nlev)
+    zaux(nlevp1) = 0.
+    call INTERP (zalf, ze1, ze2, nlevint, zlnp, zaux, zalp, zvpl(jlon,jlat,1:10), 10)
+
+!  INTERPOLATION OF OMEGA
+
+    ze1 = .5 
+    ze2 = .5 
+    zaux(1:nlev) = omeg(jlon,jlat,1:nlev)*(pzer*sigint(1:nlev)-(pzer-ps(jlon,jlat))*bika(1:nlev))
+    call INTERP (zalf, ze1, ze2, nlev, zlnp, zaux, zalp, zompl(jlon,jlat,1:10), 10)
+
+! Sea Surface Temperature and Sea ice fraction
+
+    zsst(jlon,jlat) = atg1(jlon,jlat)
+    zfsice(jlon,jlat) = fice(jlon,jlat)
+    if (fmask(jlon,jlat) < 0.5) then
+      zsst(jlon,jlat) = -999.
+      zfsice(jlon,jlat) = -999.
+    endif
+
+    enddo
+    enddo
+
+! grib2_description - descriptor record for grib2 format coding
+
+!  1 - model index (1 Bolam, 2 Moloch, 3 Globo)
+!  2 - grid template index (1 horizontal grid, 1000 vertical cross-section)
+!  3 - product template index (0 instant, 8 statistical, 32 forecast satellite, 1 instant individual ensemble, 11 statistical individual ensemble)
+!  4 - time unit index (0 minute, 1 hour, 2 day, 3 month, 4 year, 13 second)
+!  5 - statistical elaboration type (for statistical products only) : 0 average, 1 accumulation, 2 maximum, 3 minimum
+!  6 - production status of data (0 Operational products, 2 Research products, 3 Re-analysis products, 7 Sub-seasonal to seasonal prediction s2s)
+!  7 - type of data (0 Analysis, 1 Forecast, 2 Analysis and forecast, 3 Control forecast, 4 Perturbed forecast)
+!  8 - indicator of time unit for the increment between successive fields used for statistical elaboration
+! 10 - level (layer) type (for forecast satellite products code of satellite platform and sensor)
+! 11 - first scaled value of level (layer)
+! 12 - scale of first value of level (layer)
+! 13 - second scaled value of level (layer)
+! 14 - scale of second value of level (layer)
+! 15 - level type of second level for a layer
+! 20 - product discipline
+! 21 - product category
+! 22 - product parameter
+! 30 - flag of bit-map presence: 0 not present, 1 present (uses VALMISS)
+! 31 - member number of perturbed forecast
+! 32 - member index of perturbed forecast
+
+    grib2_descript( 1)    = 3 ! Globo model
+    grib2_descript( 2)    = 1 ! horizontal grid
+    grib2_descript( 3)    = 1 ! instant individual ensemble
+    grib2_descript( 4)    = 1 ! time unit is hour
+!!!    grib2_descript( 6)    = 7 ! Sub-seasonal to seasonal prediction project test  (S2S)
+    grib2_descript( 6)    = 6 ! Sub-seasonal to seasonal prediction project (S2S)
+    grib2_descript( 7)    = 4 ! Perturbed forecast products
+    grib2_descript(10:15) = ivalmiss2
+    grib2_descript(11)    = ivalmiss1
+    grib2_descript(13)    = ivalmiss1
+    grib2_descript(30)    = 0 ! bit-map absent
+
+    call collect (fmask, gfield)
+    if (myid == 0.and.ishf == 1) then
+      grib2_descript(10) =   1 ! Ground or water surface
+      grib2_descript(20) =   2 ! Discipline: Land surface products
+      grib2_descript(21) =   0 ! Category: Vegetation
+      grib2_descript(22) =   0 ! Parameter: Land cover (0=land, 1=sea) (Proportion)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      gfield(:,:) = 1.-gfield(:,:)
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+    endif 
+
+    call collect (phig, gfield)
+    if (myid == 0.and.ishf == 1) then
+      grib2_descript(10) =   1 ! Ground or water surface
+      grib2_descript(20) =   0 ! Discipline: Meteorological products
+      grib2_descript(21) =   3 ! Category: Mass
+      grib2_descript(22) =   5 ! Parameter: Geopotential height (gpm)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      gfield(:,:) = gfield(:,:)/9.8  ! conversion to gpm
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+    endif 
+
+    call collect (zfsice, gfield)
+    if (myid == 0) then
+      grib2_descript(3)  =  11 ! statistical individual ensemble
+      grib2_descript(5)  =   0 ! average
+      grib2_descript(10) =   1 ! Ground or water surface
+      grib2_descript(20) =   10! Discipline: Oceanographic products
+      grib2_descript(21) =   2 ! Category: Ice
+      grib2_descript(22) =   0 ! Parameter: Ice cover (Proportion)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      grib2_descript( 3)    = 1 ! instant individual ensemble
+    endif 
+
+    call collect (slp, gfield)
+    if (myid == 0) then
+      grib2_descript(10) = 101 ! Mean sea level
+      grib2_descript(20) =   0 ! Discipline: Meteorological products
+      grib2_descript(21) =   3 ! Category: Mass
+      grib2_descript(22) =   0 ! Parameter: Pressure (Pa)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+    endif 
+
+    call collect (zsst, gfield)
+    if (myid == 0) then
+      grib2_descript(3)  =  11 ! statistical individual ensemble
+      grib2_descript(5)  =   0 ! average
+      grib2_descript(10) =   1 ! Ground or water surface
+      grib2_descript(20) =  10 ! Discipline: Oceanographic products
+      grib2_descript(21) =   3 ! Category: Surface Properties
+      grib2_descript(22) =   0 ! Parameter: Water temperature (K)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      grib2_descript( 3)    = 1 ! instant individual ensemble
+    endif 
+
+    call collect (at2, gfield)
+    if (myid == 0) then
+      grib2_descript(3)  =  11 ! statistical individual ensemble
+      grib2_descript(5)  =   0 ! average
+      grib2_descript(10) = 103 ! Specified height level above ground (m)
+      grib2_descript(11) =   2 ! 2 m
+      grib2_descript(12) =   0
+      grib2_descript(20) =   0 ! Discipline: Meteorological products
+      grib2_descript(21) =   0 ! Category: Temperature
+      grib2_descript(22) =   0 ! Parameter: Temperature (K)
+      if (ishf == 1) gfield(:,:) = 0.
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      grib2_descript( 3)    = 1 ! instant individual ensemble
+    endif 
+
+    call collect (atd2, gfield)
+    if (myid == 0) then
+      grib2_descript(3)  =  11 ! statistical individual ensemble
+      grib2_descript(5)  =   0 ! average
+      grib2_descript(10) = 103 ! Specified height level above ground (m)
+      grib2_descript(11) =   2 ! 2 m
+      grib2_descript(12) =   0
+      grib2_descript(20) =   0 ! Discipline: Meteorological products
+      grib2_descript(21) =   0 ! Category: Temperature
+      grib2_descript(22) =   6 ! Parameter: Dew point temperature (K)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      grib2_descript( 3)    = 1 ! instant individual ensemble
+    endif 
+
+    grib2_descript(10:15) = ivalmiss2
+    grib2_descript(11)    = ivalmiss1
+    grib2_descript(13)    = ivalmiss1
+
+    call collect (asnow, gfield)
+    if (myid == 0) then
+      grib2_descript(3)  =  11 ! statistical individual ensemble
+      grib2_descript(5)  =   0 ! average
+      grib2_descript(10) =   1 ! Ground or water surface
+      grib2_descript(20) =   0 ! Discipline: Meteorological products
+      grib2_descript(21) =   1 ! Category: Moisture
+      grib2_descript(22) =  60 ! Parameter: Snow depth water equivalent (kg m-2)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      gfield(:,:) = gfield(:,:) * 1.e3 ! -> kg/m^2
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      grib2_descript( 3)    = 1 ! instant individual ensemble
+    endif 
+
+    call collect (acloudt, gfield)
+    if (myid == 0) then
+      grib2_descript(3)  =  11 ! statistical individual ensemble
+      grib2_descript(5)  =   0 ! average
+      grib2_descript(10) =   1 ! Ground or water surface
+      grib2_descript(20) =   0 ! Discipline: Meteorological products
+      grib2_descript(21) =   6 ! Category: Cloud
+      grib2_descript(22) =   1 ! Parameter: Total cloud cover (%)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      gfield(:,:) = gfield(:,:)*1.e2
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      grib2_descript( 3)    = 1 ! instant individual ensemble
+    endif 
+
+! soil layer output - November 2023
+
+    call collect (atg_aveg_out(:,:,1), gfield)
+    if (myid == 0) then
+      grib2_descript(3)  =  11 ! statistical individual ensemble
+      grib2_descript(5)  =   0 ! average
+      grib2_descript(10) = 106 ! Depth below land surface (m)
+      grib2_descript(11) =   0
+      grib2_descript(12) =   0
+      grib2_descript(13) =   2 ! 2*0.1 m
+      grib2_descript(14) =   1
+      grib2_descript(20) =   2 ! Discipline: Land surface products
+      grib2_descript(21) =   0 ! Category: Vegetation/Biomass
+      grib2_descript(22) =   2 ! Parameter: Soil temperature (K)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      grib2_descript( 3)    = 1 ! instant individual ensemble
+    endif 
+
+    call collect (aqg_aveg_out(:,:,1), gfield)
+    if (myid == 0) then
+      grib2_descript(3)  =  11 ! statistical individual ensemble
+      grib2_descript(5)  =   0 ! average
+      grib2_descript(10) = 106 ! Depth below land surface (m)
+      grib2_descript(11) =   0
+      grib2_descript(12) =   0
+      grib2_descript(13) =   2 ! 2*0.1 m
+      grib2_descript(14) =   1
+      grib2_descript(20) =   2 ! Discipline: Land surface products
+      grib2_descript(21) =   0 ! Category: Vegetation/Biomass
+      grib2_descript(22) =  22 ! Parameter: Soil Moisture
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      gfield(:,:)=gfield(:,:)*1.e3 ! il *1000 e' per renderlo kg/m3 come da richiesta S2S
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      grib2_descript( 3)    = 1 ! instant individual ensemble
+    endif 
+
+    call collect (atg_aveg_out(:,:,2), gfield)
+    if (myid == 0) then
+      grib2_descript(3)  =  11 ! statistical individual ensemble
+      grib2_descript(5)  =   0 ! average
+      grib2_descript(10) = 106 ! Depth below land surface (m)
+      grib2_descript(11) =   0
+      grib2_descript(12) =   0
+      grib2_descript(13) =  10 ! 10*0.1 m
+      grib2_descript(14) =   1 ! 
+      grib2_descript(20) =   2 ! Discipline: Land surface products
+      grib2_descript(21) =   0 ! Category: Vegetation/Biomass
+      grib2_descript(22) =   2 ! Parameter: Soil temperature (K)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      grib2_descript( 3)    = 1 ! instant individual ensemble
+    endif 
+
+    call collect (aqg_aveg_out(:,:,2), gfield)
+    if (myid == 0) then
+      grib2_descript(3)  =  11 ! statistical individual ensemble
+      grib2_descript(5)  =   0 ! average
+      grib2_descript(10) = 106 ! Depth below land surface (m)
+      grib2_descript(11) =   0
+      grib2_descript(12) =   0
+      grib2_descript(13) =  10 ! 10*0.1 m
+      grib2_descript(14) =   1 ! 
+      grib2_descript(20) =   2 ! Discipline: Land surface products
+      grib2_descript(21) =   0 ! Category: Vegetation/Biomass
+      grib2_descript(22) =  22 ! Parameter: Soil Moisture
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      gfield(:,:)=gfield(:,:)*1.e3 ! il *1000 e' per renderlo kg/m3 come da richiesta S2S
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      grib2_descript( 3)    = 1 ! instant individual ensemble
+    endif 
+
+    grib2_descript(10:15) = ivalmiss2
+    grib2_descript(11)    = ivalmiss1
+    grib2_descript(13)    = ivalmiss1
+  
+    if (nfdrs(10).eq.0.and.nfdrs(11).eq.0) then ! validity time is 0 UTC every day
+      if (myid.eq.0) gfield = 0.  
+    else
+      call collect (olrtotc, gfield)
+    endif
+    if (myid == 0) then
+      grib2_descript(3)  =  11 ! statistical individual ensemble
+      grib2_descript(5)  =   1 ! accumulation
+      grib2_descript(10) =   8 ! Nominal top of the atmosphere
+      grib2_descript(20) =   0 ! Discipline: Meteorological products
+      grib2_descript(21) =   5 ! Category: long-wave radiation
+      grib2_descript(22) =   5 ! Parameter: Net long-wave radiation flux (W m-2)
+      write (iunit1) grib2_descript
+!!!      write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
+!!!      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      grib2_descript( 3)    = 1 ! instant individual ensemble
+    endif 
+
+  do jklev = 1, 10
+
+    if (myid == 0) then
+      grib2_descript(10) = 100 ! Isobaric surface (Pa)
+      grib2_descript(11) = nint(exp(zalp(jklev)))
+      grib2_descript(12) =  0
+      grib2_descript(20) =  0 ! Discipline: Meteorological products
+      grib2_descript( 3) =  1 ! instant individual ensemble
+    endif
+
+    call collect (zgph(:,:,jklev), gfield)
+    if (myid == 0) then
+      grib2_descript(21) =   3 ! Category: Mass
+      grib2_descript(22) =   5 ! Parameter: Geopotential height (gpm)
+      write (iunit1) grib2_descript
+      call wremap (iunit1)
+      if (jklev == 1.or.jklev == 2.or.jklev == 3.or.jklev == 5) then
+        write (iunit2) grib2_descript
+        call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      endif
+    endif 
+
+    call collect (ztpl(:,:,jklev), gfield)
+    if (myid == 0) then
+      grib2_descript(21) =   0 ! Category: Temperature
+      grib2_descript(22) =   0 ! Parameter: Temperature (K)
+      write (iunit1) grib2_descript
+      call wremap (iunit1)
+      if (jklev == 1.or.jklev == 2.or.jklev == 3.or.jklev == 5) then
+        write (iunit2) grib2_descript
+        call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      endif
+    endif 
+
+    call collect (zqpl(:,:,jklev), gfield)
+    if (myid == 0) then
+      grib2_descript(21) =   1 ! Category: Moisture
+      grib2_descript(22) =   0 ! Parameter: Specific humidity (kg kg-1)
+      if (jklev <= 7 ) then
+        write (iunit1) grib2_descript
+        call wremap (iunit1)
+      endif
+      if (jklev == 1.or.jklev == 2.or.jklev == 3.or.jklev == 5) then
+        write (iunit2) grib2_descript
+        call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      endif
+    endif 
+
+    call collect (zupl(:,:,jklev), gfield)
+    if (myid == 0) then
+      grib2_descript(21) =   2 ! Category: Momentum
+      grib2_descript(22) =   2 ! u-component of wind (m s-1)
+      write (iunit1) grib2_descript
+      call wremap (iunit1)
+      if (jklev == 1.or.jklev == 2.or.jklev == 3.or.jklev == 5) then
+        write (iunit2) grib2_descript
+        call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      endif
+    endif 
+
+    call collect (zvpl(:,:,jklev), gfield)
+    if (myid == 0) then
+      grib2_descript(21) =   2 ! Category: Momentum
+      grib2_descript(22) =   3 ! v-component of wind (m s-1)
+      write (iunit1) grib2_descript
+      call wremap (iunit1)
+      if (jklev == 1.or.jklev == 2.or.jklev == 3.or.jklev == 5) then
+        write (iunit2) grib2_descript
+        call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      endif
+    endif 
+
+    call collect (zompl(:,:,jklev), gfield)
+    if (myid == 0) then
+      grib2_descript(21) =   2 ! Category: Momentum
+      grib2_descript(22) =   8 ! Vertical velocity [pressure] (Pa s-1)
+      write (iunit1) grib2_descript
+      call wremap (iunit1)
+!!!      write (iunit2) grib2_descript
+!!!      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+    endif 
+
+  enddo
+
+    atg1    = 0.
+    at2     = 0.
+    atd2    = 0.
+    asnow   = 0.
+    acloudt = 0.
+! soil layer output - November 2023
+    atg_aveg_out = 0.
+    aqg_aveg_out = 0.
+
+  endif  ! nhouc
+
+!-----------------------------------------------------------
+!  Write every 6 hours
+!-----------------------------------------------------------
+    grib2_descript(20) =   0 ! Discipline: Meteorological products
+    grib2_descript( 3) = 1   ! instant individual ensemble
+
+    grib2_descript(10:15) = ivalmiss2
+    grib2_descript(11)    = ivalmiss1
+    grib2_descript(13)    = ivalmiss1
+
+    call collect (u10, gfield)
+    if (myid == 0) then
+      grib2_descript(10) = 103 ! Specified height level above ground (m)
+      grib2_descript(11) =  10 ! 10 m
+      grib2_descript(12) =   0
+      grib2_descript(21) =   2 ! Category: Momentum
+      grib2_descript(22) =   2 ! Parameter: u-component of wind (m s-1)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+    endif 
+
+    call collect (v10, gfield)
+    if (myid == 0) then
+      grib2_descript(10) = 103 ! Specified height level above ground (m)
+      grib2_descript(11) =  10 ! 10 m
+      grib2_descript(12) =   0
+      grib2_descript(21) =   2 ! Category: Momentum
+      grib2_descript(22) =   3 ! Parameter: v-component of wind (m s-1)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+    endif 
+
+    call collect (t2min, gfield)
+    if (myid == 0) then
+      grib2_descript(3)  =  11 ! statistical individual ensemble
+      grib2_descript(5)  =   3 ! Minimum
+      grib2_descript(10) = 103 ! Specified height level above ground (m)
+      grib2_descript(11) =   2 ! 2 m
+      grib2_descript(12) =   0
+      grib2_descript(21) =   0 ! Category: Temperature
+      grib2_descript(22) =   0 ! Parameter: Temperature (K)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      grib2_descript( 3)    = 1 ! instant individual ensemble
+    endif 
+
+    call collect (t2max, gfield)
+    if (myid == 0) then
+      grib2_descript(3)  =  11 ! statistical individual ensemble
+      grib2_descript(5)  =   2 ! Maximum
+      grib2_descript(10) = 103 ! Specified height level above ground (m)
+      grib2_descript(11) =   2 ! 2 m
+      grib2_descript(12) =   0
+      grib2_descript(21) =   0 ! Category: Temperature
+      grib2_descript(22) =   0 ! Parameter: Temperature (K)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      grib2_descript( 3)    = 1 ! instant individual ensemble
+    endif 
+
+    if (nfdrs(10) == 0.and.nfdrs(11) == 0) then
+      if (myid.eq.0) gfield = 0.
+    else
+      call collect (totprec, gfield)
+      t2min  = 999.
+      t2max  = 0.
+    endif
+
+    grib2_descript(10:15) = ivalmiss2
+    grib2_descript(11)    = ivalmiss1
+    grib2_descript(13)    = ivalmiss1
+
+    if (myid == 0) then
+      grib2_descript(3)  =  11 ! statistical individual ensemble
+      grib2_descript(5)  =   1 ! Accumulation
+      grib2_descript(10) =   1 ! Ground or water surface
+      grib2_descript(21) =   1 ! Category: Moisture
+      grib2_descript(22) =  52 ! Parameter: Total precipitation rate (kg m-2 s-1)
+      write (iunit1) grib2_descript
+      write (iunit2) grib2_descript
+      if (ishf == 1) gfield(:,:) = 0.
+      call wremap (iunit1)
+      call wrec2 (iunit2, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+      grib2_descript( 3)    = 1 ! instant individual ensemble
+    endif 
+
+!-----------------------------------------------------------
+!  Daily averages
+!-----------------------------------------------------------
+
+    atg1(:,:) = atg1(:,:) + tg(:,:,1)*.25
+    at2       = at2 + t2*.25
+    atd2      = atd2 + td2*.25
+    asnow     = asnow + snow*.25
+    call ccloud
+    acloudt   = acloudt + cloudt*.25
+
+! soil layer output - November 2023
+    do kout = 1,nlayer_soil_out
+      atg_aveg_out(:,:,kout) = atg_aveg_out(:,:,kout) + tg_aveg_out(:,:,kout)*.25
+      aqg_aveg_out(:,:,kout) = aqg_aveg_out(:,:,kout) + qg_aveg_out(:,:,kout)*.25
+    enddo
+
+  if (myid == 0) then
+    close (iunit1)
+    close (iunit2)
+
+    open  (iunit_work, file=trim(file_out1)//'.txt', status='unknown')
+    write (iunit_work,'(2a)') trim(file_out1),' is full and close'
+    close (iunit_work)
+
+    open  (iunit_work, file=trim(file_out2)//'.txt', status='unknown')
+    write (iunit_work,'(2a)') trim(file_out2),' is full and close'
+    close (iunit_work)
+
+    print *
+    print '(4a,10i4)', trim(file_out1),' and ',trim(file_out2), ' written',nfdrs(10:12)
+  endif
+
+    return
+    end
+!################################################################################################################
+    subroutine climupd (infy, ndayr, nyrc, nmonc, iflag)
+
+    use mod_model, only: fmask, mask_soil, fice_rd, fice, iceth, iceth_rd, &
+ gfield, gnlon, gnlat, nlon, nlat, myid, tgcist, ficecist, tgclim, tganom, nlevg, tg
+
+    implicit none
+    integer infy, ndayr, nyrc, nmonc, iflag, ipenta, lastpenta, jlon, jlat, ndayr0
+    real, parameter :: zdump=.80**(1./30.), zrelaxi=.03
+    real zlat
+    save ndayr0
+
+    if (iflag.eq.0) then
+
+    ndayr0 = ndayr
+    if (myid.eq.0) open (10, file='climate.bin', status='old', form='unformatted')
+    do ipenta = 1, 73
+    if (myid.eq.0) call rrec2_old (10, gnlon, gnlat, gfield)
+    call disperse (gfield, tgcist(1,1,ipenta))
+    enddo
+    do ipenta = 1, 73
+    if (myid.eq.0) call rrec2_old (10, gnlon, gnlat, gfield)
+    call disperse (gfield, ficecist(1,1,ipenta))
+    enddo
+    if (myid.eq.0) close (10)
+
+    ipenta = 1 + (ndayr-1)/5
+    if (mod(nyrc,4).eq.0.and.nmonc.gt.2) ipenta = 1 + (ndayr-2)/5
+
+    do jlat = 1, nlat
+    do jlon = 1, nlon
+    tganom(jlon,jlat) = tg(jlon,jlat,nlevg) - tgcist(jlon,jlat,ipenta)
+    ficecist(jlon,jlat,ipenta) = min (ficecist(jlon,jlat,ipenta), 1.)
+    enddo
+    enddo
+
+    else
+
+    if (myid==0) then
+      print *
+      print *, '** SST, FICE and TGCLIM read **'
+    endif
+    ipenta = 1 + (ndayr-1)/5
+    if (mod(nyrc,4).eq.0.and.nmonc.gt.2) ipenta = 1 + (ndayr-2)/5
+
+    do jlat = 1, nlat
+    zlat = -90.+(infy+jlat-2)*180./(gnlat-1)
+    do jlon = 1, nlon
+    if (ndayr0.lt.30.or.ndayr0.gt.255) then ! fall/winter
+      if (zlat.gt.0.) then  ! NH
+        if (fice_rd(jlon,jlat).lt.ficecist(jlon,jlat,ipenta)) then
+        fice_rd(jlon,jlat) = fice_rd(jlon,jlat) + zrelaxi*(ficecist(jlon,jlat,ipenta)-fice_rd(jlon,jlat))
+        endif
+      else                  ! SH
+        if (fice_rd(jlon,jlat).gt.ficecist(jlon,jlat,ipenta)) then
+        fice_rd(jlon,jlat) = fice_rd(jlon,jlat) + zrelaxi*(ficecist(jlon,jlat,ipenta)-fice_rd(jlon,jlat))
+        endif
+      endif
+    elseif (ndayr0.gt.50.and.ndayr0.le.220) then  ! spring/summer
+      if (zlat.gt.0.) then  ! NH
+        if (fice_rd(jlon,jlat).gt.ficecist(jlon,jlat,ipenta)) then
+        fice_rd(jlon,jlat) = fice_rd(jlon,jlat) + zrelaxi*(ficecist(jlon,jlat,ipenta)-fice_rd(jlon,jlat))
+        endif
+      else                  ! SH
+        if (fice_rd(jlon,jlat).lt.ficecist(jlon,jlat,ipenta)) then
+        fice_rd(jlon,jlat) = fice_rd(jlon,jlat) + zrelaxi*(ficecist(jlon,jlat,ipenta)-fice_rd(jlon,jlat))
+        endif
+      endif
+    endif
+    fice_rd(jlon,jlat) = min( max (fice_rd(jlon,jlat), 0.), 1.)
+
+    tganom(jlon,jlat) = tganom(jlon,jlat)*zdump
+
+    tgclim(jlon,jlat) = tgcist(jlon,jlat,ipenta) + tganom(jlon,jlat)
+
+    if (mask_soil(jlon,jlat) == 0) then ! sea only !
+      tg(jlon,jlat,nlevg) = tgclim(jlon,jlat)
+    endif
+
+    iceth_rd(jlon,jlat) = iceth(jlon,jlat)
+    if (fice_rd(jlon,jlat) >= 0.8.and.fice(jlon,jlat) < 0.8) iceth_rd(jlon,jlat) = 1. ! 1 m sea ice thikness for soil scheme application
+
+    enddo
+    enddo
+
+    endif
+
+    return
+    end
+
+!###############################################################################################################
     subroutine comp_esk (esat, qsat, t, p, iflag)
 
 ! Computes esat from temperature and qsat from absolute temperature and pressure.
@@ -12605,7 +14986,7 @@ use yoethf   , only : r2es     ,r3les    ,r3ies    ,r4les              ,&
                       rtwat_rtice_r      ,rtwat_rticecu_r
 
 use mod_model, only : nlon, nlat, nlev, gnlon, gnlat, gfield, gfield1, &
-                      dlon, dlat, sig, sigint, sigalf, ps, pzer, t,    &
+                      dlon, dlat, sig, sigint, ps, pzer, p, t, &
                       tskin, aerosol, ozon, myid, alont, alatt, tzer,  &
                       g, phig, aerotot, rdecli0, reqtim0, fmask
 implicit none
@@ -12922,7 +15303,7 @@ endif
 
     do jklev = 1, nlev
     do jlon = 1, nlon
-    pap5(jlon,jklev) = pzer*sigint(jklev) - (pzer-ps(jlon,jlat))*sigalf(jklev)
+    pap5(jlon,jklev) = p(jlon,jlat,jklev)
     enddo
     enddo
 
@@ -13118,8 +15499,8 @@ endif
   use yoerdu,    only : nuaer, ntraer, nout, rcday, r10e, replog, repsc, repsco, repscq, repsct, repscw, diff
   use yoesw,     only : lo3only
 
-  use mod_model, only : nlon, nlat, nlev, gnlon, gnlat, gfield, nlevp1, dlon, dlat, sig, sigint, sigalf,  &
-                        ps, pzer, t, tskin, aerosol, ozon, aerotot, myid, rdecli0, reqtim0, alont, alatt
+  use mod_model, only : nlon, nlat, nlev, gnlon, gnlat, gfield, nlevp1, dlon, dlat, sig, sigint, &
+                        ps, pzer, p, t, tskin, aerosol, ozon, aerotot, myid, rdecli0, reqtim0, alont, alatt
 
   parameter (jp_lon=nlon, jp_lev=nlev, jp_lw=6, jp_sw=6, jp_nua=24, jp_mode=1, jp_aer=6, jp_levp1=jp_lev+1)
 
@@ -13303,7 +15684,7 @@ endif
 
     do jklev = 1, nlev
     do jlon = 1, nlon
-    pap5(jlon,jklev) = pzer*sigint(jklev) - (pzer-ps(jlon,jlat))*sigalf(jklev)
+    pap5(jlon,jklev) = p(jlon,jlat,jklev)
     enddo
     enddo
 
@@ -13562,8 +15943,8 @@ use yoethf   , only : r2es     ,r3les    ,r3ies    ,r4les              ,&
                       ralvdcp  ,ralsdcp  ,rtwat    ,rtice    ,rticecu  ,&
                       rtwat_rtice_r      ,rtwat_rticecu_r
 
-use mod_model, only : nlon, nlat, nlonr, nradm, nlev, dlon, dlat, cpd, cpv, sig, sigint, sigalf, ps, &
-                      pzer, t, tskin, t2, aerosol, ozon, myid, corvis, corirr, corrdt, tzer, q, qcw, &
+use mod_model, only : nlon, nlat, nlonr, nradm, nlev, dlon, dlat, cpd, cpv, ps, &
+                      pzer, p, t, tskin, t2, aerosol, ozon, myid, corvis, corirr, corrdt, tzer, q, qcw, &
                       qci, qrain, qsnow, qhail, fcloud, ccw1, ccw2, cci1, cci2, eps, ezer, emisg1,   &
                       emisg2, albedo, fsnow, fmask, fice, alsn, g, co2ppm, mcica, alont, alatt,      &
                       cloudt, rdecli0, reqtim0
@@ -13868,7 +16249,7 @@ endif
   do jklev = 1, nlev
   do jl = 1, nlonr
   jlon = jl1 + (jl-1)*nradm
-  pap5(jl,jklev) = pzer*sigint(jklev) - (pzer-ps(jlon,jlat))*sigalf(jklev)
+  pap5(jl,jklev) = p(jlon,jlat,jklev)
   enddo
   enddo
 
@@ -14055,9 +16436,9 @@ endif
   use yoethf,    only : rtwat, rtice
   use yoephli,   only : lphylin
 
-  use mod_model, only : nlon, nlat, nlonr, nradm, nlev, nlevp1, dlon, dlat, cpd, cpv, sig, sigint, sigalf,    &
+  use mod_model, only : nlon, nlat, nlonr, nradm, nlev, nlevp1, dlon, dlat, cpd, cpv, &
                         ps, fmask, phig, albedo, alsn, emisg1, emisg2, fsnow, tskin, qskin, corrdt, corvis, corirr, &
-                        fcloud, t, q, qcw, qci, qrain, qsnow, ezer, pzer, g, eps, ccw1, ccw2, cci1, cci2,     &
+                        fcloud, p, t, q, qcw, qci, qrain, qsnow, ezer, pzer, g, eps, ccw1, ccw2, cci1, cci2,     &
                         co2ppm, fice, nprocsy, myid, aerosol, ozon, olr, ntop, alont, alatt, rdecli0, reqtim0
 
   parameter (jp_lon=nlonr, jp_lev=nlev, jp_lw=6, jp_sw=6, jp_nua=24, jp_mode=1, jp_aer=6, jp_levp1=jp_lev+1)
@@ -14382,7 +16763,7 @@ endif
   do jklev = 1, nlev
   do jl = kidia, kfdia
   jlon = jl1+(jl-1)*nradm
-  pap5(jl,jklev) = pzer*sigint(jklev) - (pzer-ps(jlon,jlat))*sigalf(jklev)
+  pap5(jl,jklev) = p(jlon,jlat,jklev)
   enddo
   enddo
 
@@ -14599,9 +16980,9 @@ endif
 ! Cloud fraction is reduced depending on local (moist) Richardson number
 ! and pbl stability.
 
-      use mod_model, only : nlon, nlat, nlev, nlonm1, nlatm1, nlevp1, ntop, u, v, t, &
-                            q, qcw, qci, tvirt, fcloud, qsnow, rich, sigint, ps,     &
-                            sigalf, rgm, huc, tskin, qskin, phig, phi, phih, fmask,  &
+      use mod_model, only : nlon, nlat, nlev, nlonm1, nlatm1, nlevp1, ntop, p, u, v, t, &
+                            q, qcw, qci, tvirt, fcloud, qsnow, rich, ps,     &
+                            rgm, huc, tskin, qskin, phig, phi, phih, fmask,  &
                             rd, cpv, cpd, g, ep, eps, rdrcp, pzer, tzer, ezer, alp0, &
                             ccw1, ccw2, ylwv
       implicit none
@@ -14627,7 +17008,7 @@ endif
 
     do jklev = 1, nlev   ! loop on half levels
     do jlon = 2, nlonm1
-     zzpp = pzer*sigint(jklev) - (pzer-ps(jlon,jlat))*sigalf(jklev)
+     zzpp = p(jlon,jlat,jklev)
      zconv(jlon,jklev) = exp(rdrcp*(alp0-log(zzpp)))
      zt0t = tzer/t(jlon,jlat,jklev)
      zesk = ezer*exp(-ccw1*log(zt0t)+ccw2*(1.-zt0t))     ! partial pressure over water
@@ -14717,7 +17098,7 @@ endif
       do jklev = ntop, nlev
       do jlat = 1, nlat
       do jlon = 2, nlonm1
-      zppp = pzer*sigint(jklev)-(pzer-ps(jlon,jlat))*sigalf(jklev)
+      zppp = p(jlon,jlat,jklev)
       ztmp = t(jlon,jlat,jklev)
       call comp_esk(zesat,zqs1,ztmp,zppp,2)  ! blended saturation
       call comp_esk(zesat,zqs2,ztmp,zppp,3)  ! sat. to water below 0
@@ -14895,10 +17276,10 @@ endif
 !  Slab sea scheme
 !  Sea includes thin sea ice - thick sea ice is treated as land glacier
 
-    use mod_model, only : tg, qgice, tskin, qskin, nlevg, t, q, hflux, qflux, frvis, frirr, fsnow, snow,  &
+    use mod_model, only : tg, qgice, tskin, qskin, nlevg, p, t, q, hflux, qflux, frvis, frirr, fsnow, snow,  &
                           dtstep, nlev, ccw1, ccw2, cci1, cci2, tzer, ezer, ps, eps, &
                           roscd, nlonm1, nlatm1, fmask, fice, rgmd, mask_soil, kturb_surf_h, kturb_surf_q, tvirt, phi, phig, &
-                          pzer, g, cpd, sigalf, sigint, rd, rdrcp, alp0, ep, myid
+                          g, cpd, rd, rdrcp, alp0, ep, myid
     implicit none
 
     real, parameter :: ztice=tzer-0.5
@@ -14935,7 +17316,7 @@ endif
 
       zconvg = exp(rdrcp*(alp0-log(ps(jlon,jlat))))*(1.+ep*qskin(jlon,jlat))
       ztevg = tskin(jlon,jlat)*zconvg
-      zzpp = pzer*sigint(nlev) - (pzer-ps(jlon,jlat))*sigalf(nlev)
+      zzpp = p(jlon,jlat,nlev)
       zconv = exp(rdrcp*(alp0-log(zzpp)))
       ztetav = tvirt(jlon,jlat,nlev)*zconv
       zrho_skin = ps(jlon,jlat)/(rd*tskin(jlon,jlat)*(1.+ep*qskin(jlon,jlat)))
@@ -15098,12 +17479,15 @@ endif
  return
  end subroutine interp
 !##################################################################################################################
-      subroutine tqmass (ps, q, nlon, nlat, nlev, hxt, dlon, dlat, myid, nprocsx, nprocsy, &
-                         dsig, dsigalf, pzer, g, tom)
+subroutine tqmass (ps, q, nlon, nlat, nlev, hxt, dlon, dlat, myid, nprocsx, nprocsy, &
+                   dsig, dbika, pzer, g, tom)
 
 ! For globo
 
-      real(4) ps(nlon,nlat), hxt(nlat), q(nlon,nlat,nlev), dsig(nlev), dsigalf(nlev)
+ real, dimension(nlon,nlat) :: ps
+ real, dimension(nlon,nlat,nlev) :: q
+ real, dimension(nlat) :: hxt
+ real, dimension(nlev) :: dsig, dbika
 
       pi = abs(acos(-1.))
       tom = 0.
@@ -15111,7 +17495,7 @@ endif
       do jklev = 2, nlev
       do jlat = 2, nlat-1
       do jlon = 2, nlon-1
-      zdpkp = pzer*dsig(jklev) - (pzer-ps(jlon,jlat))*dsigalf(jklev)
+      zdpkp = pzer*dsig(jklev) - (pzer-ps(jlon,jlat))*dbika(jklev)
 !      tom = tom + ps(jlon,jlat)*hxt(jlat)*dlon*dlat*(pi/180.)**2
       tom = tom + hxt(jlat)*dlon*dlat*(pi/180.)**2*q(jlon,jlat,jklev)*zdpkp/g
       enddo
@@ -15120,14 +17504,14 @@ endif
 
       if (mod(myid,nprocsy).eq.0) then
       do jklev = 2, nlev
-      zdpkp = pzer*dsig(jklev) - (pzer-ps(1,1))*dsigalf(jklev)
+      zdpkp = pzer*dsig(jklev) - (pzer-ps(1,1))*dbika(jklev)
       tom = tom + q(1,1,jklev)*zdpkp/g*2.*pi*(1.-cos(dlat*pi/360.))/float(nprocsx)
       enddo
       endif
 
       if (mod(myid,nprocsy).eq.nprocsy-1) then
       do jklev = 2, nlev
-      zdpkp = pzer*dsig(jklev) - (pzer-ps(1,nlat))*dsigalf(jklev)
+      zdpkp = pzer*dsig(jklev) - (pzer-ps(1,nlat))*dbika(jklev)
 !      tom = tom + ps(1,nlat)*2.*pi*(1.-cos(dlat*pi/360.))/float(nprocsx)
       tom = tom + q(1,nlat,jklev)*zdpkp/g*2.*pi*(1.-cos(dlat*pi/360.))/float(nprocsx)
       enddo
@@ -15144,6 +17528,7 @@ endif
 
     use mod_model, only: gnlon, nlon, nlat, nlev, nlonm1, nlatm1, nprocsx, npolcap, filtt1,  &
                          hxt, myid, ip_e, ip_n, ip_s, ip_w, ip_null
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_put_1d, u_ghost_get_2d, u_ghost_get_1d
 
     real(4) p(nlon,nlat,nlev), p1(nlon,nlev)
     real, parameter :: zsq2 = (gnlon-2)/sqrt(2.)
@@ -15176,8 +17561,16 @@ endif
     p(nlon,:,:) = p(2,:,:)
 #ifdef mpi
       else
-        call u_ghost (p(nlonm1,:,:), ip_e, p(1   ,:,:), ip_w, nlat*nlev)
-        call u_ghost (p(2     ,:,:), ip_w, p(nlon,:,:), ip_e, nlat*nlev)
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(p(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(p(2,:,:), 4)      ! send to west
+
+        call u_ghost_get_2d(p(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(p(nlon,:,:), 4)   ! receive from east
+
+!        call u_ghost_old (p(nlonm1,:,:), ip_e, p(1   ,:,:), ip_w, nlat*nlev)
+!        call u_ghost_old (p(2     ,:,:), ip_w, p(nlon,:,:), ip_e, nlat*nlev)
       endif
 #endif
 
@@ -15198,8 +17591,16 @@ endif
     p1(nlon,1:nlev) = p1(2     ,1:nlev)
 #ifdef mpi
       else
-        call u_ghost (p1(nlonm1,1:nlev), ip_e, p1(1   ,1:nlev), ip_w, nlev)
-        call u_ghost (p1(2     ,1:nlev), ip_w, p1(nlon,1:nlev), ip_e, nlev)
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(p1(nlonm1,1:nlev), 2) ! send to est
+        call u_ghost_put_1d(p1(2,1:nlev), 4)      ! send to west
+
+        call u_ghost_get_1d(p1(1,1:nlev), 2)      ! receive from west
+        call u_ghost_get_1d(p1(nlon,1:nlev), 4)   ! receive from east
+
+!        call u_ghost_old (p1(nlonm1,1:nlev), ip_e, p1(1   ,1:nlev), ip_w, nlev)
+!        call u_ghost_old (p1(2     ,1:nlev), ip_w, p1(nlon,1:nlev), ip_e, nlev)
       endif
 #endif
     p(1:nlon,jlat,1:nlev) = p(1:nlon,jlat,1:nlev) + anu*p1(1:nlon,1:nlev)
@@ -15215,6 +17616,7 @@ endif
 
     use mod_model, only: gnlon, nlon, nlat, nlev, nlonm1, nlatm1, nprocsx, npolcap, u, v, filtu1, filtv1, &
                          hxt, myid, ip_e, ip_n, ip_s, ip_w, ip_null
+    use u_ghost, only : use_comm, u_ghost_init, u_ghost_put_2d, u_ghost_put_1d, u_ghost_get_2d, u_ghost_get_1d
 
     real(4) p1(nlon,nlev)
     real, parameter :: zsq2 = (gnlon-2)/sqrt(2.)
@@ -15253,10 +17655,22 @@ endif
     v(nlon,:,:) = v(2     ,:,:)
 #ifdef mpi
       else
-        call u_ghost (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
-        call u_ghost (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
-        call u_ghost (v(nlonm1,:,:), ip_e, v(1   ,:,:), ip_w, nlat*nlev)
-        call u_ghost (v(2     ,:,:), ip_w, v(nlon,:,:), ip_e, nlat*nlev)
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_2d(u(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(u(2,:,:), 4)      ! send to west
+        call u_ghost_put_2d(v(nlonm1,:,:), 2) ! send to est
+        call u_ghost_put_2d(v(2,:,:), 4)      ! send to west
+
+        call u_ghost_get_2d(u(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(u(nlon,:,:), 4)   ! receive from east
+        call u_ghost_get_2d(v(1,:,:), 2)      ! receive from west
+        call u_ghost_get_2d(v(nlon,:,:), 4)   ! receive from east
+
+!        call u_ghost_old (u(nlonm1,:,:), ip_e, u(1   ,:,:), ip_w, nlat*nlev)
+!        call u_ghost_old (u(2     ,:,:), ip_w, u(nlon,:,:), ip_e, nlat*nlev)
+!        call u_ghost_old (v(nlonm1,:,:), ip_e, v(1   ,:,:), ip_w, nlat*nlev)
+!        call u_ghost_old (v(2     ,:,:), ip_w, v(nlon,:,:), ip_e, nlat*nlev)
       endif
 #endif
 
@@ -15277,8 +17691,16 @@ endif
     p1(nlon,1:nlev) = p1(2     ,1:nlev)
 #ifdef mpi
       else
-        call u_ghost (p1(nlonm1,1:nlev), ip_e, p1(1   ,1:nlev), ip_w, nlev)
-        call u_ghost (p1(2     ,1:nlev), ip_w, p1(nlon,1:nlev), ip_e, nlev)
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(p1(nlonm1,1:nlev), 2) ! send to est
+        call u_ghost_put_1d(p1(2,1:nlev), 4)      ! send to west
+
+        call u_ghost_get_1d(p1(1,1:nlev), 2)      ! receive from west
+        call u_ghost_get_1d(p1(nlon,1:nlev), 4)   ! receive from east
+
+!        call u_ghost_old (p1(nlonm1,1:nlev), ip_e, p1(1   ,1:nlev), ip_w, nlev)
+!        call u_ghost_old (p1(2     ,1:nlev), ip_w, p1(nlon,1:nlev), ip_e, nlev)
       endif
 #endif
     u(1:nlon,jlat,1:nlev) = u(1:nlon,jlat,1:nlev) + anu*p1(1:nlon,1:nlev)
@@ -15300,8 +17722,16 @@ endif
     p1(nlon,1:nlev) = p1(2     ,1:nlev)
 #ifdef mpi
       else
-        call u_ghost (p1(nlonm1,1:nlev), ip_e, p1(1   ,1:nlev), ip_w, nlev)
-        call u_ghost (p1(2     ,1:nlev), ip_w, p1(nlon,1:nlev), ip_e, nlev)
+        call u_ghost_init(use_comm)
+
+        call u_ghost_put_1d(p1(nlonm1,1:nlev), 2) ! send to est
+        call u_ghost_put_1d(p1(2,1:nlev), 4)      ! send to west
+
+        call u_ghost_get_1d(p1(1,1:nlev), 2)      ! receive from west
+        call u_ghost_get_1d(p1(nlon,1:nlev), 4)   ! receive from east
+
+!        call u_ghost_old (p1(nlonm1,1:nlev), ip_e, p1(1   ,1:nlev), ip_w, nlev)
+!        call u_ghost_old (p1(2     ,1:nlev), ip_w, p1(nlon,1:nlev), ip_e, nlev)
       endif
 #endif
     v(1:nlon,jlat,1:nlev) = v(1:nlon,jlat,1:nlev) + anu*p1(1:nlon,1:nlev)

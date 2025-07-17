@@ -1,7 +1,11 @@
 !
 !     program postmoloch
 
-! Last update 04/11/2022
+! Last update 16/10/2024
+
+! Sett. 2024: Cambiata la scrittura di model_param_constant.bin - piu' grandezze
+
+! Giu. 2024: Nuovo formato mhf (scrittura record non 1d ma 2d)
 
 ! Nov. 2022: prodotti del manto nevoso: profondita', temperatura, densita'
 ! ed eta della neve alla superficie, in fondo e alla meta' del manto.
@@ -2496,6 +2500,30 @@ endif ! output_format_grib2
 stop
 end
 !###############################################################################################################
+subroutine rrec2 (kunit, nlon, nlat, vect)
+
+implicit none
+
+integer :: kunit, nlon, nlat
+real, dimension(nlon,nlat) :: vect
+
+ read(kunit) vect(1:nlon,1:nlat)
+
+return
+end subroutine rrec2
+!###############################################################################################################
+subroutine rrec2_int (kunit, nlon, nlat, ivect)
+
+implicit none
+
+integer :: kunit, nlon, nlat
+integer, dimension(nlon,nlat) :: ivect
+
+ read(kunit) ivect(1:nlon,1:nlat)
+
+return
+end subroutine rrec2_int
+!###############################################################################################################
       subroutine rdmhf_atm(kunit, nlon, nlat, nlev, nfdr, pdr, p, u, v, w, t, q, qcw, qci)
 
 !   Read Model History File with atmospheric variables from kunit
@@ -2521,44 +2549,28 @@ end
       read(kunit) pdr
 
       do jklev=1,nlev
-      do jlat=1,nlat
-        read (kunit) (p(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, p(1:nlon,1:nlat,jklev))
       enddo
       do jklev=1,nlev
-      do jlat=1,nlat
-        read(kunit) (u(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, u(1:nlon,1:nlat,jklev))
       enddo
       do jklev=1,nlev
-      do jlat=1,nlat
-        read(kunit) (v(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, v(1:nlon,1:nlat,jklev))
       enddo
       do jklev=1,nlev+1
-      do jlat=1,nlat
-        read(kunit) (w(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, w(1:nlon,1:nlat,jklev))
       enddo
       do jklev=1,nlev
-      do jlat=1,nlat
-        read(kunit) (t(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, t(1:nlon,1:nlat,jklev))
       enddo
       do jklev=1,nlev
-      do jlat=1,nlat
-        read(kunit) (q(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, q(1:nlon,1:nlat,jklev))
       enddo
       do jklev=1,nlev
-      do jlat=1,nlat
-        read(kunit) (qcw(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, qcw(1:nlon,1:nlat,jklev))
       enddo
       do jklev=1,nlev
-      do jlat=1,nlat
-        read(kunit) (qci(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, qci(1:nlon,1:nlat,jklev))
       enddo
 
       return
@@ -2610,209 +2622,123 @@ end
 
 !  Physiographical parameters changing in time
 
-      do jlat=1,nlat
-        read (kunit) (field2d_add(jlon,jlat),jlon=1,nlon) ! lai
-      enddo
+      call rrec2 (kunit, nlon, nlat, field2d_add(1:nlon,1:nlat)) ! lai
 
-      do jlat=1,nlat
-        read (kunit) (field2d_add(jlon,jlat),jlon=1,nlon) ! fveg
-      enddo
+      call rrec2 (kunit, nlon, nlat, field2d_add(1:nlon,1:nlat)) ! fveg
 
-      do jlat=1,nlat
-        read (kunit) (rgm(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, rgm(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read (kunit) (rgq(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, rgq(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read (kunit) (iceth(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, iceth(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read (kunit) (fice(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, fice(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read (kunit) (albedo(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, albedo(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read (kunit) (emis1(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, emis1(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read (kunit) (emis2(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, emis2(1:nlon,1:nlat))
 
 ! Prognostic cloud and precipitation variables at the surface
 
-      do jlat=1,nlat
-        read(kunit) (cloudt(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, cloudt(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read(kunit) (prectotr(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, prectotr(1:nlon,1:nlat))
 
-!      do jlat=1,nlat
-!        read(kunit) (precconvr(jlon,jlat),jlon=1,nlon)
-!      enddo
+!!!      call rrec2 (kunit, nlon, nlat, precconvr(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read(kunit) (precsolidr(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, precsolidr(1:nlon,1:nlat))
 
 ! Prognostic surface and soil/sea fields
 
-      do jlat=1,nlat
-        read(kunit) (tskin(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, tskin(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read (kunit) (tgsurf(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, tgsurf(1:nlon,1:nlat))
 
       do jklev=1,nlevg
-      do jlat=1,nlat
-        read(kunit) (tg(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, tg(1:nlon,1:nlat,jklev))
       enddo
 
-      do jlat=1,nlat
-        read(kunit) (qskin(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, qskin(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read (kunit) (qgsurf(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, qgsurf(1:nlon,1:nlat))
 
       do jklev=1,nlevg
-      do jlat=1,nlat
-        read(kunit) (qg(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, qg(1:nlon,1:nlat,jklev))
       enddo
 
-      do jlat=1,nlat
-        read (kunit) (fice_soil_surf(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, fice_soil_surf(1:nlon,1:nlat))
 
       do jklev=1,nlevg
-      do jlat=1,nlat
-        read(kunit) (fice_soil(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, fice_soil(1:nlon,1:nlat,jklev))
       enddo
 
-      do jlat=1,nlat
-        read(kunit) (snow(jlon,jlat),jlon=1,nlon)
+      call rrec2 (kunit, nlon, nlat, snow(1:nlon,1:nlat))
+
+      do jklev=1,nlev_snow
+        call rrec2 (kunit, nlon, nlat, snow_lev(1:nlon,1:nlat,jklev))
       enddo
 
       do jklev=1,nlev_snow
-      do jlat=1,nlat
-        read(kunit) (snow_lev(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, snow_t(1:nlon,1:nlat,jklev))
       enddo
 
       do jklev=1,nlev_snow
-      do jlat=1,nlat
-        read(kunit) (snow_t(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, snow_fice(1:nlon,1:nlat,jklev))
       enddo
 
       do jklev=1,nlev_snow
-      do jlat=1,nlat
-        read(kunit) (snow_fice(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, snow_age(1:nlon,1:nlat,jklev))
       enddo
 
       do jklev=1,nlev_snow
-      do jlat=1,nlat
-        read(kunit) (snow_age(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, snow_melt_age(1:nlon,1:nlat,jklev))
       enddo
 
       do jklev=1,nlev_snow
-      do jlat=1,nlat
-        read(kunit) (snow_melt_age(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
+        call rrec2 (kunit, nlon, nlat, snow_dens(1:nlon,1:nlat,jklev))
       enddo
 
-      do jklev=1,nlev_snow
-      do jlat=1,nlat
-        read(kunit) (snow_dens(jlon,jlat,jklev),jlon=1,nlon)
-      enddo
-      enddo
+      call rrec2 (kunit, nlon, nlat, snow_albedo(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read(kunit) (snow_albedo(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, cswflr(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read(kunit) (cswflr(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, clwflr(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read(kunit) (clwflr(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, chfluxr(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read(kunit) (chfluxr(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, cqfluxr(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read(kunit) (cqfluxr(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, t2minr(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read(kunit) (t2minr(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, t2maxr(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read(kunit) (t2maxr(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, ws10maxr(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read(kunit) (ws10maxr(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, runoffr(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read(kunit) (runoffr(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, runoff_tot_r(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read(kunit) (runoff_tot_r(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, cwvfluxr(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read(kunit) (cwvfluxr(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, csoilh_bott_fluxr(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read(kunit) (csoilh_bott_fluxr(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, csoilw_bott_fluxr(1:nlon,1:nlat))
 
-      do jlat=1,nlat
-        read(kunit) (csoilw_bott_fluxr(jlon,jlat),jlon=1,nlon)
-      enddo
-
-      do jlat=1,nlat
-        read(kunit) (field2d_add(jlon,jlat),jlon=1,nlon)
-      enddo
+      call rrec2 (kunit, nlon, nlat, field2d_add(1:nlon,1:nlat))
       snowfall_level(:,:) = int(field2d_add(:,:))
 
 ! Reading of additional 2d fields
 
      do ird=1,1
-      do jlat=1,nlat
-      read(kunit) (field2d_add(jlon,jlat),jlon=1,nlon)
-      enddo
+       call rrec2 (kunit, nlon, nlat, field2d_add(1:nlon,1:nlat))
      enddo
 
       return
       end
 !###############################################################################################################
-      subroutine rd_param_const(nlon, nlat, nlevg, x0, y0, alon0, alat0, dlon, dlat, phig, fmask, qgmax, qgmin)
+      subroutine rd_param_const_old(nlon, nlat, nlevg, x0, y0, alon0, alat0, dlon, dlat, phig, fmask, qgmax, qgmin)
 
 ! Reads from additional input file
 ! all constant (in time) model physiographical parameters
@@ -2896,6 +2822,83 @@ end
         do jlat=1,nlat
           read(iunit) (qgmin(jlon,jlat,jklev),jlon=1,nlon)
         enddo
+      enddo
+
+      close(iunit)
+
+      return
+      end
+!###############################################################################################################
+      subroutine rd_param_const(nlon, nlat, nlevg, x0, y0, alon0, alat0, dlon, dlat, phig, fmask, qgmax, qgmin)
+
+! Reads from additional input file
+! all constant (in time) model physiographical parameters
+
+      implicit none
+
+      integer                           :: nlon, nlat, nlev, nlevg, &
+                                           nlon_local, nlat_local, nlev_local, nlevg_local, &
+                                           iunit=11, ierr_open, ierr, nst_local, nvt_local, &
+ jlon, jlat, ird, jklev
+      real                              :: x0, y0, alon0, alat0, dlon, dlat, &
+                                           x0_local, y0_local, alon0_local, alat0_local, dlon_local, dlat_local
+      real, parameter                   :: g=9.807
+      real, dimension(nlon,nlat)        :: phig, fmask, zread
+      real, dimension(nlon,nlat,nlevg)  :: qgmax, qgmin
+      character(len=30) :: filerd="model_param_constant.bin"
+
+     open (iunit,file=trim(filerd),status='old',form='unformatted',iostat=ierr_open)
+     if (ierr_open /= 0) then
+        print *
+        print *,'Not found input ',trim(filerd)
+        print *,"   stop"
+        stop
+      endif
+
+      read (iunit) nlon_local, nlat_local, nlevg_local, dlon_local, dlat_local, x0_local, y0_local, alon0_local, alat0_local, &
+ nst_local, nvt_local
+
+      if (nlon_local /= nlon) ierr=ierr+1
+      if (nlat_local /= nlat) ierr=ierr+1
+      if (nlevg_local /= nlevg) ierr=ierr+1
+      if (dlon_local /= dlon) ierr=ierr+1
+      if (dlat_local /= dlat) ierr=ierr+1
+      if (x0_local /= x0) ierr=ierr+1
+      if (y0_local /= y0) ierr=ierr+1
+      if (alon0_local /= alon0) ierr=ierr+1
+      if (alat0_local /= alat0) ierr=ierr+1
+
+      if (ierr /= 0) then
+        print *,"Error in header parameters in input file ,",trim(filerd),", not coincident with defined parameters"
+        print *,"Model nlon, nlat, nlevg, dlon, dlat, x0, y0, alon0, alat0 :", &
+ nlon, nlat, nlevg, dlon, dlat, x0, y0, alon0, alat0
+        print *,"Read nlon, nlat, nlevg, dlon, dlat, x0, y0, alon0, alat0 :", &
+ nlon_local, nlat_local, nlevg_local, dlon_local, dlat_local, x0_local, y0_local, alon0_local, alat0_local
+        print *,"   stop"
+        stop
+      endif
+
+!  land-sea fraction and orography
+
+      call rrec2 (iunit, nlon, nlat, fmask(1:nlon,1:nlat))
+
+      call rrec2 (iunit, nlon, nlat, phig(1:nlon,1:nlat))
+      phig(:,:) = phig(:,:)*g
+
+      call rrec2 (iunit, nlon, nlat, zread(1:nlon,1:nlat)) ! htopvar
+      do ird=1,nst_local+1
+        call rrec2 (iunit, nlon, nlat, zread(1:nlon,1:nlat)) ! soil_map
+      enddo
+      do ird=1,nvt_local+1
+        call rrec2 (iunit, nlon, nlat, zread(1:nlon,1:nlat)) ! veg_map
+      enddo
+
+      do jklev=1,nlevg
+        call rrec2 (iunit, nlon, nlat, qgmax(1:nlon,1:nlat,jklev))
+      enddo
+
+      do jklev=1,nlevg
+        call rrec2 (iunit, nlon, nlat, qgmin(1:nlon,1:nlat,jklev))
       enddo
 
       close(iunit)

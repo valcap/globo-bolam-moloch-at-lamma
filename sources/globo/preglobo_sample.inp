@@ -14,10 +14,10 @@ npolcap -
 nlevg   - Soil levels
 pzer    -
 alfa    -
-nlevp   - Vertical levels of input data
-soil_lev0(20) - Depth of soil levels (m)
 ivert_coord_type - type of vertical coordinate 1) equal-mass layers;
 2) bolam standard; 3) flattens hybrid surfaces more rapidly above
 mountains at stratospheric levels
-nlevp   - Vertical levels of input data
 soil_lev0(20) - Depth of soil levels (m)
+nlevpnlev_atm_inp_max and nlev_soil_inp_max -
+    maximum number of vertical levels in atmosphere and soil in input
+    date (used for matrixes allocation)

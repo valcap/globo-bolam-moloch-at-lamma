@@ -1,6 +1,7 @@
 &param_preglobo
 nlon = 1538, nlat = 1058, nlev = 60, npolcap = 12,
 alfa = 1.45, pzer = 1.e5,
+ivert_coord_type = 1,
 soil_lev0 = 0.05, 0.13, 0.32, 0.69, 1.30, 2.21, 3.48, 5.17, 7.34, 10.05, 13.36, 17.33, 22.02,
  -9999., -9999., -9999., -9999., -9999., -9999., -9999., 
 nlev_atm_inp_max = 150, nlev_soil_inp_max = 5
@@ -13,5 +14,10 @@ npolcap -
 nlevg   - Soil levels
 pzer    -
 alfa    -
-nlevp   - Vertical levels of input data
+ivert_coord_type - type of vertical coordinate 1) equal-mass layers;
+2) bolam standard; 3) flattens hybrid surfaces more rapidly above
+mountains at stratospheric levels
 soil_lev0(20) - Depth of soil levels (m)
+nlevpnlev_atm_inp_max and nlev_soil_inp_max -
+    maximum number of vertical levels in atmosphere and soil in input
+    date (used for matrixes allocation)

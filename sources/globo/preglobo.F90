@@ -1,7 +1,4 @@
 ! Preglobo
-! Introdure lbot !!!!
-! v. preglobo_s2s.F90
-
 
 ! Input data GFS-NOAA or IFS-ECMWF in grib2 format
 !
@@ -2018,9 +2015,6 @@ real :: x0a, y0a, x0=0., y0=0., zday, zcoeday, zlon_lim, zzz, zlatt, zlatv,     
       q(i,j,k)  = 1.e-8
       qc(i,j,k) = 0.
     endif
-if (i==330.and.j==199) print *,'poisk  qc ',k,press(i,j,k),t(i,j,k)-273.15,q(i,j,k),qc(i,j,k),zesk
-!if (i==330.and.j==199.and.k==1) print *,'poisk 1 qc ',qc(i,j,k),q(i,j,k),zqsat,press(i,j,k),t(i,j,k),zesk
-!if (k==1.and.qc(i,j,k) > 1.e-8) print *,'poisk 2 qc ',i,j,qc(i,j,k)
       enddo
       enddo
       enddo
@@ -2054,18 +2048,8 @@ if (i==330.and.j==199) print *,'poisk  qc ',k,press(i,j,k),t(i,j,k)-273.15,q(i,j
         qvsurf(i,j) = qvsurf_frc(i,j)
         qgsurf(i,j) = qgsurf_frc(i,j)
         qg(i,j,1:nlevg) = qg_frc(i,j,1:nlevg)
-! poisk 05.07.2021 --->
-!  if (yytg(i,j) > 10..and.yytg(i,j) < 32.) then
-!    do k=1,5
-!      qg(i,j,k)=min(qg(i,j,k)*1.5, soil_qmax(i,j,k)*0.5)
-!    enddo
-!  endif
-! <---
         fice_soil_surf(i,j) = fice_soil_surf_frc(i,j)
         fice_soil(i,j,1:nlevg) = fice_soil_frc(i,j,1:nlevg)
-!if (fmask(i,j)<0.01.and.maxval(fice_soil(i,j,1:6))>0.8.and.minval(fice_soil(i,j,1:6))<0.01) then
-!  write (31,*) i,j,xxtg(i,j),yytg(i,j),tg(i,j,1:nlevg),fice_soil(i,j,1:nlevg)
-!endif
         snow_lev(i,j,1:nlevsnow) = val_missing
         snow_t(i,j,1:nlevsnow) = val_missing
         snow_fice(i,j,1:nlevsnow) = val_missing

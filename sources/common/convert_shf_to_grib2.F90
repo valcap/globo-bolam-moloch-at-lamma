@@ -3,7 +3,7 @@ PROGRAM CONVERT_SHF_TO_GRIB2
 ! Program reads in input a shf file: short model (Bolam, Moloch or Globo) history file
 ! and writes in output data in grib2 format using the ECMWF ECCODES library
 
-! Last update 16/10/2024
+! Last update 28/07/2025
 
 ! AUTHOR: Oxana Drofa, ISAC-CNR, ITALY (o.drofa@isac.cnr.it)
 

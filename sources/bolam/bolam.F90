@@ -110,6 +110,7 @@
     integer, parameter :: nlon=(gnlon-2)/nprocsx+2, nlat=(gnlat-2)/nprocsy+2
 !    integer, parameter :: nst=15, nvt=14
     integer, parameter :: nst=31, nvt=22
+    integer, parameter :: nterm_clim_sea_ice=73, nterm_clim_veget=36
     integer, parameter :: nlonm1=nlon-1, nlatm1=nlat-1, nlevp1=nlev+1, nbuffer=2*max(nlon,nlat)*nlev
     integer            :: nyrin, nmonin, ndayin, nhouin, nminin
     integer            :: i_zoom_lon_ini, i_zoom_lon_fin, j_zoom_lat_ini, j_zoom_lat_fin, flag_joint=0
@@ -164,7 +165,8 @@
     real(4), dimension(nlon,nlat,nlevp1) :: sigdot, phih, tke, lml, rich
     real(4), dimension(nlon,nlat,nst+1)  :: suolo
     real(4), dimension(nlon,nlat,nvt+1)  :: vegeta
-    real(4), dimension(nlon,nlat,73)     :: tgcist, ficecist
+    real(4), dimension(nlon,nlat,nterm_clim_sea_ice) :: tgcist, ficecist
+    real(4), dimension(gnlon,gnlat,nterm_clim_veget) :: laiist, fvegist
 
 ! mpi veriables
 
@@ -851,6 +853,8 @@ end module u_ghost
       ip_null = mpi_proc_null
       ip_oppo = myid + iprocs/2   ! for Globo only
       if (ip_oppo.gt.iprocs-1) ip_oppo = ip_oppo - iprocs
+
+!      call system('hostname')
 
 #endif
 !--------------------------------------------------------------------------------------------------------
@@ -1629,6 +1633,10 @@ end module u_ghost
 
     if (nlclimate) then
       call climupd (infy, ndayr, nyrc, nmonc, 0)
+      if (myid == 0) then
+        call veget_param_update(gnlon-2, gnlat, ndayr, laiist(1:gnlon-2,:,:), fvegist(1:gnlon-2,:,:), &
+ gfield2(1:gnlon-2,:), lai_max, gfield3(1:gnlon-2,:) ,0)
+      endif
     endif
 
     call system_clock (stime1, countrate)  ! .....elapsed time
@@ -2882,27 +2890,43 @@ enddo
 
   if (nlclimate) then
 
-    if (mod(ndayc,10) == 0.and.nhouc == 0.and.nminc <= 2.and.jstep < nstep) then
+    if (mod(ndayc, 5) == 0.and.nhouc == 0.and.nminc <= 2.and.jstep < nstep) then
 
-! Update of vegetation parameters: LAI and fraction
+! Update of vegetation parameters: LAI and fraction each 5 days
 
-      call collect (alont, gfield)
-      call collect (alatt, gfield1)
+!! for the case of ansence of climate_veg.bin data file --->
+!
+!      call collect (alont, gfield)
+!      call collect (alatt, gfield1)
+!      if (myid == 0) then
+!        print *
+!        call veget_param_time_series(gnlon-2, gnlat, &
+! gfield(1:gnlon-2,:), gfield1(1:gnlon-2,:), x0, y0, dlon, dlat, pdr0(5), pdr0(4)+dlat*0.5, 1, ndayr, & 
+! gfield2(1:gnlon-2,:), lai_max, gfield3(1:gnlon-2,:), valmiss)
+!        gfield2(gnlon-1:gnlon,:) = gfield2(1:2,:)
+!        gfield3(gnlon-1:gnlon,:) = gfield3(1:2,:)
+!        print *
+!      endif
+!      call disperse (gfield2, lai)
+!      call disperse (gfield3, fveg)
+!      if (myid == 0) print *,'Updated Vegetation LAI and fraction '
+!! <---
+
+! Case of presence of climate_veg.bin data file --->
+
       if (myid == 0) then
-        print *
-        call veget_param_time_series(gnlon-2, gnlat, &
- gfield(1:gnlon-2,:), gfield1(1:gnlon-2,:), x0, y0, dlon, dlat, pdr0(5), pdr0(4)+dlat*0.5, 1, ndayr, & 
- gfield2(1:gnlon-2,:), lai_max, gfield3(1:gnlon-2,:), valmiss)
+        call veget_param_update(gnlon-2, gnlat, ndayr, laiist(1:gnlon-2,:,:), fvegist(1:gnlon-2,:,:), &
+ gfield2(1:gnlon-2,:), lai_max, gfield3(1:gnlon-2,:) ,1)
         gfield2(gnlon-1:gnlon,:) = gfield2(1:2,:)
         gfield3(gnlon-1:gnlon,:) = gfield3(1:2,:)
         print *
       endif
       call disperse (gfield2, lai)
-      if (myid == 0) print *,'Updated LAI ',maxloc(gfield2)
       call disperse (gfield3, fveg)
-      if (myid == 0) print *,'Updated Vegetation fraction ',maxloc(gfield3)
+      if (myid == 0) print *,'Updated Vegetation LAI and fraction '
+! <---
 
-    endif ! 1 time at 10 days
+    endif ! 1 time at 5 days
 
     if (nhouc == 0.and.nminc <= 2.and.jstep < nstep) then
 
@@ -3310,7 +3334,7 @@ enddo
     integer :: nun, init_flag, iunit=12, iunit_work=19, &
  jlon, jlat, jklev, isleep, no_input, ierr_open, comm, error
     character(len=30) :: filerd, file_work="input_request.txt",anun
-    character*10 get_ctime, ctime1, ctime2
+    character(len=10) :: get_ctime, ctime1, ctime2
 
 #ifdef mpi
       include 'mpif.h'
@@ -3338,6 +3362,11 @@ enddo
       do while (.true.)
         open (iunit, file=trim(filerd), form='unformatted', status='old', iostat=ierr_open)
         if (ierr_open == 0) then
+#ifdef oper
+          call system("ls -l -L "//filerd)
+          call system("date")
+          call system("sleep 1")
+#endif
           exit
         else
           print *,"Input file ",trim(filerd)," not ready: wait - sleep 10 s..."
@@ -3351,7 +3380,7 @@ enddo
             exit
           endif
 #endif
-          call sleep(10)
+          call system ("sleep 10")
         endif
       enddo
 
@@ -3451,13 +3480,11 @@ enddo
     enddo
 
     if (myid == 0) then
-      write(*,'(2a)') " read file ",trim(filerd)
+      ctime2 = get_ctime()
+      write(*,*) 'MHF read from ', ctime1, ' to ', ctime2
       close (iunit)
       write (*,*)
     endif
-
-    ctime2 = get_ctime()
-    if (myid.eq.0) write(*,*) 'MHF read from ', ctime1, ' to ', ctime2
 
     return
     end subroutine rdmhf_atm
@@ -3473,8 +3500,7 @@ enddo
     integer, dimension(50) :: nfdr_local
     real, dimension(200) :: pdr_local
     real, dimension(nlon,nlat) :: field2d_add
-
-    character*10 get_ctime, ctime1, ctime2
+    character(len=10) :: get_ctime, ctime1, ctime2
 
 #ifdef mpi
       include 'mpif.h'
@@ -3503,6 +3529,11 @@ enddo
         open (iunit, file=trim(filerd), form='unformatted', status='old', iostat=ierr_open)
 
         if (ierr_open == 0) then
+#ifdef oper
+          call system("ls -l -L "//filerd)
+          call system("date")
+          call sleep (1)
+#endif
           exit
         else
           print *,"Input file ",trim(filerd)," not ready: wait - sleep 10 s..."
@@ -3517,7 +3548,7 @@ enddo
           endif
 #endif
 
-          call sleep(10)
+          call system ("sleep 10")
         endif
       enddo
 
@@ -3709,14 +3740,12 @@ enddo
 
     if (myid == 0) then
       close (iunit)
-      write(*,'(2a)') " read file ",trim(filerd)
+      ctime2 = get_ctime()
+      write(*,*) 'MHF read from ', ctime1, ' to ', ctime2
       write(*,*)
     endif
 
     if (nun >= 3) flag_pochva_par_change=1
-
-    ctime2 = get_ctime()
-    if (myid.eq.0) write(*,*) 'MHF read from ', ctime1, ' to ', ctime2
 
     return
     end subroutine rdmhf_soil
@@ -4003,11 +4032,11 @@ integer, dimension(50)  :: nfdr
 real(4), dimension(200) :: pdr
 real, dimension(nlon,nlat) :: zwork, zfrunoff
 character(len=50) :: file_out, amhf
-character*10 get_ctime, ctime1, ctime2
+character(len=10) :: get_ctime, ctime1, ctime2
 
- ctime1 = get_ctime()
+ if (myid == 0) then
 
- if(myid == 0) then
+   ctime1 = get_ctime()
 
 #ifdef oper
  if (.not.nlclimate) then
@@ -4018,6 +4047,7 @@ character*10 get_ctime, ctime1, ctime2
  file_out=trim(name)//'_atm_'//trim(amhf)//'.mhf'
  open (iunit, file=trim(file_out), form='unformatted', status='unknown')
 #else
+! call system ("touch mhf-open")
  file_out=trim(name)//"_atm.mhf"
  open (iunit, file=trim(file_out), form='unformatted', status='unknown', position='append')
 #endif
@@ -4073,18 +4103,19 @@ character*10 get_ctime, ctime1, ctime2
    close (iunit)
 
    print *
+   ctime2 = get_ctime()
+   write(*,*) 'MHF ',trim(file_out),' written from ', ctime1, ' to ', ctime2
 
 #ifdef oper
+!!!   call system("ls -l -L "//file_out)
+!!!   call system("date")
    open  (iunit_work, file=trim(file_out)//'.txt', status='unknown')
    write (iunit_work,'(2a)') trim(file_out),' is full and close'
    close (iunit_work)
 #endif
-   print *,'Output written on unit ',trim(file_out)
+!      call system ("rm -f mhf-open")
 
  endif
-
-  ctime2 = get_ctime()
-  if (myid.eq.0) write(*,*) 'MHF written from ', ctime1, ' to ', ctime2
 
 return
 end subroutine wrmhf_atm
@@ -4110,11 +4141,11 @@ integer, dimension(50)  :: nfdr
 real(4), dimension(200) :: pdr
 real, dimension(nlon,nlat) :: zwork, zfrunoff
 character(len=50) :: file_out, amhf, aini, aterm
-character*10 get_ctime, ctime1, ctime2
+character(len=10) :: get_ctime, ctime1, ctime2
 
- ctime1 = get_ctime()
+ if (myid == 0) then
 
- if(myid == 0) then
+   ctime1 = get_ctime()
 
 #ifdef oper
    if (.not.nlclimate) then
@@ -4130,6 +4161,7 @@ character*10 get_ctime, ctime1, ctime2
    endif
    open (iunit, file=trim(file_out), form='unformatted', status='unknown')
 #else
+!   call system ("touch mhf-open")
    file_out=trim(name)//"_soil.mhf"
    open (iunit, file=trim(file_out), form='unformatted', status='unknown', position='append')
 #endif
@@ -4299,18 +4331,19 @@ character*10 get_ctime, ctime1, ctime2
    close (iunit)
 
    print *
+   ctime2 = get_ctime()
+   write(*,*) 'MHF ',trim(file_out),' written from ', ctime1, ' to ', ctime2
 
 #ifdef oper
+!!!   call system("ls -l -L "//file_out)
+!!!   call system("date")
    open  (iunit_work, file=trim(file_out)//'.txt', status='unknown')
    write (iunit_work,'(2a)') trim(file_out),' is full and close'
    close (iunit_work)
 #endif
-   print *,'Output written on unit ',trim(file_out)
+!      call system ("rm -f mhf-open")
 
  endif
-
- ctime2 = get_ctime()
- if (myid.eq.0) write(*,*) 'MHF written from ', ctime1, ' to ', ctime2
 
 return
 end subroutine wrmhf_soil
@@ -7497,9 +7530,12 @@ end subroutine adv_ff_micro
       implicit none
       real(4) zpmin, zpmax, zumax, zzm, zdummy, zday, zmass
       integer jstep, jlon, jlat, jklev, j1, j2, ierr, nyrc, nmonc, ndayc, nhouc, nminc
+      character(len=10) :: get_ctime, ctime
 #ifdef mpi
         include 'mpif.h'
 #endif
+
+      ctime = get_ctime()
 
       zpmin =  1.e8
       zpmax = -1.e8
@@ -7548,9 +7584,9 @@ end subroutine adv_ff_micro
       if (myid.eq.0) then
         zday=jstep*dtstep/86400.
         print 1010, jstep, zday, zpmin/100., zpmax/100., zumax, zmass, nyrc, nmonc, ndayc, nhouc, nminc
+        print *,'Current time is ',ctime
       endif
 
-! 1010 format(' jstep',i8,'    day', f8.2,'    min/max Ps=',2f8.2,'    Vmax=',f6.1,'    total mass=',f10.1,/, &
  1010 format(' jstep',i8,'    day', f8.2,'    min/max Ps=',2f8.2,'    Vmax=',f6.1,'    tot. q mass=',f10.2,/, &
              ' Current Date (Year/Month/Day/Hour/min) ', i5, 4i3)
       return
@@ -7564,9 +7600,7 @@ end subroutine adv_ff_micro
       implicit none
       real(4) zpmin, zpmax, zumax, zvmax, ztsmin, ztsmax, zdummy, zday, zhour
       integer jstep, jlon, jlat, jklev, j1, j2, ierr
-
-      character*10 get_ctime, ctime
-
+      character(len=10) :: get_ctime, ctime
 #ifdef mpi
         include 'mpif.h'
 #endif
@@ -7617,18 +7651,29 @@ end subroutine adv_ff_micro
       if (myid.eq.0) then
         zday  = jstep*dtstep/86400.
         zhour = jstep*dtstep/3600.
-!!!        print 1010, jstep, zhour, zpmin/100., zpmax/100.
-
-        write (*,'(a,i8,a,f8.2,3(a,2f8.2),a,a)') ' jstep =', jstep,',   hour =', zhour, &
+        write (*,'(a,i8,a,f8.2,3(a,2f8.2))') ' jstep =', jstep,',   hour =', zhour, &
  ',   min/max ps =', zpmin/100., zpmax/100.,',   min/max tsurf=', ztsmin-273.15, ztsmax-273.15, &
- ',   max u,v=', zumax, zvmax,'   time = ', ctime
-
+ ',   max u,v=', zumax, zvmax
+        write (*,*) 'Current time is ',ctime 
         print*
       endif
 
  1010 format(' jstep =', i8, ',   hour =', f8.2, ',   min/max ps =', 2f8.2)
       return
       end subroutine runout_b
+!##################################################################################################################
+! Define current actual time in format HH:MM:SS.d (ARPAL)
+
+character(len=10) function get_ctime()
+
+integer, dimension(8) :: values
+
+ call date_and_time(values=values)
+
+ write (get_ctime, '(i2.2,a,i2.2,a,i2.2,a,i1)') values(5),":",values(6),":",values(7),".",int(values(8) / 100.)
+
+return
+end function get_ctime
 !##################################################################################################################
     subroutine micro
 
@@ -12846,8 +12891,8 @@ end subroutine surfradpar
     character(len=15)          :: file_out
     integer, dimension(50)     :: grib2_descript = 0
     integer, parameter         :: ivalmiss = -9999
+    character(len=10)          :: get_ctime, ctime1, ctime2
 
-    character*10 get_ctime, ctime1, ctime2
     ctime1 = get_ctime()
 
     if (jstep.eq.1) qprec   = 0.
@@ -13581,13 +13626,17 @@ end subroutine surfradpar
       flush (iunit)
       close (iunit)
 
+      ctime2 = get_ctime()
+
 #ifdef oper
+!!!      call system("ls -l -L "//file_out)
+!!!      call system("date")
       open  (iunit_work, file=file_out(1:13)//'.txt', status='unknown')
       write (iunit_work,'(2a)') file_out,' is full and close'
       close (iunit_work)
-      print*, file_out, ' written'
+      print*, file_out, ' written','  ',ctime1, ' to ', ctime2
 #else
-      print*,'bolam.shf written'
+      print*,'bolam.shf written','  ',ctime1, ' to ', ctime2
 #endif
 
     endif
@@ -13599,9 +13648,6 @@ end subroutine surfradpar
     shf_accum = 0.
     lhf_accum = 0.
     qf_accum  = 0.
-
-    ctime2 = get_ctime()
-    if (myid.eq.0) write(*,*) 'SMHF written from ', ctime1, ' to ', ctime2
 
     return
     end subroutine wrshf_b
@@ -13620,6 +13666,9 @@ end subroutine surfradpar
     character(len=15)          :: file_out
     integer, dimension(50)     :: grib2_descript = 0
     integer, parameter         :: ivalmiss = -9999
+    character(len=10)          :: get_ctime, ctime1, ctime2
+
+    ctime1 = get_ctime()
 
 !  Computation of slp (Pascal)
 
@@ -14084,13 +14133,17 @@ end subroutine surfradpar
       flush (iunit)
       close (iunit)
 
+      ctime2 = get_ctime()
+
 #ifdef oper
+!!!      call system("ls -l -L "//file_out)
+!!!      call system("date")
       open  (iunit_work, file=trim(file_out)//'.txt', status='unknown')
       write (iunit_work,'(2a)') trim(file_out),' is full and close'
       close (iunit_work)
-      print*, trim(file_out), ' written'
+      print*, trim(file_out), ' written','  ',ctime1, ' to ', ctime2
 #else
-      print*,'globo.shf written'
+      print*,'globo.shf written','  ',ctime1, ' to ', ctime2
 #endif
 
     endif
@@ -14123,7 +14176,8 @@ end subroutine surfradpar
     real, dimension(nlon,nlat,nlayer_soil_out) :: tg_aveg_out, qg_aveg_out, atg_aveg_out, aqg_aveg_out
     save atg1, at2, atd2, acloudt, asnow, atg_aveg_out, aqg_aveg_out
     integer, dimension(50)     :: grib2_descript = 0
-    integer, parameter         :: ivalmiss1 = 4294967295, ivalmiss2 = 255 
+    integer, parameter         :: ivalmiss1 = 429496, ivalmiss2 = 255
+!!!    integer, parameter         :: ivalmiss1 = 4294967295, ivalmiss2 = 255
     character(len=30)          :: file_out1, file_out2
 
 !  COMPUTATION OF SLP (Pascal)
@@ -14817,7 +14871,7 @@ end subroutine surfradpar
     subroutine climupd (infy, ndayr, nyrc, nmonc, iflag)
 
     use mod_model, only: fmask, mask_soil, fice_rd, fice, iceth, iceth_rd, &
- gfield, gnlon, gnlat, nlon, nlat, myid, tgcist, ficecist, tgclim, tganom, nlevg, tg
+ gfield, gnlon, gnlat, nlon, nlat, myid, nterm_clim_sea_ice, tgcist, ficecist, tgclim, tganom, nlevg, tg
 
     implicit none
     integer infy, ndayr, nyrc, nmonc, iflag, ipenta, lastpenta, jlon, jlat, ndayr0
@@ -14829,11 +14883,11 @@ end subroutine surfradpar
 
     ndayr0 = ndayr
     if (myid.eq.0) open (10, file='climate.bin', status='old', form='unformatted')
-    do ipenta = 1, 73
+    do ipenta = 1, nterm_clim_sea_ice
     if (myid.eq.0) call rrec2_old (10, gnlon, gnlat, gfield)
     call disperse (gfield, tgcist(1,1,ipenta))
     enddo
-    do ipenta = 1, 73
+    do ipenta = 1, nterm_clim_sea_ice
     if (myid.eq.0) call rrec2_old (10, gnlon, gnlat, gfield)
     call disperse (gfield, ficecist(1,1,ipenta))
     enddo
@@ -14984,6 +15038,7 @@ use yoethf   , only : r2es     ,r3les    ,r3ies    ,r4les              ,&
                       r4ies    ,r5les    ,r5ies    ,r5alvcp  ,r5alscp  ,&
                       ralvdcp  ,ralsdcp  ,rtwat    ,rtice    ,rticecu  ,&
                       rtwat_rtice_r      ,rtwat_rticecu_r
+use yoedbug  , only : nstpdbg, kstpdbg
 
 use mod_model, only : nlon, nlat, nlev, gnlon, gnlat, gfield, gfield1, &
                       dlon, dlat, sig, sigint, ps, pzer, p, t, &
@@ -15076,6 +15131,8 @@ lphylin=.false.
 levoigt=.false.
 leradhs=.true.      ! .t. if rad. is computed on a coarser sampled grid (unused)
 lonewsw=.true.      ! .t. if new sw code is active
+nstpdbg= 0
+kstpdbg(:)=-999
 kmode=0
 zdegrad = rpi/180.
 
@@ -15942,6 +15999,7 @@ use yoethf   , only : r2es     ,r3les    ,r3ies    ,r4les              ,&
                       r4ies    ,r5les    ,r5ies    ,r5alvcp  ,r5alscp  ,&
                       ralvdcp  ,ralsdcp  ,rtwat    ,rtice    ,rticecu  ,&
                       rtwat_rtice_r      ,rtwat_rticecu_r
+use yoedbug  , only : nstpdbg, kstpdbg
 
 use mod_model, only : nlon, nlat, nlonr, nradm, nlev, dlon, dlat, cpd, cpv, ps, &
                       pzer, p, t, tskin, t2, aerosol, ozon, myid, corvis, corirr, corrdt, tzer, q, qcw, &
@@ -16056,6 +16114,8 @@ lphylin=.false.
 levoigt=.false.
 leradhs=.false.      ! not used
 lonewsw=.true.       ! .t. if new sw code is active
+nstpdbg= 0
+kstpdbg(:)=-999
 kmode= 0
 zdegrad = rpi/180.
 
@@ -16434,6 +16494,7 @@ endif
   use yoerdu,    only : nuaer, ntraer, nout, rcday, r10e, replog, repsc, repsco, repscq, repsct, repscw, diff
   use yoesw,     only : lo3only
   use yoethf,    only : rtwat, rtice
+  use yoedbug,   only : ldebug
   use yoephli,   only : lphylin
 
   use mod_model, only : nlon, nlat, nlonr, nradm, nlev, nlevp1, dlon, dlat, cpd, cpv, &
@@ -16526,6 +16587,7 @@ endif
 
   kulout = 6         ! unita' logica di output per la sucst
   ndump  = 3         ! per evitare stampe
+  ldebug = .false.   ! per evitare stampe
 
 ! ksw number of SW spectral intervals: 2, 4 or 6
 
@@ -17830,6 +17892,117 @@ subroutine tqmass (ps, q, nlon, nlat, nlev, hxt, dlon, dlat, myid, nprocsx, npro
       return
       end subroutine slofou1
 !##################################################################################################################
+SUBROUTINE VEGET_PARAM_UPDATE(NLON,NLAT,JDAY,LAIIST,FVEGIST,LAI_DEF,LAI_MAX,FVEG_DEF,IFLAG)
+
+! LAI - Leaf Area Index
+! LAI_MAX - Maximum value of LAI (refer value)
+! FVEG - Vegetation Cover Fraction
+
+! Reading of climatological values of vegetation LAI and fraction
+! interpolated into global 514x362 grid with 10 day time step,
+! time interpolation of this data for the requested input julian day (JDAY). 
+
+USE MOD_MODEL, ONLY : NTERM_CLIM_VEGET
+
+IMPLICIT NONE
+
+!      NLON: grid point number along axis of rotated longitude;
+!      NLAT: grid point number along axis of rotated latidude;
+!      NTERM_CLIM_VEGET: number of time terms in input dataset;
+!      JDAY: Julian day minus 1;
+!      LAIIST, FVEGIST: vegetation LAI and fraction interpolated on 514x362 for 
+!                       NTERM_CLIM_VEGET time termes;
+!      LAI_DEF,FVEG_DEF: vegetation LAI and fraction interpolated interpolated on JDAY date;
+!      IFLAG: if =0, then LAIIST, FVEGIST will been read.
+
+INTEGER :: NLON, NLAT, JDAY, IFLAG
+REAL :: LAI_MAX
+REAL, DIMENSION(NLON,NLAT,NTERM_CLIM_VEGET) :: LAIIST, FVEGIST
+REAL, DIMENSION(NLON,NLAT) :: LAI_DEF, FVEG_DEF
+
+INTEGER, DIMENSION(NTERM_CLIM_VEGET) :: DAY_LIST=(/5, 15, 25, 36, 46, 56, 64, &
+ 74, 84, 95, 105, 115, 125, 135, 145, 156, 166, 176, 186, 196, &
+ 206, 217, 227, 237, 248, 258, 268, 278, 288, 298, 309, 319, 329, 339, 349, 359/)
+CHARACTER(LEN=30) :: FILE_INP="climate_veg.bin"
+INTEGER :: IUNIT=14, IERR_OPEN, ITERM, DAYR, DAYL, IDAYR, IDAYL, I, J
+REAL :: WEIGH_DAYR, WEIGH_DAYL
+
+ LAI_MAX=7.5
+
+ IF (IFLAG == 0) THEN
+
+   PRINT *
+   PRINT *,'Reading data about vegetation parameters: LAI and FVEG interpolated on model grid'
+
+   IERR_OPEN=0
+   OPEN (IUNIT, FILE=TRIM(FILE_INP), STATUS="old", FORM="unformatted", IOSTAT=IERR_OPEN)
+
+   IF (IERR_OPEN /= 0) THEN
+     PRINT *
+     PRINT *,'Not found input file ',TRIM(FILE_INP),', stop'
+     STOP
+   ENDIF 
+
+   DO ITERM=1,NTERM_CLIM_VEGET
+     READ (IUNIT) LAIIST(1:NLON, 1:NLAT, ITERM)
+     READ (IUNIT) FVEGIST(1:NLON, 1:NLAT, ITERM)
+   ENDDO
+
+   CLOSE (IUNIT)
+
+ ELSE ! IFLAG /= 0
+
+   PRINT *
+   PRINT *,'Updating of vegetation LAI and fraction,'
+   PRINT *,'Time interpolation of LAI and FVEG read data'
+
+! Defintion days interval
+  
+   DO I=1,NTERM_CLIM_VEGET
+     IF (JDAY<DAY_LIST(I)) EXIT
+   ENDDO
+  
+   IF (I==1) THEN
+     DAYL=DAY_LIST(NTERM_CLIM_VEGET)
+     IDAYL=NTERM_CLIM_VEGET
+   ELSE
+     DAYL=DAY_LIST(I-1)
+     IDAYL=I-1
+   ENDIF
+   IF (I <= NTERM_CLIM_VEGET) THEN
+     DAYR=DAY_LIST(I)
+     IDAYR=I
+   ELSE
+     DAYR=DAY_LIST(1)
+     IDAYR=1
+   ENDIF
+  
+   IF (DAYR > DAYL) THEN
+     WEIGH_DAYR=FLOAT(JDAY-DAYL)/FLOAT(DAYR-DAYL)
+   ELSE
+     IF (JDAY >= DAYL ) THEN
+       WEIGH_DAYR=FLOAT(JDAY-DAYL)/FLOAT(DAYR+365-DAYL)
+     ELSE
+       WEIGH_DAYR=FLOAT(JDAY+365-DAYL)/FLOAT(DAYR+365-DAYL)
+     ENDIF
+   ENDIF
+   WEIGH_DAYL=1.-WEIGH_DAYR
+
+! Time interpolation
+  
+   DO J=1,NLAT
+   DO I=1,NLON
+     LAI_DEF(I,J)=LAIIST(I,J,IDAYL)*WEIGH_DAYL+LAIIST(I,J,IDAYR)*WEIGH_DAYR
+     FVEG_DEF(I,J)=FVEGIST(I,J,IDAYL)*WEIGH_DAYL+FVEGIST(I,J,IDAYR)*WEIGH_DAYR
+     LAI_DEF(I,J)=MIN( MAX(LAI_DEF(I,J), 0.), LAI_MAX)
+     FVEG_DEF(I,J)= MIN( MAX(FVEG_DEF(I,J), 0.), 1.)
+   ENDDO
+   ENDDO
+
+ ENDIF ! IFLAG == 0
+
+END SUBROUTINE VEGET_PARAM_UPDATE
+!##################################################################################################################
 SUBROUTINE VEGET_PARAM_TIME_SERIES(NLON,NLAT,ALON,ALAT,X0,Y0,DLON,DLAT,LONINI,LATINI,FLAG_GLOB,&
  JDAY,LAI_DEF,LAI_MAX,FVEG_DEF,VAL_MISSING)
 
@@ -18480,6 +18653,10 @@ integer, dimension(1) :: i1
    read (iunit) pdr0
    read (iunit) nfdr
    read (iunit) pdr
+   read (iunit) nfdrb
+   read (iunit) pdrb
+   read (iunit) nfdrs
+   read (iunit) pdrs
    read (iunit) reqtim0, rdecli0
 #ifdef rad_ecmwf
    reqtim = dble(reqtim0)
@@ -18765,6 +18942,11 @@ integer, dimension(1) :: i1
 
  do jklev=1,nlev
    if(myid.eq.0) call rrec2 (iunit, gnlon, gnlat, gfield)
+   call disperse (gfield, p(1,1,jklev))
+ enddo
+
+ do jklev=1,nlev
+   if(myid.eq.0) call rrec2 (iunit, gnlon, gnlat, gfield)
    call disperse (gfield, phi(1,1,jklev))
  enddo
 
@@ -18909,6 +19091,10 @@ character(len=30) :: file_out
    write (iunit) pdr0
    write (iunit) nfdr
    write (iunit) pdr
+   write (iunit) nfdrb
+   write (iunit) pdrb
+   write (iunit) nfdrs
+   write (iunit) pdrs
    write (iunit) reqtim0, rdecli0
 
  endif
@@ -19167,6 +19353,11 @@ character(len=30) :: file_out
 
  do jklev=1,nlev
    call collect (corrdt(1,1,jklev), gfield)
+   if(myid.eq.0) call wrec2 (iunit, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
+ enddo
+
+ do jklev=1,nlev
+   call collect (p(1,1,jklev), gfield)
    if(myid.eq.0) call wrec2 (iunit, gnlon, gnlat, gfield, ilon1, ilon2, jlat1, jlat2, flag_lon)
  enddo
 
@@ -20221,11 +20412,3 @@ INTEGER, DIMENSION(NX_GLOB, NY_GLOB) ::  FIELD_GLOB_I
 RETURN
 END SUBROUTINE WRRF_POCHVA
 !###############################################################################################################
-
-! recupera il time in formato stringa HH:MM:SS.d (Davide e Paolo)
-character*10 function get_ctime()
-      integer :: values(8)
-      call date_and_time(values=values)
-      write (get_ctime, '(i2.2,a,i2.2,a,i2.2,a,i1)') values(5),":",values(6),":",values(7),".",int(values(8) / 100.)
-      return
-end

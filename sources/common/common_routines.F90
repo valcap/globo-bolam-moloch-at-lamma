@@ -1973,3 +1973,16 @@ contains
 
 end subroutine interp_spline_1d_work
 !=======================================================================
+! Define current actual time in format HH:MM:SS.d (ARPAL)
+
+character(len=10) function get_ctime()
+
+integer, dimension(8) :: values
+
+ call date_and_time(values=values)
+
+ write (get_ctime, '(i2.2,a,i2.2,a,i2.2,a,i1)') values(5),":",values(6),":",values(7),".",int(values(8) / 100.)
+
+return
+end function get_ctime
+!=======================================================================

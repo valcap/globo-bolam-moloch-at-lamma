@@ -1,6 +1,8 @@
-! Last update 25/02/2025
+! Last update 31/07/2025
 
-! Version 25.1.0
+! Version 25.2.2
+
+! Lug. 2025: Downward solar radiation average flux in mhf output
 
 ! Feb. 2025: Nuova u_ghost: risparmio sulle memorizzazioni ridontante
 ! dei vettori di scambio, la procedura e' devisa in 4 passi:
@@ -198,7 +200,7 @@
 
 ! Surface cumulated fields
 
-    real, dimension(nlon,nlat) :: cswfl, clwfl, cshflux, clhflux, t2min, t2max, ws10max, totsky, soldir, &
+    real, dimension(nlon,nlat) :: cswfl, clwfl, cshflux, clhflux, t2min, t2max, ws10max, rad_sw_down, rad_sw_down_shf, &
                                   shf_accum, lhf_accum, qf_accum
 
 ! Additional surface fields in shf
@@ -790,7 +792,7 @@ end module u_ghost
       supy = infy+nlat-1
 
       write (*,6001) myid, nlon, nlat, nlev, infx, supx, infy, supy
- 6001 format(' myid=',i3,'     nlon,nlat,nlev=',3i4,'     position in global domain= ',4i4)
+ 6001 format(' myid=',i3,'     nlon,nlat,nlev=',3i4,'     position in global domain= ',4(1x,i4))
 
 ! define id's of neighbour processes
 
@@ -811,12 +813,13 @@ end module u_ghost
       call mpi_comm_split (comm, row_color, iprocs, comm_row, ierr)
       call mpi_comm_split (comm, col_color, iprocs, comm_col, ierr)
 
+!      call system('hostname')
 #endif
 
 !--------------------------------------------------------------------------------------------------------
     if (myid == 0) then
       print *
-      print *,'    --- Moloch model Version 25.1.0 ---'
+      print *,'    --- Moloch model Version 25.2.2 ---'
       print *
     endif
 !--------------------------------------------------------------------------------------------------------
@@ -834,10 +837,10 @@ end module u_ghost
     if (myid.eq.0) print *,'Parameters of moloch (moloch.inp):'
     if (myid.eq.0) print model
 
-    nstep   = hrun *3600./dtstep+.5
-    nhist   = hist *3600./dtstep+.5
-    nhist_full_res   = hist_full_res *3600./dtstep+.5
-    ntsbou  = hbound *3600./dtstep+.5
+    nstep   = int(hrun *3600./dtstep+.5)
+    nhist   = int(hist *3600./dtstep+.5)
+    nhist_full_res = int(hist_full_res *3600./dtstep+.5)
+    ntsbou  = int(hbound *3600./dtstep+.5)
     nbc     = (nstep-1)/ntsbou+2
     ndrunt  = max( int(hdiag*3600./dtstep+.5), 1)
     ntsrad  = srad/dtstep+.5
@@ -846,9 +849,9 @@ end module u_ghost
     ntswshf = int(mswshf*60./dtstep+.5) ! if negative, shf not written
     dtstepa = dtstep/float(nadv)
     nstep_sl_filter = int(mslfilter*60./dtstep)
-    nrst    = hrst*3600./dtstep+.5
-    ntback  = hback *3600./dtstep+.5  ! if negative, traj. file not written
-    ntspray = hspray*3600./dtstep+.5  ! if negative, SPRAY file not written
+    nrst    = int(hrst*3600./dtstep+.5)
+    ntback  = int(hback *3600./dtstep+.5)  ! if negative, traj. file not written
+    ntspray = int(hspray*3600./dtstep+.5)  ! if negative, SPRAY file not written
 
     if(mhfr.eq.0.or.mhfr.gt.2) then
     if (myid.eq.0) write(*,'(a,i2)') " Parameter mhfr invalid or not defined in moloch.inp: stop!"
@@ -1243,6 +1246,8 @@ end module u_ghost
     rradar    = radarmval  ! background radar reflectivity (dbz)
     roscdm    = 1.e-2
     roscdt    = 1.e-2      ! 'drag coefficient' at the surface (also used in soil scheme)
+    rad_sw_down     = 0.
+    rad_sw_down_shf = 0.
     cswfl     = 0.
     clwfl     = 0.
     cshflux   = 0.
@@ -1250,8 +1255,6 @@ end module u_ghost
     t2min     = 999.
     t2max     = 0.
     ws10max   = 0.
-    totsky    = 0.
-    soldir    = 0.
     rich      = 10.
     shf_accum = 0.
     lhf_accum = 0.
@@ -1902,7 +1905,9 @@ end module u_ghost
       do jlon = 3, nlonm1, 2
       corvis(jlon,jlat) = 0.5*(corvis(jlon-1,jlat)+corvis(jlon+1,jlat))
       corirr(jlon,jlat) = 0.5*(corirr(jlon-1,jlat)+corirr(jlon+1,jlat))
+!  swsdtf is total sky downward sw radiation 
       swsdtf(jlon,jlat) = 0.5*(swsdtf(jlon-1,jlat)+swsdtf(jlon+1,jlat))
+!  swsddr is parallel solar downward sw radiation
       swsddr(jlon,jlat) = 0.5*(swsddr(jlon-1,jlat)+swsddr(jlon+1,jlat))
       enddo
  30   continue
@@ -2252,8 +2257,8 @@ enddo
 
     do jlat = 2, nlatm1
     do jlon = 2, nlonm1
-    totsky(jlon,jlat) = totsky(jlon,jlat) + swsdtf(jlon,jlat)
-    soldir(jlon,jlat) = soldir(jlon,jlat) + swsddr(jlon,jlat)
+    rad_sw_down(jlon,jlat) = rad_sw_down(jlon,jlat) + swsdtf(jlon,jlat)
+    rad_sw_down_shf(jlon,jlat) = rad_sw_down_shf(jlon,jlat) + swsdtf(jlon,jlat)
     cswfl (jlon,jlat) = cswfl (jlon,jlat) + frvis(jlon,jlat)*dtstep
     clwfl (jlon,jlat) = clwfl (jlon,jlat) + frirr(jlon,jlat)*dtstep
     cshflux(jlon,jlat) = cshflux(jlon,jlat) - hflux(jlon,jlat)*dtstep
@@ -2637,6 +2642,7 @@ enddo
       precsolid  = 0.
       runoff     = 0.
       runoff_tot = 0.
+      rad_sw_down = 0.
       cswfl      = 0.
       clwfl      = 0.
       cshflux    = 0.
@@ -2722,8 +2728,7 @@ enddo
     integer :: nun, init_flag, iunit=12, jklev, isleep, istop, no_input, ierr_open
     character(len=30) :: filerd, anun
     integer :: comm, error
-
-    character*10 get_ctime, ctime1, ctime2
+    character(len=10) :: get_ctime, ctime1, ctime2
 
 #ifdef mpi
       include 'mpif.h'
@@ -2748,6 +2753,9 @@ enddo
       do while (.true.)
         open (iunit, file=filerd, form='unformatted', status='old', iostat=ierr_open)
         if (ierr_open == 0) then
+!#ifdef oper
+!          call system("ls -l -L "//filerd)
+!#endif
           exit
         else
           print *,"Input file ",filerd," is not ready: wait - sleep 60 s..."
@@ -2848,7 +2856,7 @@ enddo
     if (myid == 0) then
       close (iunit)
       ctime2 = get_ctime()
-      if (myid.eq.0) write(*,*) 'MHF read from ', ctime1, ' to ', ctime2
+      write(*,*) 'MHF read from ', ctime1, ' to ', ctime2
       write (*,'(2a)') ' Read file ',trim(filerd)
       write (*,*)
     endif
@@ -2869,7 +2877,7 @@ enddo
     real, dimension(100) :: pdr_local
     real, dimension(nlon,nlat) :: field2d_add
     integer :: comm, error
-    character*10 get_ctime, ctime1, ctime2
+    character(len=10) :: get_ctime, ctime1, ctime2
 
 #ifdef mpi
       include 'mpif.h'
@@ -2893,6 +2901,9 @@ enddo
       do while (.true.)
         open (iunit, file=filerd, form='unformatted', status='old', iostat=ierr_open)
         if (ierr_open == 0) then
+!#ifdef oper   
+!          call system("ls -l -L "//filerd)
+!#endif
           exit
         else
           print *,"Input file ",filerd," is not ready: wait - sleep 60 s..."
@@ -3085,7 +3096,7 @@ enddo
     if (myid == 0) then
       close (iunit)
       ctime2 = get_ctime()
-      if (myid.eq.0) write(*,*) 'MHF read from ', ctime1, ' to ', ctime2
+      write(*,*) 'MHF read from ', ctime1, ' to ', ctime2
       write (*,'(2a)') ' Read file ',trim(filerd)
       write (*,*)
     endif
@@ -3833,7 +3844,7 @@ do jklev = 1, nlevg
 
  integer :: iunit=22, iunit_work=29, jklev
  character(len=30) file_out, amhf
- character*10 get_ctime, ctime1, ctime2
+ character(len=10) :: get_ctime, ctime1, ctime2
 
    ctime1 = get_ctime()
 
@@ -3891,9 +3902,11 @@ do jklev = 1, nlevg
      flush (iunit)
      close (iunit)
      ctime2 = get_ctime()
-     if (myid.eq.0) write(*,*) 'MHF written from ', ctime1, ' to ', ctime2
+     write(*,*) 'MHF written from ', ctime1, ' to ', ctime2
 
 #ifdef oper
+!!!     call system("ls -l -L "//file_out)
+!!!     call system("date")
      open (iunit_work, file=trim(file_out)//'.txt', status='unknown')
      write (iunit_work,'(2a)') trim(file_out),' is full and closed'
      close (iunit_work)
@@ -3914,10 +3927,10 @@ do jklev = 1, nlevg
  use mod_moloch
  implicit none
 
- integer :: iunit=23, iunit_work=29, jklev
+ integer :: iunit=23, iunit_work=29, jklev, nmin_fc
  character(len=30) file_out, amhf
  real, dimension(nlon,nlat) :: zwork
- character*10 get_ctime, ctime1, ctime2
+ character(len=10) :: get_ctime, ctime1, ctime2
 
    ctime1 = get_ctime()
 
@@ -3937,6 +3950,8 @@ do jklev = 1, nlevg
      write(iunit) pdrr
 
    endif
+
+   nmin_fc = nfdrr(10)*24*60 + nfdrr(11)*60 + nfdrr(12)
 
 !  Physiographical parameters changing in time
 
@@ -4051,6 +4066,9 @@ do jklev = 1, nlevg
 
 ! Statistical (cumulated, average, max, min) surface variables
 
+   call collect (rad_sw_down, gfield)
+   if (myid == 0) call wrec2r (iunit, gnlon, gnlat, gfield)
+
    call collect (cswfl, gfield)
    if (myid == 0) call wrec2r (iunit, gnlon, gnlat, gfield)
 
@@ -4090,20 +4108,22 @@ do jklev = 1, nlevg
    call collect (float(level_snowfall), gfield)
    if (myid == 0) call wrec2r (iunit, gnlon, gnlat, gfield)
 
-! Writting of additional 2D fields
-
-   zwork = 0.
-   call collect (zwork, gfield)
-   if(myid == 0) call wrec2r (iunit, gnlon, gnlat, gfield)
+!! Writting of additional 2D fields
+!
+!   zwork = 0.
+!   call collect (zwork, gfield)
+!   if(myid == 0) call wrec2r (iunit, gnlon, gnlat, gfield)
 
    if (myid == 0) then
 
      flush (iunit)
      close (iunit)
      ctime2 = get_ctime()
-     if (myid.eq.0) write(*,*) 'MHF written from ', ctime1, ' to ', ctime2
+     write(*,*) 'MHF written from ', ctime1, ' to ', ctime2
 
 #ifdef oper
+!!!     call system("ls -l -L "//file_out)
+!!!     call system("date")
      open (iunit_work, file=trim(file_out)//'.txt', status='unknown')
      write (iunit_work,'(2a)') trim(file_out),' is full and closed'
      close (iunit_work)
@@ -4350,6 +4370,8 @@ do jklev = 1, nlevg
      close (iunit)
 
 #ifdef oper
+!!!     call system("ls -l -L "//file_out)
+!!!     call system("date")
      open (iunit_work, file=trim(file_out)//'.txt', status='unknown')
      write (iunit_work,'(2a)') trim(file_out),' is full and closed'
      close (iunit_work)
@@ -4505,6 +4527,9 @@ do jklev = 1, nlevg
 
 ! Statistical (cumulated, average, max, min) surface variables
 
+   call collect (rad_sw_down, gfield)
+   if (myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield)
+
    call collect (cswfl, gfield)
    if (myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield)
 
@@ -4544,11 +4569,11 @@ do jklev = 1, nlevg
    call collect (float(level_snowfall), gfield)
    if (myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield)
 
-! Writting of additional 2D fields
-
-   zwork = 0.
-   call collect (zwork, gfield)
-   if(myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield)
+!! Writting of additional 2D fields
+!
+!   zwork = 0.
+!   call collect (zwork, gfield)
+!   if(myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield)
 
    if (myid == 0) then
 
@@ -4556,6 +4581,8 @@ do jklev = 1, nlevg
      close (iunit)
 
 #ifdef oper
+!!!     call system("ls -l -L "//file_out)
+!!!     call system("date")
      open (iunit_work, file=trim(file_out)//'.txt', status='unknown')
      write (iunit_work,'(2a)') trim(file_out),' is full and closed'
      close (iunit_work)
@@ -4686,7 +4713,7 @@ do jklev = 1, nlevg
 
       use mod_moloch, only : nlon, nlat, nlev, nprocsx, nprocsy, u, v, w, p, tskin, dtstep, ip_e, ip_n, ip_s, ip_w, myid
       integer :: ierr, comm
-      character*10 get_ctime, ctime
+      character(len=10) :: get_ctime, ctime
 
 #ifdef mpi
       include 'mpif.h'
@@ -4868,7 +4895,7 @@ do jklev = 1, nlevg
     if (myid == 0) then
 
       print*
-      write(*,'(a,i5,a,f8.3x,a)') ' jstep',jstep, "   -   integration time (hours):", jstep*dtstep/3600., ctime
+      write(*,'(a,i5,a,f8.3,5x,2a)') ' jstep',jstep, "   -   integration time (hours):", jstep*dtstep/3600., 'at ', ctime
       print 1010, umax, vmax, wmax, zpmin/100.
       print 1011, iumax, jumax, kumax, ivmax, jvmax, kvmax, iwmax, jwmax, kwmax
       write (*,'(2(a,f7.2))') ' Max tskin =    ',ztsmax-273.15,'   Min tskin = ',ztsmin-273.15
@@ -4880,6 +4907,19 @@ do jklev = 1, nlevg
  1011 format(' at gridpoints:    ',3(2i5,i3,2x))
       return
       end subroutine runout
+!###############################################################################################################
+! Define current actual time in format HH:MM:SS.d (ARPAL)
+
+character(len=10) function get_ctime()
+
+integer, dimension(8) :: values
+
+ call date_and_time(values=values)
+
+ write (get_ctime, '(i2.2,a,i2.2,a,i2.2,a,i1)') values(5),":",values(6),":",values(7),".",int(values(8) / 100.)
+
+return
+end function get_ctime
 !###############################################################################################################
       subroutine surflayer(kstep)
 
@@ -7940,8 +7980,8 @@ end subroutine radiat_init
       call wrec2 (iunit, gnlon, gnlat, gfield*1.e2)
     endif
 
-    if (jstep.gt.1) totsky = totsky/float(ntswshf)
-    call collect (totsky, gfield) ! #4
+    if (jstep.gt.1) rad_sw_down_shf = rad_sw_down_shf/float(ntswshf)
+    call collect (rad_sw_down_shf, gfield) ! #4
     if(myid == 0) then
       grib2_descript(3)  =   8 ! statistical product
       grib2_descript(5)  =   0 ! average
@@ -7951,18 +7991,6 @@ end subroutine radiat_init
       write (iunit) grib2_descript
       call wrec2 (iunit, gnlon, gnlat, gfield)
     endif
-
-!    if (jstep.gt.1) soldir = soldir/float(ntswshf)
-!    call collect (soldir, gfield)
-!    if(myid == 0) then
-!      grib2_descript(3)  =   8 ! statistical product
-!      grib2_descript(5)  =   0 ! average
-!      grib2_descript(20) =   0 ! Discipline: Meteorological products
-!      grib2_descript(21) =   4 ! Category: Short-wave Radiation
-!      grib2_descript(22) =  13 ! Parameter: Direct solar radiation flux (W m-2)
-!      write (iunit) grib2_descript
-!      call wrec2 (iunit, gnlon, gnlat, gfield)
-!    endif
 
     call collect (qprecsolid, gfield) ! #5
     if(myid == 0) then
@@ -8054,7 +8082,7 @@ end subroutine radiat_init
     endif
 
     if (jstep.gt.1) then
-      call collect (qf_accum/float(ntswshf), gfield)
+      call collect (qf_accum/(mswshf*60.), gfield)
     else
       call collect (qf_accum, gfield) ! #12
     endif
@@ -8193,23 +8221,23 @@ end subroutine radiat_init
     flush (iunit)
     close (iunit)
     ctime2 = get_ctime()
-    if (myid.eq.0) write(*,*) 'SMHF written from ', ctime1, ' to ', ctime2
 
 #ifdef oper
+!!!      call system("ls -l -L "//file_out)
+!!!      call system("date")
     open (iunit_work, file=file_out(1:14)//'.txt', status='unknown')
     write (iunit_work,'(2A)') file_out,' is full and closed'
     close (iunit_work)
-    print *,'Output written on file ', file_out
+    print *,'Output written on file ', file_out,'  ',ctime1, ' to ', ctime2
 #else
-    print *,'Output written on file moloch.shf'
+    print *,'Output written on file moloch.shf','  ',ctime1, ' to ', ctime2
 #endif
 
   endif
 
     qprectot   = 0. ! reset total precipitation
     qprecsolid = 0. ! reset snow fall
-    totsky     = 0. ! reset cumulated flux
-    soldir     = 0. ! reset cumulated flux
+    rad_sw_down_shf = 0. ! reset cumulated flux
     shf_accum  = 0. ! reset cumulated sensible heat flux
     lhf_accum  = 0. ! reset cumulated latent heat flux
     qf_accum   = 0. ! reset cumulated evaporation flux
@@ -8326,6 +8354,8 @@ integer :: iunit=41, iunit_work=29, jstep, jlon, jlat, jklev
    flush(iunit)
    close(iunit)
 #ifdef oper
+!!!   call system("ls -l -L "//file_out)
+!!!   call system("date")
    open (iunit_work, file=(trim(file_out)//'.txt'), status='unknown')
    write (iunit_work,'(2A)') trim(file_out),' is full and closed'
    close (iunit_work)
@@ -9713,6 +9743,7 @@ use yoethf   , only : r2es     ,r3les    ,r3ies    ,r4les              ,&
                       r4ies    ,r5les    ,r5ies    ,r5alvcp  ,r5alscp  ,&
                       ralvdcp  ,ralsdcp  ,rtwat    ,rtice    ,rticecu  ,&
                       rtwat_rtice_r      ,rtwat_rticecu_r
+use yoedbug  , only : nstpdbg, kstpdbg
 
 use mod_moloch, only : nlon, nlat, nlev, nlevp1, gnlon, gnlat, gfield, dz, h, ps, p, t,  &
                        tskin, phig, aerosol, ozon, myid, alont, alatt, g, tzer, aerotot
@@ -9801,6 +9832,8 @@ lphylin=.false.
 levoigt=.false.
 leradhs=.true.      ! .t. if rad. is computed on a coarser sampled grid (unused)
 lonewsw=.true.      ! .t. if new sw code is active
+nstpdbg= 0
+kstpdbg(:)=-999
 kmode=0
 zdegrad = rpi/180.
 
@@ -10273,6 +10306,7 @@ use yoethf   , only : r2es     ,r3les    ,r3ies    ,r4les              ,&
                       r4ies    ,r5les    ,r5ies    ,r5alvcp  ,r5alscp  ,&
                       ralvdcp  ,ralsdcp  ,rtwat    ,rtice    ,rticecu  ,&
                       rtwat_rtice_r      ,rtwat_rticecu_r
+use yoedbug  , only : nstpdbg, kstpdbg
 
 use mod_moloch, only : nlon, nlat, nlonr, nradm, nlev, nlevp1, dz, h, g, cpd, cpv, ps, p, swsdtf, &
                        t, tskin, aerosol, ozon, myid, corvis, corirr, corrdt, tzer, swsddr,       &
@@ -10382,6 +10416,8 @@ lphylin=.false.
 levoigt=.false.
 leradhs=.false.      ! not used
 lonewsw=.true.       ! .t. if new sw code is active
+nstpdbg= 0
+kstpdbg(:)=-999
 kmode= 0
 zdegrad = rpi/180.
 
@@ -13516,6 +13552,9 @@ integer, dimension(1) :: i1
  call disperse (gfield, roscdt)
 
  if(myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
+ call disperse (gfield, rad_sw_down)
+
+ if(myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
  call disperse (gfield, cswfl)
 
  if(myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
@@ -13582,10 +13621,7 @@ integer, dimension(1) :: i1
  call disperse (gfield, qflux)
 
  if(myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
- call disperse (gfield, totsky)
-
- if(myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
- call disperse (gfield, soldir)
+ call disperse (gfield, rad_sw_down_shf)
 
  if(myid == 0) call rrec2 (iunit, gnlon, gnlat, gfield)
  call disperse (gfield, shf_accum)
@@ -13967,6 +14003,9 @@ character(len=30) :: file_out
  call collect (roscdt, gfield)
  if(myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield)
 
+ call collect (rad_sw_down, gfield)
+ if(myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield)
+
  call collect (cswfl, gfield)
  if(myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield)
 
@@ -14033,10 +14072,7 @@ character(len=30) :: file_out
  call collect (qflux, gfield)
  if(myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield)
 
- call collect (totsky, gfield)
- if(myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield)
-
- call collect (soldir, gfield)
+ call collect (rad_sw_down_shf, gfield)
  if(myid == 0) call wrec2 (iunit, gnlon, gnlat, gfield)
 
  call collect (shf_accum, gfield)
@@ -15081,11 +15117,3 @@ INTEGER, DIMENSION(NX_GLOB, NY_GLOB) ::  FIELD_GLOB_I
 RETURN
 END SUBROUTINE WRRF_POCHVA
 !###############################################################################################################
-
-! recupera il time in formato stringa HH:MM:SS.d (Davide e Paolo)
-character*10 function get_ctime()
-    integer :: values(8)
-    call date_and_time(values=values)
-    write (get_ctime, '(i2.2,a,i2.2,a,i2.2,a,i1)') values(5),":",values(6),":",values(7),".",int(values(8) / 100.)
-    return
-end

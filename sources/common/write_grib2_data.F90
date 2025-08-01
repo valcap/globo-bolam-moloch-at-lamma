@@ -1,5 +1,7 @@
 !------------------------------------------------------------------------------
-! Last update 17/02/2016
+! Last update 28/07/2025
+!------------------------------------------------------------------------------
+! For s2s: search "s2s"
 !------------------------------------------------------------------------------
 
 MODULE GRIB2_CODING_DATA
@@ -305,6 +307,7 @@ REAL*4, DIMENSION(:), ALLOCATABLE :: VALUE
        ENDIF
        IF (DATA(IFIELD) % GRIB2_DESCRIPT(11) /= IVALMISS) THEN
          CALL GRIB_SET (IGRIBCLONE, 'scaledValueOfFirstFixedSurface', DATA(IFIELD) % GRIB2_DESCRIPT(11))
+!!!         IF (DATA(IFIELD) % GRIB2_DESCRIPT(11) == 429496) CALL GRIB_SET (IGRIBCLONE, 'scaledValueOfFirstFixedSurface', 4294967295) ! s2s project
        ELSE
          CALL GRIB_SET_MISSING (IGRIBCLONE, 'scaledValueOfFirstFixedSurface')
        ENDIF
@@ -315,6 +318,7 @@ REAL*4, DIMENSION(:), ALLOCATABLE :: VALUE
        ENDIF
        IF (DATA(IFIELD) % GRIB2_DESCRIPT(13) /= IVALMISS) THEN
          CALL GRIB_SET (IGRIBCLONE, 'scaledValueOfSecondFixedSurface', DATA(IFIELD) % GRIB2_DESCRIPT(13))
+!!!         IF (DATA(IFIELD) % GRIB2_DESCRIPT(13) == 429496) CALL GRIB_SET (IGRIBCLONE, 'scaledValueOfSecondFixedSurface', 4294967295) ! s2s project
        ELSE
          CALL GRIB_SET_MISSING (IGRIBCLONE, 'scaledValueOfSecondFixedSurface')
        ENDIF

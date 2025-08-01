@@ -94,7 +94,7 @@ module model
      p, u, v, w, t, q, qcw, qci, tvirt, tice, soil_map, veg_map, soilvegpar
  real, dimension(:,:), allocatable :: fmask, phig, phig0, ps, tsurf, tgsurf, qvsurf, qgsurf, &
      water_table_depth, tg_bottom, qg_rel_bottom, qg_rel_surf_approx, &
-     cloudt, totpre, snfall, runoff, snow, cswfl, clwfl, chflux, cqflux,        &
+     cloudt, totpre, snfall, runoff, snow, cswfl, cswfl_down, clwfl, chflux, cqflux,        &
      t2min, t2max, ws10max, albedo, emismap1, emismap2, rgm, rgq, fice, iceth, &
      soil_albedo_dry, soil_albedo_wet, soil_emiss1_dry, soil_emiss1_wet, soil_emiss2_dry, soil_emiss2_wet, &
      veg_lai, veg_frac, veg_root_depth, veg_roughness, veg_albedo, veg_emiss1, veg_emiss2, snow_dirt, fice_soil_surf
@@ -334,7 +334,7 @@ logical :: nlbuco
      stop
    endif
    print *,"Waiting (sleep) 30 s"
-   call sleep(30)
+   call sleep (30)
 #else
    stop
 #endif
@@ -485,6 +485,7 @@ logical :: nlbuco
  allocate(snow(nlon,nlat))
  allocate(snow_frc(nlon,nlat))
  allocate(cswfl(nlon,nlat))
+ allocate(cswfl_down(nlon,nlat))
  allocate(clwfl(nlon,nlat))
  allocate(chflux(nlon,nlat))
  allocate(cqflux(nlon,nlat))
@@ -750,7 +751,7 @@ logical :: nlbuco
      stop
    endif
    print *,"Waiting (sleep) 30 s"
-   call sleep(30)
+   call sleep (30)
 #else
    stop
 #endif
@@ -5273,6 +5274,8 @@ character(len=30) :: file_output
  write (*,*)
 
 #ifdef oper
+!!! call system("ls -l -L "//file_output)
+!!! call system("date")
  open  (iunit, file=trim(file_output)//'.txt', status='unknown')
  write (iunit,'(2a)') trim(file_output),' is full and closed'
  close (iunit)
@@ -5376,6 +5379,8 @@ real, dimension(nlon,nlat) :: field2d_add, snow_albedo, runoff_tot
 
  call wrec2 (iunit, nlon, nlat, snow_albedo(1:nlon,1:nlat))
 
+ call wrec2 (iunit, nlon, nlat, cswfl_down(1:nlon,1:nlat))
+
  call wrec2 (iunit, nlon, nlat, cswfl(1:nlon,1:nlat))
 
  call wrec2 (iunit, nlon, nlat, clwfl(1:nlon,1:nlat))
@@ -5396,7 +5401,7 @@ real, dimension(nlon,nlat) :: field2d_add, snow_albedo, runoff_tot
 ! Writing of additional 2D fields
 
  field2d_add(:,:) = 0.
- do iwr = 1,5
+ do iwr = 1,4
    call wrec2 (iunit, nlon, nlat, field2d_add(1:nlon,1:nlat))
  enddo
 
@@ -5408,6 +5413,8 @@ real, dimension(nlon,nlat) :: field2d_add, snow_albedo, runoff_tot
  write (*,*)
 
 #ifdef oper
+!!! call system("ls -l -L "//file_output)
+!!! call system("date")
  open  (iunit, file=trim(file_output)//'.txt', status='unknown')
  write (iunit,'(2a)') trim(file_output),' is full and closed'
  close (iunit)
@@ -5587,6 +5594,8 @@ character(len=30) :: file_output="model_param_constant.bin"
  write (*,*)
 
 #ifdef oper
+!!! call system("ls -l -L "//file_output)
+!!! call system("date")
  open  (iunit, file=trim(file_output)//'.txt', status='unknown')
  write (iunit,'(2a)') trim(file_output),' is full and closed'
  close (iunit)
@@ -5717,6 +5726,8 @@ character(len=30) :: file_output="model_param_constant.bin"
  write (*,*)
 
 #ifdef oper
+!!! call system("ls -l -L "//file_output)
+!!! call system("date")
  open  (iunit, file=trim(file_output)//'.txt', status='unknown')
  write (iunit,'(2a)') trim(file_output),' is full and closed'
  close (iunit)

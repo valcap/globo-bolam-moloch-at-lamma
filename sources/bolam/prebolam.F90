@@ -509,7 +509,7 @@ real, dimension(:), allocatable :: plaux_add80
       stop
     endif
     print *,"Waiting (sleep) 10 s"
-    call sleep(10)
+    call sleep (10)
 #else
     stop
 #endif
@@ -996,7 +996,7 @@ do ifile = 1, nist
     print *,"Input file ",trim(file_name_work)," not available"
 #ifdef oper
     print *,"Waiting (sleep) 10 s"
-    call sleep(10)
+    call sleep (10)
 #else
     stop
 #endif
@@ -4004,6 +4004,8 @@ character(len=30) :: file_output
  write (*,*)
  
 #ifdef oper
+!!! call system("ls -l -L "//file_output)
+!!! call system("date")
  open  (iunit, file=trim(file_output)//'.txt', status='unknown')
  write (iunit,'(2a)') trim(file_output),' is full and closed'
  close (iunit)
@@ -4141,6 +4143,8 @@ character(len=30) :: file_output
  write (*,*)
  
 #ifdef oper
+!!! call system("ls -l -L "//file_output)
+!!! call system("date")
  open  (iunit, file=trim(file_output)//'.txt', status='unknown')
  write (iunit,'(2a)') trim(file_output),' is full and closed'
  close (iunit)

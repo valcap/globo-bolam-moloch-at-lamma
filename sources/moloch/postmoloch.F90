@@ -1,7 +1,16 @@
 !
 !     program postmoloch
 
-! Last update 16/10/2024
+! Last update 31/07/2025
+
+! Lug. 2025: Downward solar radiation average flux in mhf input;
+! name of input file with constant variables is changer:
+! model_param_constant.bin or model_param_constant_not_full_res.bin
+! in depending on mhfr variable.
+!
+! NOT support for ppf output format !!!!
+
+! Giu. 2025: variabili sui livelli Z, lista dei livelli isobarici e Z in postmoloch.inp
 
 ! Sett. 2024: Cambiata la scrittura di model_param_constant.bin - piu' grandezze
 
@@ -45,19 +54,15 @@
 ! per la parte umida); nuovo algoritmo (Maurizio) per calcolo nubi alte, medie, basse e tot.
 ! Mar. 2017: velocizzato evitando calcoli inutili nel caso njump>1.
 
-! Versione che puo' plottare livelli a Z costante - attenz.: qui commentata WRITE di IZFLAG
-! Se si lasciano coord. standard per le cross-section, va commentata la parte di codice
-! del DO sotto il commento "geographycal points with prescribed coordinates"
-
 !-----------------------------------------------------------------------
- module mod_postmoloch
+module mod_postmoloch
 
 ! npar: no. of variables on pressure level in output
 ! nlevpo: no. of constant pressure levels in output
 ! ncrossx, ncrossy: no. of cross-sections in long. and lat.
 ! nzlev: no. of constant height levels in output
 
-   integer, parameter :: npar=8, nlevpo=24, ncrossx=3, ncrossy=3, nzlev=20, npoint_cross_max=1000
+   integer, parameter :: npar=8, nlevpo=20, ncrossx=3, ncrossy=3, nzpar=5, nzlev=20, npoint_cross_max=1000
    integer :: njump, nlivz, cross_number, cross_interp_gauss
    real :: zcbot, zctop        ! top and bottom zeta for cross-sections
    logical :: ncrossec, output_format_ppf, output_format_grib2
@@ -66,16 +71,32 @@
    integer, dimension(80)       :: isflag
    integer, dimension(npar,nlevpo) :: ipflag
    integer, dimension(npar*nlevpo) :: ipflag0
-   integer, dimension(nzlev)    :: izflag
+   integer, dimension(nzpar,nzlev) :: izflag
+   integer, dimension(nzpar*nzlev) :: izflag0
    real, dimension(10) :: lonini_cross, latini_cross, lonfin_cross, latfin_cross
    integer, dimension(10) :: npoint_cross
    real :: valmiss=-9999.
    integer :: nunic1, nunic2, ierr_read1=0, ierr_read2=0
+! Values of pressure levels in Pa (defined in postmoloch.inp)
+   real, dimension(nlevpo) :: plevo
+! Values of geometric altitude (above the surface) levels in m (defined in postmoloch.inp)
+   real, dimension(nzlev)  :: zlev
+
+! Physical constants
+
+   real, parameter :: rd = 287.05, rv = 461.51, eps = rd/rv, ep = 1./eps-1., &
+                      cpd = 1004.6, cvd = cpd-rd, cpv = 1869.46, &
+                      gamma = cpd/cvd, rdrcp = rd/cpd, g = 9.807, a = 6371.e+3, &
+                      ome = 7.292e-5, pi = abs(acos(-1.)), &
+                      tzer=273.15, pzer=1.e5, ezer=611., cw=4186.8, ci=2093.4, &
+                      yliv=2834170.5, yliw=333560.5, ylwv=yliv-yliw, &
+                      ccw1=(cpv-cw)/rv, ccw2=ylwv/tzer/rv-ccw1, cci1=(cpv-ci)/rv, cci2=yliv/tzer/rv-cci1
 
    namelist/postp/ njump,zcbot,zctop,nlivz,ncrossec,output_format_ppf,output_format_grib2,              &
+                   plevo,zlev,                                                                          &
                    loncr,latcr,                                                                         &
                    lonini_cross,latini_cross,lonfin_cross,latfin_cross,npoint_cross,cross_interp_gauss, &
-                   isflag,ipflag0,izflag
+                   isflag,izflag0,ipflag0
 
       CONTAINS
 
@@ -98,7 +119,7 @@
  end module mod_postmoloch
 !--------------------------------------------------------------------------------------------------
  module data_observ_aux
-   real, dimension(:,:), allocatable :: t05, t005, q05rel, tg005, tg010, tg020, tg050, tg100
+   real, dimension(:,:), allocatable :: tg005, tg010, tg020, tg050, tg100
  end module data_observ_aux
 !--------------------------------------------------------------------------------------------------
 
@@ -144,18 +165,26 @@
 
 ! -----------------------------
 
-      real, parameter                     :: tzer=273.15, pzer=1.e5, ezer=611., cw=4186.8, ci=2093.4
-      real, parameter                     :: yliv=2834170.5, ylwv=2500610.
       integer, dimension(50)              :: nfdr
       real, dimension(100)                :: pdr
       integer, parameter                  :: nlev_snow=11, nlev_snow_prod=3
       real, dimension(:), allocatable     :: zlcr
-      real, dimension(nlevpo)             :: plevo, zalp
-      real, dimension(nzlev)              :: zlev
+      real, dimension(nlevpo)             :: zalp   
+!! Definition of values of pressure levels in Pa
+!                                             plevo=(/ 1000.e2, 950.e2, 900.e2, 850.e2, 800.e2, &
+!                                                       750.e2, 700.e2, 650.e2, 600.e2, 550.e2, &
+!                                                       500.e2, 450.e2, 400.e2, 350.e2, 300.e2, &
+!                                                       250.e2, 200.e2, 150.e2, 100.e2, 50.e2/)
+!! Definition of values of geometric altitude (above the surface) levels in m
+!      real, dimension(nzlev)              :: zlev=(/ 0.05,  0.5,     2.,   10.,   20., &
+!                                                      50. ,  80.,  100.,  200.,  500., &
+!                                                    1.0e3, 1.5e3, 2.0e3, 3.0e3, 4.0e3, &
+!                                                    5.0e3, 6.0e3, 7.0e3, 8.0e3, 10.0e3/)
       real, dimension(1)                  :: zsq
 
       integer, dimension(:,:),allocatable :: izout, izoutx, izouty
-      real, dimension(:),     allocatable :: fmyu, fz, fzh, zaux, zauxp, zlnp, zlnph
+      real, dimension(:),     allocatable :: fmyu, fz, fzh, zaux, zauxp, zlnp, zlnph, xinp, finp
+      real, dimension(100)                :: xout, fout
 
       real, dimension(:,:),   allocatable :: phig, tskin, qskin, cloudt, prectot, precconv, precsolid, runoff, runoff_tot, &
                                              snow, fsnow, albedo, &
@@ -163,18 +192,21 @@
                                              alont, alatt, alonu, alatu, alonv, alatv, alonz, alatz, fcorio,           &
                                              zorogr, ps, zpz0, zus, zvs, zts, zqs, zthes, ztskin,                      &
                                              ztgr1, ztgr2, ztgr3, ztgr4, zqgr1, zqgr2, zqgr3, zqgr4,                   &
-                                             zwork, zwor2, zwor3, zwor4, zwor5, hflux, qflux, t2, td2, q2, q2rel,      &
-                                             u10, v10, gust, zlev0,                                                    &
-                                             cloudl, cloudm, cloudh, cape, capek, cswfl, clwfl, chflux, cqflux, t2min, &
-                                             t2max, ws10max, zlift, ztvirtup, orog_cross, ztarr, zqarr,                &
+                                             zwork, zwor2, zwor3, zwor4, zwor5, hflux, qflux, gust, zlev0,             &
+                                             cloudl, cloudm, cloudh, cape, capek, &
+                                             rad_sw_down, cswfl, clwfl, chflux, cqflux, cwvflux, &
+                                             t2min, t2max, ws10max, &
+                                             zlift, ztvirtup, orog_cross, ztarr, zqarr,                                &
                                              lapse_rate_1, lapse_rate_2, iwv, richs, cin, cink, pbl,                   &
                                              tgsurf, qgsurf, fice_soil_surf, snow_albedo,                              &
-                                             cwvflux, csoilh_bott_flux, csoilw_bott_flux, snowfall_height, snowfall_height0
-      integer, dimension(:,:), allocatable :: snowfall_level
+                                             csoilh_bott_flux, csoilw_bott_flux, snowfall_height, snowfall_height0
+      integer, dimension(:,:), allocatable :: snowfall_level, n_zlev_sl
 
       real, dimension(:,:,:), allocatable :: tg, qg, qgmax, qgmin, p, u, v, w, t, q, qcw, qci, s, zthee, fmz, fmzh, potvor,   &
                                              zrelh, tvirt, zph, zt, zq, zu, zv, zw, zqcw, zqci, zpv, teta,        &
-                                             zclwi, zrh, zthetae, tvlift, ztvlift, zparr, zeta, tg_post, qg_post, &
+                                             zclwi, zrh, zthetae, &
+                                             u_zlev, v_zlev, ws_zlev, wd_zlev, t_zlev, td_zlev, q_zlev, rh_zlev,  &
+                                             tvlift, ztvlift, zparr, zeta, tg_post, qg_post, &
                                              ztcrx, ztecrx, zucrx, zvcrx, zwcrx, zrhcrx, zcwcrx, zcicrx,          &
                                              ztcry, ztecry, zucry, zvcry, zwcry, zrhcry, zcwcry, zcicry,          &
                                              t_cross, theta_cross, thetae_cross, u_cross, v_cross, u_tang_cross,  &
@@ -185,20 +217,18 @@
       real, dimension(:), allocatable     :: zzzg, zztg
       real, dimension(nlev_snow)          :: snow_dens_h
 
-      data zlev/ 0.5e3, 1.0e3, 1.5e3, 2.0e3, 2.5e3, 3.0e3, 3.5e3, 4.0e3, 4.5e3, 5.0e3, &
-                 5.5e3, 6.0e3, 6.5e3, 7.0e3, 7.5e3, 8.0e3, 8.5e3, 9.0e3, 9.5e3,10.0e3/
+      real, dimension(:,:), allocatable :: prectotr, precconvr, precsolidr, runoffr, runoff_tot_r, &
+                                           rad_sw_down_r, cswflr, clwflr, chfluxr, cqfluxr, cwvfluxr, &
+                                           t2minr, t2maxr, ws10maxr, &
+                                           lon_crossy, lat_crossy, lon_crossx, lat_crossx, orog_crossx, orog_crossy, &
+                                           csoilh_bott_fluxr, csoilw_bott_fluxr
 
-   real, dimension(:,:), allocatable :: prectotr, precconvr, precsolidr, runoffr, runoff_tot_r, &
-                                        cswflr, clwflr, chfluxr, cqfluxr, t2minr, t2maxr, ws10maxr, &
-                                        lon_crossy, lat_crossy, lon_crossx, lat_crossx, orog_crossx, orog_crossy, &
-                                        cwvfluxr, csoilh_bott_fluxr, csoilw_bott_fluxr
-
-   integer, dimension(5) :: idate0, idatec
-   integer, dimension(3) :: iperiod=0, iperiod_accum=0
-   integer, dimension(12):: imon=(/31,28,31,30,31,30,31,31,30,31,30,31/)
-   integer :: nday, ndm, iimon, ierr_open1, ierr_open2
-   real :: zlat, day, coeday, lapse_rate, lapse_rate_clim, zfrac
-   integer :: kbott, kmedium
+      integer, dimension(5) :: idate0, idatec
+      integer, dimension(3) :: iperiod=0, iperiod_accum=0
+      integer, dimension(12):: imon=(/31,28,31,30,31,30,31,31,30,31,30,31/)
+      integer :: nday, ndm, iimon, ierr_open1, ierr_open2
+      real :: zlat, day, coeday, lapse_rate, lapse_rate_clim, zfrac
+      integer :: kbott, kmedium
 
 !  Definition of postprocessing procedure parameters
 
@@ -209,36 +239,25 @@
 
   ipflag(1:npar,1:nlevpo)=reshape(ipflag0,(/npar,nlevpo/))
 
-!  Definition of values of pressure levels in Pa
+  izflag(1:nzpar,1:nzlev)=reshape(izflag0,(/nzpar,nzlev/))
 
-       plevo(1) = 1000.e2
-       plevo(2) =  975.e2
-       plevo(3) =  950.e2
-       plevo(4) =  925.e2
-       plevo(5) =  900.e2
-       plevo(6) =  875.e2
-       plevo(7) =  850.e2
-       plevo(8) =  825.e2
-       plevo(9) =  800.e2
-       plevo(10)=  750.e2
-       plevo(11)=  700.e2
-       plevo(12)=  650.e2
-       plevo(13)=  600.e2
-       plevo(14)=  550.e2
-       plevo(15)=  500.e2
-       plevo(16)=  450.e2
-       plevo(17)=  400.e2
-       plevo(18)=  350.e2
-       plevo(19)=  300.e2
-       plevo(20)=  250.e2
-       plevo(21)=  200.e2
-       plevo(22)=  150.e2
-       plevo(23)=  100.e2
-       plevo(24)=   50.e2
+  zalp(1:nlevpo) = alog(plevo(1:nlevpo))
 
-      do jklev = 1, nlevpo
-      zalp(jklev) = alog(plevo(jklev))
-      enddo
+  jklev_2=0
+  do jklev = 1, nzlev
+    if (nint(zlev(jklev)*100.) == 200) then
+      jklev_2 = jklev
+      exit
+    endif
+  enddo
+
+  jklev_10=0
+  do jklev = 1, nzlev
+    if (nint(zlev(jklev)*100.) == 1000) then
+      jklev_10 = jklev
+      exit
+    endif
+  enddo
 
 ! ---- For RTTOV simulation ---
 
@@ -358,6 +377,8 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
       allocate(   zzzg (nlevg ), stat=ierr)
       allocate(   zztg (nlevg ), stat=ierr)
       allocate(   zlcr (nlivz ), stat=ierr)
+      allocate(   xinp (nlev  ), stat=ierr)
+      allocate(   finp (nlev  ), stat=ierr)
 
       allocate(  izout (nlon, nlat ), stat=ierr)
       allocate( izoutx (nlon, nlivz), stat=ierr)
@@ -438,29 +459,22 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
       allocate(  zwor5    (nlon, nlat), stat=ierr)
       allocate(  hflux    (nlon, nlat), stat=ierr)
       allocate(  qflux    (nlon, nlat), stat=ierr)
-      allocate(     t2    (nlon, nlat), stat=ierr)
-      allocate(    td2    (nlon, nlat), stat=ierr)
-      allocate(     q2    (nlon, nlat), stat=ierr)
-      allocate(  q2rel    (nlon, nlat), stat=ierr)
-      allocate(    u10    (nlon, nlat), stat=ierr)
-      allocate(    v10    (nlon, nlat), stat=ierr)
       allocate(   cape    (nlon, nlat), stat=ierr)
       allocate(    cin    (nlon, nlat), stat=ierr)
       allocate(   cink    (nlon, nlat), stat=ierr)
       allocate(  capek    (nlon, nlat), stat=ierr)
       allocate(  zlift    (nlon, nlat), stat=ierr)
-      allocate(    t05    (nlon, nlat), stat=ierr)
-      allocate(   t005    (nlon, nlat), stat=ierr)
-      allocate( q05rel    (nlon, nlat), stat=ierr)
       allocate(  tg005    (nlon, nlat), stat=ierr)
       allocate(  tg010    (nlon, nlat), stat=ierr)
       allocate(  tg020    (nlon, nlat), stat=ierr)
       allocate(  tg050    (nlon, nlat), stat=ierr)
       allocate(  tg100    (nlon, nlat), stat=ierr)
+      allocate(rad_sw_down(nlon, nlat), stat=ierr)
       allocate(  cswfl    (nlon, nlat), stat=ierr)
       allocate(  clwfl    (nlon, nlat), stat=ierr)
       allocate( chflux    (nlon, nlat), stat=ierr)
       allocate( cqflux    (nlon, nlat), stat=ierr)
+      allocate(cwvflux    (nlon, nlat), stat=ierr)
       allocate(  t2min    (nlon, nlat), stat=ierr)
       allocate(  t2max    (nlon, nlat), stat=ierr)
       allocate(ws10max    (nlon, nlat), stat=ierr)
@@ -478,7 +492,6 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
       allocate( qgsurf (nlon,nlat),  stat=ierr)
       allocate(fice_soil_surf(nlon,nlat),  stat=ierr)
       allocate( snow_albedo (nlon,nlat),  stat=ierr)
-      allocate( cwvflux (nlon,nlat),  stat=ierr)
       allocate( csoilh_bott_flux (nlon,nlat),  stat=ierr)
       allocate( csoilw_bott_flux (nlon,nlat),  stat=ierr)
       allocate( snowfall_level   (nlon,nlat),  stat=ierr)
@@ -539,19 +552,30 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
       allocate(   zpv (nlon, nlat, nlevpo), stat=ierr)
       allocate(zthetae(nlon, nlat, nlevpo), stat=ierr)
 
+      allocate(  u_zlev(nlon, nlat, nzlev), stat=ierr)
+      allocate(  v_zlev(nlon, nlat, nzlev), stat=ierr)
+      allocate( ws_zlev(nlon, nlat, nzlev), stat=ierr)
+      allocate( wd_zlev(nlon, nlat, nzlev), stat=ierr)
+      allocate(  t_zlev(nlon, nlat, nzlev), stat=ierr)
+      allocate( td_zlev(nlon, nlat, nzlev), stat=ierr)
+      allocate(  q_zlev(nlon, nlat, nzlev), stat=ierr)
+      allocate( rh_zlev(nlon, nlat, nzlev), stat=ierr)
+      allocate(n_zlev_sl(nlon, nlat),       stat=ierr)
+
       allocate(prectotr   (nlon, nlat), stat=ierr)
       allocate(precconvr  (nlon, nlat), stat=ierr)
       allocate(precsolidr (nlon, nlat), stat=ierr)
       allocate(runoffr (nlon, nlat), stat=ierr)
       allocate(runoff_tot_r (nlon, nlat), stat=ierr)
+      allocate(rad_sw_down_r(nlon, nlat), stat=ierr)
       allocate( cswflr (nlon, nlat), stat=ierr)
       allocate( clwflr (nlon, nlat), stat=ierr)
       allocate(chfluxr (nlon, nlat), stat=ierr)
       allocate(cqfluxr (nlon, nlat), stat=ierr)
+      allocate(cwvfluxr(nlon, nlat), stat=ierr)
       allocate( t2minr (nlon, nlat), stat=ierr)
       allocate( t2maxr (nlon, nlat), stat=ierr)
       allocate(ws10maxr(nlon, nlat), stat=ierr)
-      allocate(cwvfluxr(nlon, nlat), stat=ierr)
       allocate(csoilh_bott_fluxr(nlon, nlat), stat=ierr)
       allocate(csoilw_bott_fluxr(nlon, nlat), stat=ierr)
 
@@ -618,14 +642,15 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
       precsolid(:,:) = 0.
       runoff(:,:) = 0.
       runoff_tot(:,:) = 0.
+      rad_sw_down(:,:) = 0.
       cswfl(:,:)  = 0.
       clwfl(:,:)  = 0.
       chflux(:,:) = 0.
       cqflux(:,:) = 0.
+      cwvflux(:,:)= 0.
       t2min(:,:)  = 999.
       t2max(:,:)  = 0.
       ws10max(:,:)= 0.
-      cwvflux(:,:)= 0.
       csoilh_bott_flux(:,:)= 0.
       csoilw_bott_flux(:,:)= 0.
 
@@ -649,19 +674,6 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
       endif
 
       hsnc   = .02
-      rd     = 287.05
-      rv     = 461.51
-      eps    = rd/rv
-      ep     = 1./eps-1.
-      cpd    = 1004.6
-      cvd    = cpd-rd
-      cpv    = 1869.46
-      gamma  = cpd/cvd
-      rdrcp  = rd/cpd
-      g      = 9.807
-      a      = 6371.e+3
-      pi     = abs(acos(-1.))
-      ome    = 7.292e-5
       dx     = a*dlon*pi/180.
       dy     = a*dlat*pi/180.
       dz     = h/float(nlev)
@@ -686,7 +698,7 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
                       cloudt, prectotr, precconvr, precsolidr, &
                       tskin, tgsurf, tg, qskin, qgsurf, qg, fice_soil_surf, fice_soil, &
                       snow, snow_lev, snow_t, snow_fice, snow_age, snow_melt_age, snow_dens, snow_albedo, &
-                      cswflr, clwflr, chfluxr, cqfluxr, t2minr, t2maxr, ws10maxr, runoffr, runoff_tot_r, &
+                      rad_sw_down_r, cswflr, clwflr, chfluxr, cqfluxr, t2minr, t2maxr, ws10maxr, runoffr, runoff_tot_r, &
                       cwvfluxr, csoilh_bott_fluxr, csoilw_bott_fluxr, snowfall_level)
       if (ierr_read2 /= 0) exit
 
@@ -713,6 +725,7 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
       precsolid(jlon,jlat)=precsolid(jlon,jlat)+precsolidr(jlon,jlat)
       runoff(jlon,jlat)=runoff(jlon,jlat)+runoffr(jlon,jlat)
       runoff_tot(jlon,jlat)=runoff_tot(jlon,jlat)+runoff_tot_r(jlon,jlat)
+      rad_sw_down(jlon,jlat)=rad_sw_down(jlon,jlat)+rad_sw_down_r(jlon,jlat)
       cswfl(jlon,jlat)=cswfl(jlon,jlat)+cswflr(jlon,jlat)
       clwfl(jlon,jlat)=clwfl(jlon,jlat)+clwflr(jlon,jlat)
       chflux(jlon,jlat)=chflux(jlon,jlat)+chfluxr(jlon,jlat)
@@ -800,6 +813,19 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
       jlonp1=min(jlon+1,nlon)
       hx(jlon,jlat)=(phig(jlonp1,jlat)-phig(jlon,jlat))/g/dx*fmyu(jlat)
       hy(jlon,jlat)=(phig(jlon,jlat)-phig(jlon,jlatm1))/g/dy
+      enddo
+      enddo
+
+! Number of output zetta levels in the surface layer (under the lowest atmospheric level)
+
+      do jlat=1,nlat
+      do jlon=1,nlon
+        do jklev = 1, nzlev
+          if (zlev(jklev) > (zeta(jlon,jlat,1)-zorogr(jlon,jlat))) then
+            n_zlev_sl(jlon,jlat) = jklev-1
+            exit
+          endif
+        enddo
       enddo
       enddo
 
@@ -1216,46 +1242,10 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
       fsnow(jlon,jlat)=min((snow(jlon,jlat)/hsnc)**.67,.9)
       enddo
       enddo
-      call vtsurf(u10, v10, t2, q2, hflux, qflux, nlon, nlat, nlev, fmask, rgm, rgq, &
+      call vtsurf(hflux, qflux, nlon, nlat, nlev, fmask, rgm, rgq, &
+                  t_zlev, u_zlev, v_zlev, ws_zlev, wd_zlev, &
+                  td_zlev, q_zlev, rh_zlev, n_zlev_sl, &
                   richs, phig, ps, fsnow, tskin, qskin, u, v, t, p, q, h, dz, a0, b0, mhfr)
-
-!  Fix over high mountains.....
-
-      do jlat = 1, nlat
-      do jlon = 1, nlon
-      zglin = max (0., min((phig(jlon,jlat)-11000.)/15000., 1.))
-      u10(jlon,jlat) = (1.-zglin)*u10(jlon,jlat) + zglin*u(jlon,jlat,1)
-      v10(jlon,jlat) = (1.-zglin)*v10(jlon,jlat) + zglin*v(jlon,jlat,1)
-      if (t2(jlon,jlat)+tzer.lt.t(jlon,jlat,1)) then
-      zglin = max (0., min((phig(jlon,jlat)-10000.)/25000., 1.))
-      t2(jlon,jlat) = (1.-zglin)*t2(jlon,jlat) + zglin*(t(jlon,jlat,1)-tzer)
-      q2(jlon,jlat) = (1.-zglin)*q2(jlon,jlat) + zglin*q(jlon,jlat,1)
-      endif
-
-!!  FIXFIX low wind
-!
-!    if (fmask(jlon,jlat).lt.0.1) then
-!      if (tskin(jlon,jlat)-tzer.gt.t2(jlon,jlat)+.1) then
-!      zglin = u10(jlon,jlat)**2 +v10(jlon,jlat)**2
-!      zglin = max ((25.-zglin)/25., 0.)
-!      zglin = min (zglin, .8)
-!      t2(jlon,jlat) = t2(jlon,jlat) + min(zglin*(tskin(jlon,jlat)-tzer-t2(jlon,jlat)), 2.0)
-!      endif
-!    endif
-
-!  Relative humidity at 2 m (with respect to water! - WMO definition)
-
-      call comp_esk (zesk,zqsat,t2(jlon,jlat)+tzer,ps(jlon,jlat),3)  ! partial pressure over water
-      q2p = min(q2(jlon,jlat), zqsat*1.01) ! ensures that q2rel does not exceed 101% (for graphic smoothness)
-      eee = ps(jlon,jlat)*q2p/(eps*(1.-q2p)+q2p)
-      q2rel(jlon,jlat) = eee/zesk*100.
-
-! Dew point temperature at 2 m
-
-      call td_tetens (t2(jlon,jlat)+tzer, ps(jlon,jlat), q2(jlon,jlat), eps, td2(jlon,jlat))
-      td2(jlon,jlat) = td2(jlon,jlat)-tzer
-      enddo
-      enddo
 
 !  Definition of clouds
 
@@ -1269,21 +1259,29 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
 
 ! Wind gust computation as a function of the PBL top height
 
-      do jlat = 1, nlat
-      do jlon = 1, nlon
-      gust(jlon,jlat) = sqrt(u10(jlon,jlat)**2+v10(jlon,jlat)**2)
-       do jklev = 1, 8
-       jkup = jklev
-       if (pbl(jlon,jlat).lt.zeta(jlon,jlat,jklev)-zorogr(jlon,jlat)) exit
-       enddo
-      if (jkup.gt.1) then
-       do jklev = 1, jkup-1
-       zwink = sqrt(u(jlon,jlat,jklev)**2+v(jlon,jlat,jklev)**2)
-       gust(jlon,jlat) = max (gust(jlon,jlat), zwink)
-       enddo
+      if ( jklev_10 > 0 ) then
+        do jlat = 1, nlat
+        do jlon = 1, nlon
+          gust(jlon,jlat) = sqrt(u_zlev(jlon,jlat,jklev_10)**2+v_zlev(jlon,jlat,jklev_10)**2)
+          do jklev = 1, 8
+            jkup = jklev
+            if (pbl(jlon,jlat).lt.zeta(jlon,jlat,jklev)-zorogr(jlon,jlat)) exit
+          enddo
+          if (jkup > 1) then
+            do jklev = 1, jkup-1
+              zwink = sqrt(u(jlon,jlat,jklev)**2+v(jlon,jlat,jklev)**2)
+              gust(jlon,jlat) = max (gust(jlon,jlat), zwink)
+            enddo
+          endif
+        enddo
+        enddo
+      else
+        if (isflag(35) /= 0.and.izflag(1,jklev_10) == 0) then ! Wind gust 10 m, Wind 10 m
+          print *
+          print *,'     ATTENTION ! Wind gust 10 m cat not define, set flag for Wind at 10 m in izflag0, stop'
+          stop
+        endif
       endif
-      enddo
-      enddo
 
 ! Integrated Vapour Transport (care: overwritten on surface wind components zus, zvs)
 
@@ -1463,6 +1461,101 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
       enddo
 
 !---------------------------------------------------------------------------------------------------------------
+!  Interpolation of variables on constant geometric altitude (above the surface) levels
+!---------------------------------------------------------------------------------------------------------------
+
+      zalf = 0.7
+      ze1 = 0.5
+      ze2 = 0.5
+
+      do jlat=1,nlat
+      jlatp1=min(jlat+1,nlat)
+      do jlon=1,nlon
+      jlonm1=max(jlon-1,1)
+
+      nlevout = nzlev - n_zlev_sl(jlon,jlat)
+
+      if (nlevout >= 1 ) then ! Over surface layer (over the lowest atmospheric vertical level)
+
+        xinp(1:nlev) = zeta(jlon,jlat,1:nlev)-zorogr(jlon,jlat)
+
+        do jklev = 1, nlevout
+        jklev1 = jklev+n_zlev_sl(jlon,jlat)
+        xout(jklev) = zlev(jklev1)
+        enddo
+
+!  Interpolation of u computed on T-points
+
+        finp(1:nlev) = ((2.*float(mhfr)-1.)*u(jlon,jlat,1:nlev)+u(jlonm1,jlat,1:nlev))/(2.*float(mhfr))  ! destaggering
+        call interp (zalf, ze1, ze2, nlev, xinp, finp, xout(1:nlevout), fout(1:nlevout), nlevout)
+        do jklev = 1, nlevout
+        jklev1 = jklev+n_zlev_sl(jlon,jlat)
+        u_zlev(jlon,jlat,jklev1)=fout(jklev)
+        enddo
+
+!  Interpolation of v computed on T-points
+
+        finp(1:nlev) = (v(jlon,jlatp1,1:nlev)+(2.*float(mhfr)-1.)*v(jlon,jlat,1:nlev))/(2.*float(mhfr))  ! destaggering
+        call interp (zalf, ze1, ze2, nlev, xinp, finp, xout(1:nlevout), fout(1:nlevout), nlevout)
+        do jklev = 1, nlevout
+        jklev1 = jklev+n_zlev_sl(jlon,jlat)
+        v_zlev(jlon,jlat,jklev1)=fout(jklev)
+        enddo
+
+!  Interpolation of t
+
+        finp(1:nlev) = t(jlon,jlat,1:nlev)
+        call interp(zalf, ze1, ze2, nlev, xinp, finp, xout(1:nlevout), fout(1:nlevout), nlevout)
+        do jklev = 1, nlevout
+        jklev1 = jklev+n_zlev_sl(jlon,jlat)
+        t_zlev(jlon,jlat,jklev1)=fout(jklev)
+        enddo
+
+!  Interpolation of q
+
+        finp(1:nlev) = sqrt(q(jlon,jlat,1:nlev))
+        call interp(zalf, ze1, ze2, nlev, xinp, finp, xout(1:nlevout), fout(1:nlevout), nlevout)
+        do jklev = 1, nlevout
+        jklev1 = jklev+n_zlev_sl(jlon,jlat)
+        q_zlev(jlon,jlat,jklev1)=fout(jklev)**2
+        enddo
+
+!  Interpolation of dew point temperature)
+
+        do jklev = 1,nlev
+        zee = p(jlon,jlat,jklev)*q(jlon,jlat,jklev)/(eps+q(jlon,jlat,jklev)*(1.-eps))
+        if (t(jlon,jlat,jklev) >= tzer) then
+        finp(jklev) = (tzer-33.65/17.40*log(zee/611.))/(1.-1./17.40*log(zee/611.))
+        else
+        finp(jklev) = (tzer- 0.75/22.45*log(zee/611.))/(1.-1./22.45*log(zee/611.))
+        endif
+        enddo
+        call interp(zalf, ze1, ze2, nlev, xinp, finp, xout(1:nlevout), fout(1:nlevout), nlevout)
+        do jklev = 1, nlevout
+        jklev1 = jklev+n_zlev_sl(jlon,jlat)
+        td_zlev(jlon,jlat,jklev1)=fout(jklev)
+        enddo
+
+! Relative humidity
+
+        do jklev = 1, nlev
+        zee = p(jlon,jlat,jklev)*q(jlon,jlat,jklev)/(eps+q(jlon,jlat,jklev)*(1.-eps))
+        zt0t = tzer/t(jlon,jlat,jklev)
+        zesk = ezer*exp(-ccw1*log(zt0t)+ccw2*(1.-zt0t))  ! saturated pressure over water (Pa)
+        finp(jklev) = zee/zesk*100.
+        enddo
+        call interp (zalf, ze1, ze2, nlev, xinp, finp, xout(1:nlevout), fout(1:nlevout), nlevout)
+        do jklev = 1, nlevout
+        jklev1 = jklev+n_zlev_sl(jlon,jlat)
+        rh_zlev(jlon,jlat,jklev1)=fout(jklev)
+        enddo
+
+      endif ! nlevout >= 1
+
+      enddo
+      enddo
+
+!---------------------------------------------------------------------------------------------------------------
 !  Comput. of total cloud water and ice
 !  Defin. of relative hum. and thetae on pressure levels
 !  Defin. of specific hum. below ground
@@ -1576,10 +1669,10 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
       call bextr(cloudh,nlon,nlat,zeex,.false.)
       call bextr(cloudm,nlon,nlat,zeex,.false.)
       call bextr(cloudl,nlon,nlat,zeex,.false.)
-      call bextr(t2,    nlon,nlat,zeex,.false.)
-      call bextr(td2,   nlon,nlat,zeex,.false.)
-      call bextr(q2,    nlon,nlat,zeex,.false.)
-      call bextr(q2rel, nlon,nlat,zeex,.false.)
+      call bextr(t_zlev(:,:,jklev_2), nlon,nlat,zeex,.false.)
+      call bextr(td_zlev(:,:,jklev_2), nlon,nlat,zeex,.false.)
+      call bextr(q_zlev(:,:,jklev_2), nlon,nlat,zeex,.false.)
+      call bextr(rh_zlev(:,:,jklev_2), nlon,nlat,zeex,.false.)
       call bextr(ztskin,nlon,nlat,zeex,.false.)
       call bextr(ztgr1, nlon,nlat,zeex,.false.)
       call bextr(ztgr2, nlon,nlat,zeex,.false.)
@@ -1590,14 +1683,7 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
       call bextr(zqgr3, nlon,nlat,zeex,.false.)
       call bextr(zqgr4, nlon,nlat,zeex,.false.)
       call bextr(qskin, nlon,nlat,zeex,.false.)
-      call bextr(t05,   nlon,nlat,zeex,.false.)
-      call bextr(q05rel,nlon,nlat,zeex,.false.)
-      call bextr(t005,  nlon,nlat,zeex,.false.)
-      call bextr(tg005, nlon,nlat,zeex,.false.)
-      call bextr(tg010, nlon,nlat,zeex,.false.)
-      call bextr(tg020, nlon,nlat,zeex,.false.)
-      call bextr(tg050, nlon,nlat,zeex,.false.)
-      call bextr(tg100, nlon,nlat,zeex,.false.)
+      call bextr(rad_sw_down, nlon,nlat,zeex,.false.)
       call bextr(cswfl, nlon,nlat,zeex,.false.)
       call bextr(clwfl, nlon,nlat,zeex,.false.)
       call bextr(chflux,nlon,nlat,zeex,.false.)
@@ -1621,11 +1707,6 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
       snow  (jlon,jlat) = max(snow  (jlon,jlat), 0.)
       runoff(jlon,jlat) = max(runoff(jlon,jlat), 0.)
       runoff_tot(jlon,jlat) = max(runoff_tot(jlon,jlat), 0.)
-      q2    (jlon,jlat) = max(q2    (jlon,jlat), 0.)
-      q2rel (jlon,jlat) = max(q2rel (jlon,jlat), 0.)
-      q2rel (jlon,jlat) = min(q2rel (jlon,jlat), 102.)
-      q05rel(jlon,jlat) = max(q05rel(jlon,jlat), 0.)
-      q05rel(jlon,jlat) = min(q05rel(jlon,jlat), 102.)
       cloudt(jlon,jlat) = max(cloudt(jlon,jlat), 0.)
       cloudt(jlon,jlat) = min(cloudt(jlon,jlat), 1.)
       cloudl(jlon,jlat) = max(cloudl(jlon,jlat), 0.)
@@ -1634,6 +1715,7 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
       cloudm(jlon,jlat) = min(cloudm(jlon,jlat), 1.)
       cloudh(jlon,jlat) = max(cloudh(jlon,jlat), 0.)
       cloudh(jlon,jlat) = min(cloudh(jlon,jlat), 1.)
+
       enddo
       enddo
 
@@ -1811,14 +1893,22 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
  print *
  print *,"------------ Call RTTOV_fwd model ----------------"
 
+ if (jklev_10 == 0.or.jklev_2 == 0) then
+   if (izflag(1,jklev_10) == 0.or.izflag(2,jklev_2) == 0.or.izflag(4,jklev_2) == 0) then ! wind 10 m, t 2 m, q 2 m
+     print *
+     print *,' Wind at 10 m, Temperature and air humidity at 2 m must be defined, set flag in izflag0, stop '
+     stop
+   endif
+ endif
+
  call rttov11_fwd_interface &
  (nchan, rttov_sat_series, rttov_sat_id, rttov_sat_sensor, channel_elabor_list(1:nchan), flag_visible, &
  path_rttov_emis_atlas,  path_rttov_brdf_atlas, &
  ifin-iini+1, jfin-jini+1, npoint_jump, nlev, &
  alatt(iini:ifin,jini:jfin), alont(iini:ifin,jini:jfin), fmask(iini:ifin,jini:jfin), &
  phig(iini:ifin,jini:jfin)/g, emis1(iini:ifin,jini:jfin), &
- ps(iini:ifin,jini:jfin), t2(iini:ifin,jini:jfin)+tzer, q2(iini:ifin,jini:jfin), &
- u10(iini:ifin,jini:jfin), v10(iini:ifin,jini:jfin), tskin(iini:ifin,jini:jfin), &
+ ps(iini:ifin,jini:jfin), t_zlev(iini:ifin,jini:jfin,jklev_2), q_zlev(iini:ifin,jini:jfin,jklev_2), &
+ u_zlev(iini:ifin,jini:jfin,jklev_10), v_zlev(iini:ifin,jini:jfin,jklev_10), tskin(iini:ifin,jini:jfin), &
  fsnow(iini:ifin,jini:jfin), qg(iini:ifin,jini:jfin,1), &
  fseaice(iini:ifin,jini:jfin), flag_cloud_conv(iini:ifin,jini:jfin), &
  p_invert(iini:ifin,jini:jfin,:), t_invert(iini:ifin,jini:jfin,:), q_invert(iini:ifin,jini:jfin,:), &
@@ -1873,540 +1963,541 @@ lonfin_cross(icross) == valmiss.and.latfin_cross(icross) == valmiss) exit
 !  fmask, longitude and latitude of rotated grid
 !---------------------------------------------------------------------------------------------------------------
 
-if (output_format_ppf) then
-
-      if(iist2.eq.1) then
-      open(80,file='moloch.ppf',status='unknown',form='formatted')
-      write(80,1111) isflag(1:80)
-      write(80,1112) ipflag
-!      write(80,'(i1)') izflag
- 1111 format(80i1)
- 1112 format(8i1)
-      call wrpost(fmask, izout, nlon, nlat, nfdr, pdr)
-      call wrpost(alont, izout, nlon, nlat, nfdr, pdr)
-      call wrpost(alatt, izout, nlon, nlat, nfdr, pdr)
-      endif
-
-!  orography (in m)
-
-      if(isflag(1).eq.1) call wrpost(zorogr, izout, nlon, nlat, nfdr, pdr)
-
-!  pz0 (mslp, in hPa)
-
-      if(isflag(2).eq.1) call wrpost(zpz0,   izout, nlon, nlat, nfdr, pdr)
-
-!  prectot (tot. accum. precip. in kg/m2 eq. to mm)
-
-      if(isflag(3).eq.1) call wrpost(prectot, izout, nlon, nlat, nfdr, pdr)
-
-!  precsolid (tot. accum. snowfall in kg/m2 eq. to mm of equivalent water)
-
-      if(isflag(4).eq.1) call wrpost(precsolid, izout, nlon, nlat, nfdr, pdr)
-
-!  u10 (wind comp. at 10 m)
-
-      if(isflag(5).eq.1) call wrpost(u10,    izout, nlon, nlat, nfdr, pdr)
-
-!  v10 (wind comp. at 10 m)
-
-      if(isflag(5).eq.1) call wrpost(v10,    izout, nlon, nlat, nfdr, pdr)
-
-!  t2 (air temperature at 2 m)
-
-      if(isflag(6).eq.1) call wrpost(t2,     izout, nlon, nlat, nfdr, pdr)
-
-!  q2 (specific humidity at 2 m)
-
-      if(isflag(7).eq.1) call wrpost(q2,     izout, nlon, nlat, nfdr, pdr)
-
-!  q2rel (relative humidity at 2 m)
-
-      if(isflag(8).eq.1) call wrpost(q2rel,  izout, nlon, nlat, nfdr, pdr)
-
-!  zqgr1 (ground water lev. 1, in meters)
-
-      if(isflag(9).eq.1) call wrpost(zqgr1,  izout, nlon, nlat, nfdr, pdr)
-
-!  zqgr2 (ground water lev. 2, in meters)
-
-      if(isflag(10).eq.1) call wrpost(zqgr2, izout, nlon, nlat, nfdr, pdr)
-
-!  zqgr3 (ground water lev. 3, in meters)
-
-      if(isflag(11).eq.1) call wrpost(zqgr3,  izout, nlon, nlat, nfdr, pdr)
-
-!  zqgr4 (ground water lev. 4, in meters)
-
-      if(isflag(12).eq.1) call wrpost(zqgr4, izout, nlon, nlat, nfdr, pdr)
-
-!  ztskin (skin temperature)
-
-      if(isflag(13).eq.1) call wrpost(ztskin,izout, nlon, nlat, nfdr, pdr)
-
-!  ztgr1 (ground temp. lev 1)
-
-      if(isflag(14).eq.1) call wrpost(ztgr1, izout, nlon, nlat, nfdr, pdr)
-
-!  ztgr2 (ground temp. lev 2)
-
-      if(isflag(15).eq.1) call wrpost(ztgr2, izout, nlon, nlat, nfdr, pdr)
-
-!  ztgr3 (ground temp. lev 3)
-
-      if(isflag(16).eq.1) call wrpost(ztgr3, izout, nlon, nlat, nfdr, pdr)
-
-!  ztgr4 (ground temp. lev 4)
-
-      if(isflag(17).eq.1) call wrpost(ztgr4, izout, nlon, nlat, nfdr, pdr)
-
-!  hfl (upward flux of sens. heat in watt/m**2)
-
-      if(isflag(18).eq.1) call wrpost(hflux, izout, nlon, nlat, nfdr, pdr)
-
-!  qfl (upward flux of latent heat in watt/m**2)
-
-      if(isflag(19).eq.1) call wrpost(qflux, izout, nlon, nlat, nfdr, pdr)
-
-!  temperature at lev. 1
-
-      if(isflag(20).eq.1) call wrpost(zts,   izout, nlon, nlat, nfdr, pdr)
-
-!  equiv. pot. temp. at lev.1
-
-      if(isflag(21).eq.1) call wrpost(zthes, izout, nlon, nlat, nfdr, pdr)
-
-!  us (wind vel. at lev.1)
-
-      if(isflag(22).eq.1) call wrpost(zus,   izout, nlon, nlat, nfdr, pdr)
-
-!  vs (wind vel. at lev.1)
-
-      if(isflag(22).eq.1) call wrpost(zvs,   izout, nlon, nlat, nfdr, pdr)
-
-!  zqs (spec. humid. at lev.1)
-
-      if(isflag(23).eq.1) call wrpost(zqs,   izout, nlon, nlat, nfdr, pdr)
-
-!  total, high, mid and low cloud cover
-
-      if(isflag(24).eq.1) call wrpost(cloudt,izout, nlon, nlat, nfdr, pdr)
-      if(isflag(25).eq.1) call wrpost(cloudh,izout, nlon, nlat, nfdr, pdr)
-      if(isflag(26).eq.1) call wrpost(cloudm,izout, nlon, nlat, nfdr, pdr)
-      if(isflag(27).eq.1) call wrpost(cloudl,izout, nlon, nlat, nfdr, pdr)
-
-!  snow height (m of equivalent water)
-
-      if(isflag(28).eq.1) call wrpost(snow,  izout, nlon, nlat, nfdr, pdr)
-
-!  runoff (tot. accum. run-off in kg/m2 eq. to mm/m2)
-
-      if(isflag(29).eq.1) call wrpost(runoff, izout, nlon, nlat, nfdr, pdr)
-
-!  cape (j/kg)
-
-      if(isflag(30).eq.1) call wrpost(cape,  izout, nlon, nlat, nfdr, pdr)
-
-! qskin (land surface specific humidity)
-
-      if(isflag(31).eq.1) call wrpost(qskin,  izout, nlon, nlat, nfdr, pdr)
-
-! t05 (air temperature at 0.5 m)
-
-      if(isflag(32).eq.1) call wrpost(t05,  izout, nlon, nlat, nfdr, pdr)
-
-! q05rel (air relative humidity at 0.5 m, %)
-
-      if(isflag(33).eq.1) call wrpost(q05rel,  izout, nlon, nlat, nfdr, pdr)
-
-! t005 (air temperature at 0.05 m)
-
-      if(isflag(34).eq.1) call wrpost(t005,  izout, nlon, nlat, nfdr, pdr)
-
-! tg005 (ground temperature at 5 cm depth)
-
-      if(isflag(35).eq.1) call wrpost(tg005,  izout, nlon, nlat, nfdr, pdr)
-
-! tg010 (ground temperature at 10 cm depth)
-
-      if(isflag(36).eq.1) call wrpost(tg010,  izout, nlon, nlat, nfdr, pdr)
-
-! tg020 (ground temperature at 20 cm depth)
-
-      if(isflag(37).eq.1) call wrpost(tg020,  izout, nlon, nlat, nfdr, pdr)
-
-! tg050 (ground temperature at 50 cm depth)
-
-      if(isflag(38).eq.1) call wrpost(tg050,  izout, nlon, nlat, nfdr, pdr)
-
-! tg100 (ground temperature at 100 cm depth)
-
-      if(isflag(39).eq.1) call wrpost(tg100,  izout, nlon, nlat, nfdr, pdr)
-
-! albedo
-
-      if(isflag(40).eq.1) call wrpost(albedo,  izout, nlon, nlat, nfdr, pdr)
-
-! emissivity in broadband window and in 8-12 micron window
-
-      if(isflag(41).eq.1) call wrpost(emis1,  izout, nlon, nlat, nfdr, pdr)
-      if(isflag(42).eq.1) call wrpost(emis2,  izout, nlon, nlat, nfdr, pdr)
-
-! accumulated surface fluxes (upward flux of sens. heat in watt/m**2)
-
-! short wave radiation
-
-      if(isflag(43).eq.1) call wrpost(cswfl,  izout, nlon, nlat, nfdr, pdr)
-
-! long wave radiation
-
-      if(isflag(44).eq.1) call wrpost(clwfl,  izout, nlon, nlat, nfdr, pdr)
-
-! sensible heat
-
-      if(isflag(45).eq.1) call wrpost(chflux, izout, nlon, nlat, nfdr, pdr)
-
-! latent heat
-
-      if(isflag(46).eq.1) call wrpost(cqflux, izout, nlon, nlat, nfdr, pdr)
-
-! extreme values at standard observation levels
-
-! t 2m min
-
-      if(isflag(47).eq.1) call wrpost(t2min,  izout, nlon, nlat, nfdr, pdr)
-
-! t 2m max
-
-      if(isflag(48).eq.1) call wrpost(t2max,  izout, nlon, nlat, nfdr, pdr)
-
-! wind speed 10m max
-
-      if(isflag(49).eq.1) call wrpost(ws10max,izout, nlon, nlat, nfdr, pdr)
-
-! lifted index (K)
-
-      if(isflag(50).eq.1) call wrpost(zlift,  izout, nlon, nlat, nfdr, pdr)
-
-! sea ice fraction
-
-      if(isflag(51).eq.1) call wrpost(fice,  izout, nlon, nlat, nfdr, pdr)
-
-! sea ice thickness (m)
-
-      if(isflag(52).eq.1) call wrpost(iceth, izout, nlon, nlat, nfdr, pdr)
-
-! dew point temperature at 2 m (C)
-
-      if(isflag(53).eq.1) call wrpost(td2, izout, nlon, nlat, nfdr, pdr)
-
-! integrated water vapour (kg/m2)
-
-      if(isflag(54).eq.1) call wrpost(iwv, izout, nlon, nlat, nfdr, pdr)
-
-! CIN
-
-      if(isflag(55).eq.1) call wrpost(cin, izout, nlon, nlat, nfdr, pdr)
-
-! PBL top height
-
-      if(isflag(56).eq.1) call wrpost(pbl, izout, nlon, nlat, nfdr, pdr)
-
-! gust
-
-      if(isflag(57).eq.1) call wrpost(gust, izout, nlon, nlat, nfdr, pdr)
-
-!  loop for fields defined on pressure levels
-
-      do jklev = 1, nlevpo
-      isobarlev = nint(plevo(jklev)/100.)
-
-!  smoothing of geopotential
-
-      zrd2 = dx**2/dy**2
-      zw0  = -2.-2.*zrd2
-      do jlat = 2, nlatm1
-      do jlon = 2, nlonm1
-      zwork(jlon,jlat) = zph(jlon,jlat,jklev) +0.15*                                      &
-         ( (zph(jlon,jlat-1,jklev)+zph(jlon,jlat+1,jklev))*zrd2 + zph(jlon-1,jlat,jklev)+ &
-         zph(jlon,jlat,jklev)*zw0 + zph(jlon+1,jlat,jklev) )
-      enddo
-      enddo
-      do jlat = 2, nlatm1
-      do jlon = 2, nlonm1
-      zph(jlon,jlat,jklev) = zwork(jlon,jlat)
-      enddo
-      enddo
-
-!  geopotential height
-
-      if(ipflag(1, jklev).eq.1) call wrpost(zph    (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
-
-!  t (temperature, deg. Celsius)
-
-      if(ipflag(2, jklev).eq.1) call wrpost(zt     (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
-
-!  u (wind comp., m/s)
-
-      if(ipflag(3, jklev).eq.1) call wrpost(zu     (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
-
-!  v (wind comp., m/s)
-
-      if(ipflag(3, jklev).eq.1) call wrpost(zv     (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
-
-!  q (specific humidity)
-
-      if(ipflag(4, jklev).eq.1) call wrpost(zq     (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
-
-!  rh (relative humidity, % from 0 to 100)
-
-      if(ipflag(5, jklev).eq.1) call wrpost(zrh    (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
-
-!  w (wind comp., m/s)
-
-      if(ipflag(6, jklev).eq.1) call wrpost(zw     (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
-
-!  equivalent potential temperature
-
-      if(ipflag(7, jklev).eq.1) call wrpost(zthetae(1,1,jklev), izout, nlon, nlat, nfdr, pdr)
-
-!  total cloud water + ice (kg/kg) or Potential porticity
-
-      if (ipflag(8, jklev).eq.1) then
-        if (plevo(jklev).le.300.e2) then ! PV
-          call wrpost(zpv    (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
-        else ! total cloud water + ice
-          call wrpost(zclwi  (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
-        endif
-      endif
-
-      enddo ! jklev
-
-!  loop for fields defined on z(m) levels
-
-!      do jklev=1,nzlev
-!      if(izflag(1, jklev).eq.1) call wrpost(<zfield>(1,1,jklev), izout, nlon, nlat, nfdr, pdr)
+! Not support ppf format!
+!if (output_format_ppf) then
+!
+!      if(iist2.eq.1) then
+!      open(80,file='moloch.ppf',status='unknown',form='formatted')
+!      write(80,1111) isflag(1:80)
+!      write(80,1112) ipflag
+!!      write(80,'(i1)') izflag
+! 1111 format(80i1)
+! 1112 format(8i1)
+!      call wrpost(fmask, izout, nlon, nlat, nfdr, pdr)
+!      call wrpost(alont, izout, nlon, nlat, nfdr, pdr)
+!      call wrpost(alatt, izout, nlon, nlat, nfdr, pdr)
+!      endif
+!
+!!  orography (in m)
+!
+!      if(isflag(1).eq.1) call wrpost(zorogr, izout, nlon, nlat, nfdr, pdr)
+!
+!!  pz0 (mslp, in hPa)
+!
+!      if(isflag(2).eq.1) call wrpost(zpz0,   izout, nlon, nlat, nfdr, pdr)
+!
+!!  prectot (tot. accum. precip. in kg/m2 eq. to mm)
+!
+!      if(isflag(3).eq.1) call wrpost(prectot, izout, nlon, nlat, nfdr, pdr)
+!
+!!  precsolid (tot. accum. snowfall in kg/m2 eq. to mm of equivalent water)
+!
+!      if(isflag(4).eq.1) call wrpost(precsolid, izout, nlon, nlat, nfdr, pdr)
+!
+!!  u10 (wind comp. at 10 m)
+!
+!      if(isflag(5).eq.1) call wrpost(u10,    izout, nlon, nlat, nfdr, pdr)
+!
+!!  v10 (wind comp. at 10 m)
+!
+!      if(isflag(5).eq.1) call wrpost(v10,    izout, nlon, nlat, nfdr, pdr)
+!
+!!  t2 (air temperature at 2 m)
+!
+!      if(isflag(6).eq.1) call wrpost(t2,     izout, nlon, nlat, nfdr, pdr)
+!
+!!  q2 (specific humidity at 2 m)
+!
+!      if(isflag(7).eq.1) call wrpost(q2,     izout, nlon, nlat, nfdr, pdr)
+!
+!!  q2rel (relative humidity at 2 m)
+!
+!      if(isflag(8).eq.1) call wrpost(q2rel,  izout, nlon, nlat, nfdr, pdr)
+!
+!!  zqgr1 (ground water lev. 1, in meters)
+!
+!      if(isflag(9).eq.1) call wrpost(zqgr1,  izout, nlon, nlat, nfdr, pdr)
+!
+!!  zqgr2 (ground water lev. 2, in meters)
+!
+!      if(isflag(10).eq.1) call wrpost(zqgr2, izout, nlon, nlat, nfdr, pdr)
+!
+!!  zqgr3 (ground water lev. 3, in meters)
+!
+!      if(isflag(11).eq.1) call wrpost(zqgr3,  izout, nlon, nlat, nfdr, pdr)
+!
+!!  zqgr4 (ground water lev. 4, in meters)
+!
+!      if(isflag(12).eq.1) call wrpost(zqgr4, izout, nlon, nlat, nfdr, pdr)
+!
+!!  ztskin (skin temperature)
+!
+!      if(isflag(13).eq.1) call wrpost(ztskin,izout, nlon, nlat, nfdr, pdr)
+!
+!!  ztgr1 (ground temp. lev 1)
+!
+!      if(isflag(14).eq.1) call wrpost(ztgr1, izout, nlon, nlat, nfdr, pdr)
+!
+!!  ztgr2 (ground temp. lev 2)
+!
+!      if(isflag(15).eq.1) call wrpost(ztgr2, izout, nlon, nlat, nfdr, pdr)
+!
+!!  ztgr3 (ground temp. lev 3)
+!
+!      if(isflag(16).eq.1) call wrpost(ztgr3, izout, nlon, nlat, nfdr, pdr)
+!
+!!  ztgr4 (ground temp. lev 4)
+!
+!      if(isflag(17).eq.1) call wrpost(ztgr4, izout, nlon, nlat, nfdr, pdr)
+!
+!!  hfl (upward flux of sens. heat in watt/m**2)
+!
+!      if(isflag(18).eq.1) call wrpost(hflux, izout, nlon, nlat, nfdr, pdr)
+!
+!!  qfl (upward flux of latent heat in watt/m**2)
+!
+!      if(isflag(19).eq.1) call wrpost(qflux, izout, nlon, nlat, nfdr, pdr)
+!
+!!  temperature at lev. 1
+!
+!      if(isflag(20).eq.1) call wrpost(zts,   izout, nlon, nlat, nfdr, pdr)
+!
+!!  equiv. pot. temp. at lev.1
+!
+!      if(isflag(21).eq.1) call wrpost(zthes, izout, nlon, nlat, nfdr, pdr)
+!
+!!  us (wind vel. at lev.1)
+!
+!      if(isflag(22).eq.1) call wrpost(zus,   izout, nlon, nlat, nfdr, pdr)
+!
+!!  vs (wind vel. at lev.1)
+!
+!      if(isflag(22).eq.1) call wrpost(zvs,   izout, nlon, nlat, nfdr, pdr)
+!
+!!  zqs (spec. humid. at lev.1)
+!
+!      if(isflag(23).eq.1) call wrpost(zqs,   izout, nlon, nlat, nfdr, pdr)
+!
+!!  total, high, mid and low cloud cover
+!
+!      if(isflag(24).eq.1) call wrpost(cloudt,izout, nlon, nlat, nfdr, pdr)
+!      if(isflag(25).eq.1) call wrpost(cloudh,izout, nlon, nlat, nfdr, pdr)
+!      if(isflag(26).eq.1) call wrpost(cloudm,izout, nlon, nlat, nfdr, pdr)
+!      if(isflag(27).eq.1) call wrpost(cloudl,izout, nlon, nlat, nfdr, pdr)
+!
+!!  snow height (m of equivalent water)
+!
+!      if(isflag(28).eq.1) call wrpost(snow,  izout, nlon, nlat, nfdr, pdr)
+!
+!!  runoff (tot. accum. run-off in kg/m2 eq. to mm/m2)
+!
+!      if(isflag(29).eq.1) call wrpost(runoff, izout, nlon, nlat, nfdr, pdr)
+!
+!!  cape (j/kg)
+!
+!      if(isflag(30).eq.1) call wrpost(cape,  izout, nlon, nlat, nfdr, pdr)
+!
+!! qskin (land surface specific humidity)
+!
+!      if(isflag(31).eq.1) call wrpost(qskin,  izout, nlon, nlat, nfdr, pdr)
+!
+!! t05 (air temperature at 0.5 m)
+!
+!      if(isflag(32).eq.1) call wrpost(t05,  izout, nlon, nlat, nfdr, pdr)
+!
+!! q05rel (air relative humidity at 0.5 m, %)
+!
+!      if(isflag(33).eq.1) call wrpost(q05rel,  izout, nlon, nlat, nfdr, pdr)
+!
+!! t005 (air temperature at 0.05 m)
+!
+!      if(isflag(34).eq.1) call wrpost(t005,  izout, nlon, nlat, nfdr, pdr)
+!
+!! tg005 (ground temperature at 5 cm depth)
+!
+!      if(isflag(35).eq.1) call wrpost(tg005,  izout, nlon, nlat, nfdr, pdr)
+!
+!! tg010 (ground temperature at 10 cm depth)
+!
+!      if(isflag(36).eq.1) call wrpost(tg010,  izout, nlon, nlat, nfdr, pdr)
+!
+!! tg020 (ground temperature at 20 cm depth)
+!
+!      if(isflag(37).eq.1) call wrpost(tg020,  izout, nlon, nlat, nfdr, pdr)
+!
+!! tg050 (ground temperature at 50 cm depth)
+!
+!      if(isflag(38).eq.1) call wrpost(tg050,  izout, nlon, nlat, nfdr, pdr)
+!
+!! tg100 (ground temperature at 100 cm depth)
+!
+!      if(isflag(39).eq.1) call wrpost(tg100,  izout, nlon, nlat, nfdr, pdr)
+!
+!! albedo
+!
+!      if(isflag(40).eq.1) call wrpost(albedo,  izout, nlon, nlat, nfdr, pdr)
+!
+!! emissivity in broadband window and in 8-12 micron window
+!
+!      if(isflag(41).eq.1) call wrpost(emis1,  izout, nlon, nlat, nfdr, pdr)
+!      if(isflag(42).eq.1) call wrpost(emis2,  izout, nlon, nlat, nfdr, pdr)
+!
+!! accumulated surface fluxes (upward flux of sens. heat in watt/m**2)
+!
+!! short wave radiation
+!
+!      if(isflag(43).eq.1) call wrpost(cswfl,  izout, nlon, nlat, nfdr, pdr)
+!
+!! long wave radiation
+!
+!      if(isflag(44).eq.1) call wrpost(clwfl,  izout, nlon, nlat, nfdr, pdr)
+!
+!! sensible heat
+!
+!      if(isflag(45).eq.1) call wrpost(chflux, izout, nlon, nlat, nfdr, pdr)
+!
+!! latent heat
+!
+!      if(isflag(46).eq.1) call wrpost(cqflux, izout, nlon, nlat, nfdr, pdr)
+!
+!! extreme values at standard observation levels
+!
+!! t 2m min
+!
+!      if(isflag(47).eq.1) call wrpost(t2min,  izout, nlon, nlat, nfdr, pdr)
+!
+!! t 2m max
+!
+!      if(isflag(48).eq.1) call wrpost(t2max,  izout, nlon, nlat, nfdr, pdr)
+!
+!! wind speed 10m max
+!
+!      if(isflag(49).eq.1) call wrpost(ws10max,izout, nlon, nlat, nfdr, pdr)
+!
+!! lifted index (K)
+!
+!      if(isflag(50).eq.1) call wrpost(zlift,  izout, nlon, nlat, nfdr, pdr)
+!
+!! sea ice fraction
+!
+!      if(isflag(51).eq.1) call wrpost(fice,  izout, nlon, nlat, nfdr, pdr)
+!
+!! sea ice thickness (m)
+!
+!      if(isflag(52).eq.1) call wrpost(iceth, izout, nlon, nlat, nfdr, pdr)
+!
+!! dew point temperature at 2 m (C)
+!
+!      if(isflag(53).eq.1) call wrpost(td2, izout, nlon, nlat, nfdr, pdr)
+!
+!! integrated water vapour (kg/m2)
+!
+!      if(isflag(54).eq.1) call wrpost(iwv, izout, nlon, nlat, nfdr, pdr)
+!
+!! CIN
+!
+!      if(isflag(55).eq.1) call wrpost(cin, izout, nlon, nlat, nfdr, pdr)
+!
+!! PBL top height
+!
+!      if(isflag(56).eq.1) call wrpost(pbl, izout, nlon, nlat, nfdr, pdr)
+!
+!! gust
+!
+!      if(isflag(57).eq.1) call wrpost(gust, izout, nlon, nlat, nfdr, pdr)
+!
+!!  loop for fields defined on pressure levels
+!
+!      do jklev = 1, nlevpo
+!      isobarlev = nint(plevo(jklev)/100.)
+!
+!!  smoothing of geopotential
+!
+!      zrd2 = dx**2/dy**2
+!      zw0  = -2.-2.*zrd2
+!      do jlat = 2, nlatm1
+!      do jlon = 2, nlonm1
+!      zwork(jlon,jlat) = zph(jlon,jlat,jklev) +0.15*                                      &
+!         ( (zph(jlon,jlat-1,jklev)+zph(jlon,jlat+1,jklev))*zrd2 + zph(jlon-1,jlat,jklev)+ &
+!         zph(jlon,jlat,jklev)*zw0 + zph(jlon+1,jlat,jklev) )
 !      enddo
-
-!---------------------------------------------------------------------------------------------------------------
-!  North-south cross-sections
-!---------------------------------------------------------------------------------------------------------------
-
-      zalf= .5
-      ze1 = .7
-      ze2 = .7
-
-      if (ncrossec) then
-
-      if(iist2.eq.1) then
-      open(81,file='moloch_crossy.ppf',status='unknown',form='formatted')
-      open(82,file='moloch_crossx.ppf',status='unknown',form='formatted')
-      endif
-
-      do 430 j=1,ncrossy
-      jlon=loncr(j)
-      jlonm1=max(jlon-1,1)
-
-      do 420 jlat=1,nlat
-      jlatp1=min(jlat+1,nlat)
-
-!  zlnp contains hereafter the height of moloch levels
-
-      do jklev= 1, nlev
-      zita = (jklev-1)*dz + .5*dz
-      zlnp(jklev) = - h*bzita(zita,h,b0)*log(fz(jklev)) + zorogr(jlon,jlat)*gzita(zita,h,a0)
-      enddo
-
-!  theta y-sections
-
-      do jklev= 1, nlev
-      zaux(jklev) = t(jlon,jlat,jklev)*(1.e5/p(jlon,jlat,jklev))**rdrcp
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, ztcry(jlat,1:nlivz,j), nlivz)
-
-!  thetae y-sections
-
-      do jklev= 1, nlev
-      zaux(jklev)=zthee(jlon,jlat,jklev)
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, ztecry(jlat,1:nlivz,j), nlivz)
-
-!  u-wind y-sections
-
-      do jklev= 1, nlev
-      zaux(jklev)=.5*(u(jlon,jlat,jklev)+u(jlonm1,jlat,jklev))
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zucry(jlat,1:nlivz,j), nlivz)
-
-!  v-wind y-sections
-
-      do jklev= 1, nlev
-      zaux(jklev)=.5*(v(jlon,jlat,jklev)+v(jlon,jlatp1,jklev))
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zvcry(jlat,1:nlivz,j), nlivz)
-
-!  w  y-sections
-
-      do jklev= 1, nlev
-      zaux(jklev)=.5*(w(jlon,jlat,jklev)+w(jlon,jlat,jklev+1))
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zwcry(jlat,1:nlivz,j), nlivz)
-
-!  relh y-sections
-
-      do jklev= 1, nlev
-      zaux(jklev)=zrelh(jlon,jlat,jklev)
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zrhcry(jlat,1:nlivz,j), nlivz)
-
-!  cloud water y-sections
-
-      do jklev= 1, nlev
-      zaux(jklev)=qcw(jlon,jlat,jklev)
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zcwcry(jlat,1:nlivz,j), nlivz)
-
-!  cloud ice y-sections
-
-      do jklev= 1, nlev
-      zaux(jklev)=qci(jlon,jlat,jklev)
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zcicry(jlat,1:nlivz,j), nlivz)
-
- 420  continue
-
-!  Reset of negative values of humidity and water due to interpolation
-
-      do jklev= 1, nlivz
-      do jlat= 1, nlat
-      if(zrhcry(jlat,jklev,j).lt.0) zrhcry(jlat,jklev,j)=0.
-      if(zcwcry(jlat,jklev,j).lt.0) zcwcry(jlat,jklev,j)=0.
-      if(zcicry(jlat,jklev,j).lt.0) zcicry(jlat,jklev,j)=0.
-      enddo
-      enddo
-
-      call wrposy( ztcry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
-      call wrposy( zucry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
-      call wrposy(ztecry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
-      call wrposy( zvcry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
-      call wrposy( zwcry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
-      call wrposy(zrhcry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
-      call wrposy(zcwcry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
-      call wrposy(zcicry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
-
- 430  continue
-
-!---------------------------------------------------------------------------------------------------------------
-!  Same as above but for west-east cross-sections
-!---------------------------------------------------------------------------------------------------------------
-
-      do 530 j = 1, ncrossx
-      jlat=latcr(j)
-      jlatp1=min(jlat+1,nlat)
-
-      do 520 jlon = 1, nlon
-      jlonm1=max(jlon-1,1)
-
-      do jklev= 1, nlev
-      zita = (jklev-1)*dz + .5*dz
-      zlnp(jklev) = -h*bzita(zita,h,b0)*log(fz(jklev)) + zorogr(jlon,jlat)*gzita(zita,h,a0)
-      enddo
-
-!  theta x-sections
-
-      do jklev= 1,nlev
-      zaux(jklev)=t(jlon,jlat,jklev)*(1.e5/p(jlon,jlat,jklev))**rdrcp
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, ztcrx(jlon,1:nlivz,j), nlivz)
-
-!  thetae x-sections
-
-      do jklev= 1,nlev
-      zaux(jklev)=zthee(jlon,jlat,jklev)
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, ztecrx(jlon,1:nlivz,j), nlivz)
-
-!  u-wind x-sections
-
-      do jklev= 1,nlev
-      zaux(jklev)=.5*(u(jlon,jlat,jklev)+u(jlonm1,jlat,jklev))
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zucrx(jlon,1:nlivz,j), nlivz)
-
-!  v-wind x-sections
-
-      do jklev= 1,nlev
-      zaux(jklev)=.5*(v(jlon,jlat,jklev)+v(jlon,jlatp1,jklev))
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zvcrx(jlon,1:nlivz,j), nlivz)
-
-!  w  x-sections
-
-      do jklev= 1,nlev
-      zaux(jklev)=.5*(w(jlon,jlat,jklev)+w(jlon,jlat,jklev+1))
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zwcrx(jlon,1:nlivz,j), nlivz)
-
-!  relh x-sections
-
-      do jklev= 1, nlev
-      zaux(jklev)=zrelh(jlon,jlat,jklev)
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zrhcrx(jlon,1:nlivz,j), nlivz)
-
-!  cloud water x-sections
-
-      do jklev= 1, nlev
-      zaux(jklev)=qcw(jlon,jlat,jklev)
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zcwcrx(jlon,1:nlivz,j), nlivz)
-
-!  cloud ice x-sections
-
-      do jklev= 1, nlev
-      zaux(jklev)=qci(jlon,jlat,jklev)
-      enddo
-      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zcicrx(jlon,1:nlivz,j), nlivz)
-
- 520  continue
-
-!  Reset of negative values of humidity and water due to interpolation
-
-      do jklev= 1, nlivz
-      do jlon= 1, nlon
-      if(zrhcrx(jlon,jklev,j).lt.0) zrhcrx(jlon,jklev,j)=0.
-      if(zcwcrx(jlon,jklev,j).lt.0) zcwcrx(jlon,jklev,j)=0.
-      if(zcicrx(jlon,jklev,j).lt.0) zcicrx(jlon,jklev,j)=0.
-      enddo
-      enddo
-
-      call wrposx( ztcrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
-      call wrposx( zvcrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
-      call wrposx(ztecrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
-      call wrposx( zucrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
-      call wrposx( zwcrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
-      call wrposx(zrhcrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
-      call wrposx(zcwcrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
-      call wrposx(zcicrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
-
- 530  continue
-
-      endif ! ncrossec
-
- endif ! output_format_ppf
+!      enddo
+!      do jlat = 2, nlatm1
+!      do jlon = 2, nlonm1
+!      zph(jlon,jlat,jklev) = zwork(jlon,jlat)
+!      enddo
+!      enddo
+!
+!!  geopotential height
+!
+!      if(ipflag(1, jklev).eq.1) call wrpost(zph    (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
+!
+!!  t (temperature, deg. Celsius)
+!
+!      if(ipflag(2, jklev).eq.1) call wrpost(zt     (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
+!
+!!  u (wind comp., m/s)
+!
+!      if(ipflag(3, jklev).eq.1) call wrpost(zu     (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
+!
+!!  v (wind comp., m/s)
+!
+!      if(ipflag(3, jklev).eq.1) call wrpost(zv     (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
+!
+!!  q (specific humidity)
+!
+!      if(ipflag(4, jklev).eq.1) call wrpost(zq     (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
+!
+!!  rh (relative humidity, % from 0 to 100)
+!
+!      if(ipflag(5, jklev).eq.1) call wrpost(zrh    (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
+!
+!!  w (wind comp., m/s)
+!
+!      if(ipflag(6, jklev).eq.1) call wrpost(zw     (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
+!
+!!  equivalent potential temperature
+!
+!      if(ipflag(7, jklev).eq.1) call wrpost(zthetae(1,1,jklev), izout, nlon, nlat, nfdr, pdr)
+!
+!!  total cloud water + ice (kg/kg) or Potential porticity
+!
+!      if (ipflag(8, jklev).eq.1) then
+!        if (plevo(jklev).le.300.e2) then ! PV
+!          call wrpost(zpv    (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
+!        else ! total cloud water + ice
+!          call wrpost(zclwi  (1,1,jklev), izout, nlon, nlat, nfdr, pdr)
+!        endif
+!      endif
+!
+!      enddo ! jklev
+!
+!!  loop for fields defined on z(m) levels
+!
+!!      do jklev=1,nzlev
+!!      if(izflag(1, jklev).eq.1) call wrpost(<zfield>(1,1,jklev), izout, nlon, nlat, nfdr, pdr)
+!!      enddo
+!
+!!---------------------------------------------------------------------------------------------------------------
+!!  North-south cross-sections
+!!---------------------------------------------------------------------------------------------------------------
+!
+!      zalf= .5
+!      ze1 = .7
+!      ze2 = .7
+!
+!      if (ncrossec) then
+!
+!      if(iist2.eq.1) then
+!      open(81,file='moloch_crossy.ppf',status='unknown',form='formatted')
+!      open(82,file='moloch_crossx.ppf',status='unknown',form='formatted')
+!      endif
+!
+!      do 430 j=1,ncrossy
+!      jlon=loncr(j)
+!      jlonm1=max(jlon-1,1)
+!
+!      do 420 jlat=1,nlat
+!      jlatp1=min(jlat+1,nlat)
+!
+!!  zlnp contains hereafter the height of moloch levels
+!
+!      do jklev= 1, nlev
+!      zita = (jklev-1)*dz + .5*dz
+!      zlnp(jklev) = - h*bzita(zita,h,b0)*log(fz(jklev)) + zorogr(jlon,jlat)*gzita(zita,h,a0)
+!      enddo
+!
+!!  theta y-sections
+!
+!      do jklev= 1, nlev
+!      zaux(jklev) = t(jlon,jlat,jklev)*(1.e5/p(jlon,jlat,jklev))**rdrcp
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, ztcry(jlat,1:nlivz,j), nlivz)
+!
+!!  thetae y-sections
+!
+!      do jklev= 1, nlev
+!      zaux(jklev)=zthee(jlon,jlat,jklev)
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, ztecry(jlat,1:nlivz,j), nlivz)
+!
+!!  u-wind y-sections
+!
+!      do jklev= 1, nlev
+!      zaux(jklev)=.5*(u(jlon,jlat,jklev)+u(jlonm1,jlat,jklev))
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zucry(jlat,1:nlivz,j), nlivz)
+!
+!!  v-wind y-sections
+!
+!      do jklev= 1, nlev
+!      zaux(jklev)=.5*(v(jlon,jlat,jklev)+v(jlon,jlatp1,jklev))
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zvcry(jlat,1:nlivz,j), nlivz)
+!
+!!  w  y-sections
+!
+!      do jklev= 1, nlev
+!      zaux(jklev)=.5*(w(jlon,jlat,jklev)+w(jlon,jlat,jklev+1))
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zwcry(jlat,1:nlivz,j), nlivz)
+!
+!!  relh y-sections
+!
+!      do jklev= 1, nlev
+!      zaux(jklev)=zrelh(jlon,jlat,jklev)
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zrhcry(jlat,1:nlivz,j), nlivz)
+!
+!!  cloud water y-sections
+!
+!      do jklev= 1, nlev
+!      zaux(jklev)=qcw(jlon,jlat,jklev)
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zcwcry(jlat,1:nlivz,j), nlivz)
+!
+!!  cloud ice y-sections
+!
+!      do jklev= 1, nlev
+!      zaux(jklev)=qci(jlon,jlat,jklev)
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zcicry(jlat,1:nlivz,j), nlivz)
+!
+! 420  continue
+!
+!!  Reset of negative values of humidity and water due to interpolation
+!
+!      do jklev= 1, nlivz
+!      do jlat= 1, nlat
+!      if(zrhcry(jlat,jklev,j).lt.0) zrhcry(jlat,jklev,j)=0.
+!      if(zcwcry(jlat,jklev,j).lt.0) zcwcry(jlat,jklev,j)=0.
+!      if(zcicry(jlat,jklev,j).lt.0) zcicry(jlat,jklev,j)=0.
+!      enddo
+!      enddo
+!
+!      call wrposy( ztcry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
+!      call wrposy( zucry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
+!      call wrposy(ztecry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
+!      call wrposy( zvcry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
+!      call wrposy( zwcry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
+!      call wrposy(zrhcry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
+!      call wrposy(zcwcry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
+!      call wrposy(zcicry(1:nlat,1:nlivz,j), izouty, zorogr(jlon,1:nlat), zlcr, jlon, nlon, nlat, nlivz, nfdr, pdr)
+!
+! 430  continue
+!
+!!---------------------------------------------------------------------------------------------------------------
+!!  Same as above but for west-east cross-sections
+!!---------------------------------------------------------------------------------------------------------------
+!
+!      do 530 j = 1, ncrossx
+!      jlat=latcr(j)
+!      jlatp1=min(jlat+1,nlat)
+!
+!      do 520 jlon = 1, nlon
+!      jlonm1=max(jlon-1,1)
+!
+!      do jklev= 1, nlev
+!      zita = (jklev-1)*dz + .5*dz
+!      zlnp(jklev) = -h*bzita(zita,h,b0)*log(fz(jklev)) + zorogr(jlon,jlat)*gzita(zita,h,a0)
+!      enddo
+!
+!!  theta x-sections
+!
+!      do jklev= 1,nlev
+!      zaux(jklev)=t(jlon,jlat,jklev)*(1.e5/p(jlon,jlat,jklev))**rdrcp
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, ztcrx(jlon,1:nlivz,j), nlivz)
+!
+!!  thetae x-sections
+!
+!      do jklev= 1,nlev
+!      zaux(jklev)=zthee(jlon,jlat,jklev)
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, ztecrx(jlon,1:nlivz,j), nlivz)
+!
+!!  u-wind x-sections
+!
+!      do jklev= 1,nlev
+!      zaux(jklev)=.5*(u(jlon,jlat,jklev)+u(jlonm1,jlat,jklev))
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zucrx(jlon,1:nlivz,j), nlivz)
+!
+!!  v-wind x-sections
+!
+!      do jklev= 1,nlev
+!      zaux(jklev)=.5*(v(jlon,jlat,jklev)+v(jlon,jlatp1,jklev))
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zvcrx(jlon,1:nlivz,j), nlivz)
+!
+!!  w  x-sections
+!
+!      do jklev= 1,nlev
+!      zaux(jklev)=.5*(w(jlon,jlat,jklev)+w(jlon,jlat,jklev+1))
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zwcrx(jlon,1:nlivz,j), nlivz)
+!
+!!  relh x-sections
+!
+!      do jklev= 1, nlev
+!      zaux(jklev)=zrelh(jlon,jlat,jklev)
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zrhcrx(jlon,1:nlivz,j), nlivz)
+!
+!!  cloud water x-sections
+!
+!      do jklev= 1, nlev
+!      zaux(jklev)=qcw(jlon,jlat,jklev)
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zcwcrx(jlon,1:nlivz,j), nlivz)
+!
+!!  cloud ice x-sections
+!
+!      do jklev= 1, nlev
+!      zaux(jklev)=qci(jlon,jlat,jklev)
+!      enddo
+!      call interp(zalf, ze1, ze2, nlev, zlnp, zaux, zlcr, zcicrx(jlon,1:nlivz,j), nlivz)
+!
+! 520  continue
+!
+!!  Reset of negative values of humidity and water due to interpolation
+!
+!      do jklev= 1, nlivz
+!      do jlon= 1, nlon
+!      if(zrhcrx(jlon,jklev,j).lt.0) zrhcrx(jlon,jklev,j)=0.
+!      if(zcwcrx(jlon,jklev,j).lt.0) zcwcrx(jlon,jklev,j)=0.
+!      if(zcicrx(jlon,jklev,j).lt.0) zcicrx(jlon,jklev,j)=0.
+!      enddo
+!      enddo
+!
+!      call wrposx( ztcrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
+!      call wrposx( zvcrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
+!      call wrposx(ztecrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
+!      call wrposx( zucrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
+!      call wrposx( zwcrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
+!      call wrposx(zrhcrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
+!      call wrposx(zcwcrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
+!      call wrposx(zcicrx(1:nlon,1:nlivz,j), izoutx, zorogr(1,jlat), zlcr, jlat, nlon, nlat, nlivz, nfdr, pdr)
+!
+! 530  continue
+!
+!      endif ! ncrossec
+!
+! endif ! output_format_ppf
 
  if (output_format_grib2) then
 
 ! Coding-writing output data in grib2 format
 
  call write_grib2_horizontal_grid (nlon,nlat,nlev,nlevg,nlev_snow_prod,     &
-      mhfr,idate0,iperiod,iperiod_accum,idatec,pdr,plevo,                   &
-      tzer,alont,alatt,fmask,zlev,                                          &
+      mhfr,idate0,iperiod,iperiod_accum,idatec,pdr,alont,alatt,fmask,       &
       zph,zt,zu,zv,zq,zrh,zw,zthetae,zclwi,zpv,                             &
+      u_zlev,v_zlev,t_zlev,td_zlev,q_zlev,rh_zlev,                          &
       tg_post,qg_post,qgmax,qgmin,                                          &
-      zorogr,zpz0,prectot,precsolid,                                        &
-      u10,v10,t2,td2,q2,q2rel,ztskin,hflux,qflux,                           &
+      zorogr,zpz0,prectot,precsolid,ztskin,hflux,qflux,                     &
       zts,zthes,zus,zvs,zqs,cloudt,cloudh,cloudm,cloudl,snow,runoff,        &
-      cape,qskin,albedo,emis1,emis2,cswfl,clwfl,chflux,cqflux,              &
+      cape,qskin,albedo,emis1,emis2,rad_sw_down,cswfl,clwfl,                &
+      chflux,cqflux,cwvflux,                                                &
       t2min,t2max,ws10max,zlift,fice,iceth,                                 &
       lapse_rate_1,lapse_rate_2, iwv, cin, pbl, gust, zlev0,                &
       snow_lev_depth_prod, snow_t_prod, snow_age_prod, snow_dens_prod,      &
@@ -2484,6 +2575,7 @@ endif ! output_format_grib2
       precsolid(:,:)=0.
       runoff(:,:)=0.
       runoff_tot(:,:)=0.
+      rad_sw_down(:,:)=0.
       cswfl(:,:)=0.
       clwfl(:,:)=0.
       chflux(:,:)=0.
@@ -2585,7 +2677,7 @@ end subroutine rrec2_int
                      cloudt, prectotr, precconvr, precsolidr, &
                      tskin, tgsurf, tg, qskin, qgsurf, qg, fice_soil_surf, fice_soil, &
                      snow, snow_lev, snow_t, snow_fice, snow_age, snow_melt_age, snow_dens, snow_albedo, &
-                     cswflr, clwflr, chfluxr, cqfluxr, t2minr, t2maxr, ws10maxr, runoffr, runoff_tot_r, &
+                     rad_sw_down_r, cswflr, clwflr, chfluxr, cqfluxr, t2minr, t2maxr, ws10maxr, runoffr, runoff_tot_r, &
                      cwvfluxr, csoilh_bott_fluxr, csoilw_bott_fluxr, snowfall_level)
 
 !   Read Model History File with surface/sea/soil variables from kunit
@@ -2600,7 +2692,8 @@ end subroutine rrec2_int
       real, dimension(nlon,nlat)        :: rgm, rgq, fice, iceth, albedo, emis1, emis2, &
                                            cloudt, prectotr, precconvr, precsolidr, &
                                            tskin, tgsurf, qskin, qgsurf, fice_soil_surf, &
-                                           snow, snow_albedo, cswflr, clwflr, chfluxr, cqfluxr, t2minr, t2maxr, ws10maxr, &
+                                           snow, snow_albedo, rad_sw_down_r, cswflr, clwflr, chfluxr, cqfluxr, &
+                                           t2minr, t2maxr, ws10maxr, &
                                            runoffr, runoff_tot_r, cwvfluxr, csoilh_bott_fluxr, csoilw_bott_fluxr
       real, dimension(nlon,nlat,nlevg)  :: tg, qg, fice_soil
       real, dimension(nlon,nlat,nlev_snow) :: snow_lev, snow_t, snow_fice, snow_age, snow_melt_age, snow_dens
@@ -2706,6 +2799,8 @@ end subroutine rrec2_int
 
       call rrec2 (kunit, nlon, nlat, snow_albedo(1:nlon,1:nlat))
 
+      call rrec2 (kunit, nlon, nlat, rad_sw_down_r(1:nlon,1:nlat))
+
       call rrec2 (kunit, nlon, nlat, cswflr(1:nlon,1:nlat))
 
       call rrec2 (kunit, nlon, nlat, clwflr(1:nlon,1:nlat))
@@ -2733,14 +2828,15 @@ end subroutine rrec2_int
       call rrec2 (kunit, nlon, nlat, field2d_add(1:nlon,1:nlat))
       snowfall_level(:,:) = int(field2d_add(:,:))
 
-! Reading of additional 2d fields
-
-     do ird=1,1
-       call rrec2 (kunit, nlon, nlat, field2d_add(1:nlon,1:nlat))
-     enddo
+!! Reading of additional 2d fields
+!
+!     do ird=1,1
+!       call rrec2 (kunit, nlon, nlat, field2d_add(1:nlon,1:nlat))
+!     enddo
 
       return
       end
+!###############################################################################################################
       subroutine rd_param_const_old(nlon, nlat, nlevg, x0, y0, alon0, alat0, dlon, dlat, phig, fmask, qgmax, qgmin, mhfr)
 
 ! Reads from additional input file
@@ -2748,7 +2844,7 @@ end subroutine rrec2_int
 
       implicit none
 
-      integer                           :: nlon, nlat, nlev, nlevg, &
+      integer                           :: nlon, nlat, nlev, nlevg, mhfr, &
                                            nlon_local, nlat_local, nlev_local, nlevg_local, &
                                            iunit=11, ierr_open, ierr, nst_local, nvt_local, &
  jlon, jlat, ird, jklev
@@ -2757,13 +2853,13 @@ end subroutine rrec2_int
       real, parameter                   :: g=9.807
       real, dimension(nlon,nlat)        :: phig, fmask, zread
       real, dimension(nlon,nlat,nlevg)  :: qgmax, qgmin
-      integer           :: mhfr
       character(len=50) :: filerd
-      if (mhfr /= 1) then
-        filerd="model_param_constant_not_full_res.bin"
-      else  
-        filerd="model_param_constant.bin"
-      endif
+
+    if (mhfr > 1 ) then
+      filerd="model_param_constant_not_full_res.bin"
+    else
+      filerd="model_param_constant.bin"
+    endif
 
      open (iunit,file=trim(filerd),status='old',form='unformatted',iostat=ierr_open)
      if (ierr_open /= 0) then
@@ -2838,7 +2934,7 @@ end subroutine rrec2_int
       return
       end
 !###############################################################################################################
-      subroutine rd_param_const(nlon, nlat, nlevg, x0, y0, alon0, alat0, dlon, dlat, phig, fmask, qgmax, qgmin, mhfr)
+      subroutine rd_param_const(nlon, nlat, nlevg, x0, y0, alon0, alat0, dlon, dlat, phig, fmask, qgmax, qgmin)
 
 ! Reads from additional input file
 ! all constant (in time) model physiographical parameters
@@ -2854,13 +2950,7 @@ end subroutine rrec2_int
       real, parameter                   :: g=9.807
       real, dimension(nlon,nlat)        :: phig, fmask, zread
       real, dimension(nlon,nlat,nlevg)  :: qgmax, qgmin
-      integer           :: mhfr
-      character(len=50) :: filerd
-      if (mhfr /= 1) then
-        filerd="model_param_constant_not_full_res.bin"
-      else  
-        filerd="model_param_constant.bin"
-      endif
+      character(len=30) :: filerd="model_param_constant.bin"
 
      open (iunit,file=trim(filerd),status='old',form='unformatted',iostat=ierr_open)
      if (ierr_open /= 0) then
@@ -2873,6 +2963,7 @@ end subroutine rrec2_int
       read (iunit) nlon_local, nlat_local, nlevg_local, dlon_local, dlat_local, x0_local, y0_local, alon0_local, alat0_local, &
  nst_local, nvt_local
 
+      ierr=0
       if (nlon_local /= nlon) ierr=ierr+1
       if (nlat_local /= nlat) ierr=ierr+1
       if (nlevg_local /= nlevg) ierr=ierr+1
@@ -2927,7 +3018,7 @@ end subroutine rrec2_int
 !  Fields are written as positive integers (4 digits) after finding the best rescaling
 !  (zfac: scaling factor; zoffs: offset)
 
- use mod_postmoloch
+ use mod_postmoloch, only : njump
 
       implicit none
       integer                        :: nlon, nlat, mhfr, jlon, jlat, ix1, ix2, iy1, iy2, nhist, iminu, ihour
@@ -3188,86 +3279,90 @@ end subroutine rrec2_int
       return
       end
 !###############################################################################################################
-      subroutine vtsurf (u10, v10, t2, q2, hflux, qflux, nlon, nlat, nlev, fmask, rgm, rgq, &
-                         richs, phig, ps, fsnow, tskin, qskin, u, v, t, p, q, h, dz, a0, b0, mhfr)
+subroutine vtsurf (hflux, qflux, nlon, nlat, nlev, fmask, rgm, rgq, &
+                   t_zlev, u_zlev, v_zlev, ws_zlev, wd_zlev, &
+                   td_zlev, q_zlev, rh_zlev, n_zlev_sl, &
+                   richs, phig, ps, fsnow, tskin, qskin, u, v, t, p, q, h, dz, a0, b0, mhfr)
 
       use data_observ_aux
-      use mod_postmoloch, only : gzita, bzita
+      use mod_postmoloch, only : nzlev, gzita, bzita, zlev, yliw, ylwv, &
+ tzer, pzer, ezer, rd, rv, eps, cpd, rdrcp, g
 
 !  Interpolates wind at 10 m, temperature and spec. humid. at 2 m.
 
-      real, dimension(nlon,nlat,nlev) :: u, v, t, p, q
-      real, dimension(nlon,nlat)      :: u10, v10, t2, td2, q2, q2rel, hflux, qflux, richs, &
-                                         fmask, phig, rgm, rgq, ps, fsnow, tskin, qskin
-      integer :: mhfr
+      real, dimension(nlon,nlat,nlev)  :: u, v, t, p, q
+      integer, dimension(nlon,nlat)    :: n_zlev_sl
+      real, dimension(nlon,nlat,nzlev) :: t_zlev, u_zlev, v_zlev, ws_zlev, wd_zlev, td_zlev, q_zlev, rh_zlev
+      real, dimension(nlon,nlat)       :: hflux, qflux, richs, &
+                                         fmask, phig, rgm, rgq, ps, fsnow, tskin, qskin 
+      real                             :: h, dz, a0, b0
 
-      real, parameter :: zaholt=1., zbholt=2./3., zcholt=5., zdholt=0.35,                                &
-                         ak=.4, zbet=5., zgam=16., yliv=2834170.5, yliw=333560.5, ylwv=yliv-yliw,        &
-                         tzer=273.15, pzer=1.e5, ezer= 611., rd=287.05, rv=461.51, eps=rd/rv,            &
-                         cpd=1004.6, cvd=cpd-rd, cpv=1869.46, cw=4186.8, ci=cw/2., rdrcp=rd/cpd, g=9.807
+! For version of this subroutine in Moloch model, internal 2d fields:
 
-!  Constants for computing saturation partial pressure
+      real, dimension(nlon,nlat,1)     :: tetav
+      real, dimension(nlon,nlat)       :: tetavs, rgmd, ustar, tstar, qstar, kturb_surf_m, kturb_surf_h, kturb_surf_q
+      real, dimension(nzlev)           :: psim_sl, psih_sl, psiq_sl
 
-      real, parameter :: ccw1=(cpv-cw)/rv, ccw2=ylwv/tzer/rv-ccw1, cci1=(cpv-ci)/rv, cci2=yliv/tzer/rv-cci1
+      real, parameter :: zak=.4, zgam=16., zaholt=1., zbholt=2./3., zcholt=5., zdholt=0.35
 
-!  Businger functions when Ri<0
+!  Businger functions
 
-      psium(zx1,zx2)=alog((1.+zx1)**2*(1.+zx1**2)/((1.+zx2)**2*(1.+zx2**2)))-2.*(atan(zx1)-atan(zx2))
-      psiuh(zy1,zy2)=2.*alog((1.+zy1)/(1.+zy2))
+      psium(zz1,zz2) = log( (1.+zz1)**2*(1.+zz1**2)/((1.+zz2)**2*(1.+zz2**2)) ) -2.*(atan(zz1)-atan(zz2))
+      psiuh(zz1,zz2) = 2.*log((1.+zz1**2)/(1.+zz2**2))
 
-!  Holtslag functions when Ri>0
+!  Holtslag functions
 
-      psism(zx1,zx2)=-zaholt*zx1-zbholt*(zx1-zcholt/zdholt)*exp(-zdholt*zx1) &
-                     +zaholt*zx2+zbholt*(zx2-zcholt/zdholt)*exp(-zdholt*zx2)
-      psish(zy1,zy2)=-(1.+2./3.*zaholt*zy1)**1.5-zbholt*(zy1-zcholt/zdholt)*exp(-zdholt*zy1) &
-                     +(1.+2./3.*zaholt*zy2)**1.5+zbholt*(zy2-zcholt/zdholt)*exp(-zdholt*zy2)
+      psism(zz1,zz2) = -zaholt*zz1-zbholt*(zz1-zcholt/zdholt)*exp(-zdholt*zz1)  &
+                       +zaholt*zz2+zbholt*(zz2-zcholt/zdholt)*exp(-zdholt*zz2)
+      psish(zz1,zz2) = -(1.+2./3.*zaholt*zz1)**1.5-zbholt*(zz1-zcholt/zdholt)*exp(-zdholt*zz1) &
+                       +(1.+2./3.*zaholt*zz2)**1.5+zbholt*(zz2-zcholt/zdholt)*exp(-zdholt*zz2)
 
+ zalp0 = log(1.e5)
+ zza0  = -h*bzita(.5*dz,h,b0)*log(1.-.5*dz/h)
+ zep   = rv/rd-1.
+
+ do jlat=1,nlat
+   jlatp1=min(jlat+1,nlat)
+ do jlon=1,nlon
+   jlonm1=max(jlon-1,1)
+
+!--------------------------------------------------------
 !  Turbulent fluxes at the ground (positive upward)
+!--------------------------------------------------------
 
-      zep=1./eps-1.
-
-      do 100 jlat=1,nlat
-      jlatp1=min(jlat+1,nlat)
-      do 100 jlon=1,nlon
-      jlonm1=max(jlon-1,1)
-
-      zphi  = phig(jlon,jlat)*gzita(.5*dz,h,a0)-g*h*bzita(.5*dz,h,b0)*log(1.-.5*dz/h)
-      za    = (zphi-phig(jlon,jlat))/g
-      zua   = 0.5*(u(jlon,jlat,1)+u(jlonm1,jlat,1))
-      zva   = 0.5*(v(jlon,jlatp1,1)+v(jlon,jlat,1))
+      zza   = phig(jlon,jlat)*(gzita(.5*dz,h,a0)-1.)/g + zza0 + rgm(jlon,jlat)   ! zita=0 is located at z=rgm
       zua   = ((2.*float(mhfr)-1.)*u(jlon,jlat,1)+u(jlonm1,jlat,1))/(2.*float(mhfr))  ! destaggering
       zva   = (v(jlon,jlatp1,1)+(2.*float(mhfr)-1.)*v(jlon,jlat,1))/(2.*float(mhfr))  ! destaggering
-      zmod2  = zua**2 + zva**2 + 0.07
+      zmod2 = zua**2 + zva**2 + 0.07
       zmod  = sqrt(zmod2)
-      zros  = ps(jlon,jlat)/( rd*tskin(jlon,jlat)*(1.+zep*qskin(jlon,jlat)) )
 
 !  Virtual potential temperature computed with skin temperature
 
-      zconvg = (pzer/ps(jlon,jlat) )**rdrcp*(1.+zep*qskin(jlon,jlat))
-      ztevg  = tskin(jlon,jlat)*zconvg
+      zconvg = exp(rdrcp*(zalp0-log(ps(jlon,jlat))))*(1.+zep*qskin(jlon,jlat))
+      tetavs(jlon,jlat) = tskin(jlon,jlat)*zconvg
 
-      zconv1 = (pzer/p(jlon,jlat,1))**rdrcp*(1.+zep*q(jlon,jlat,1)  )
-      ztetav = t(jlon,jlat,1)*zconv1
+      zconv1 = exp(rdrcp*(zalp0-log(p(jlon,jlat,1))))*(1.+zep*q(jlon,jlat,1))
+      tetav(jlon,jlat,1) = t(jlon,jlat,1)*zconv1
 
-!  Richardson number above the ground
+!  Bulk Richardson number
 
-      ztebar = .5*(ztevg+ztetav)
-      zri    = za*g*(ztetav-ztevg)/(ztebar*zmod2)
+      zri = 2.*zza*g*(tetav(jlon,jlat,1)-tetavs(jlon,jlat))/((tetav(jlon,jlat,1)+tetavs(jlon,jlat))*zmod2)
       richs(jlon,jlat) = zri ! to be used for the definition of clouds
+!!!      rich(jlon,jlat,1) = min (zri, 500.)
 
-!  Definition of roughness zrgm, zrgt, zrgq
-
-      if(fmask(jlon,jlat).gt..5) then
+      if (fmask(jlon,jlat).ge..5) then
 
 !  Computation of Charnok roughness
 
-      zchar = 5.e-4
-      zcoch1=.0185*ak**2/g*zmod2
+        zchar = 5.e-4
+        zcoch1 = .0185*zak**2/g*zmod2
         do jiter = 1, 5
-        zcoch2= za/zchar
-        zchar = zcoch1/alog(zcoch2)**2
+        zcoch2 = zza/zchar
+        zchar  = zcoch1/alog(zcoch2)**2
         enddo
-      zrgm=zchar
+        zrgm = zchar
+
+!  Roughness lengths over sea interpolated logarithmically between 0.<Ri<0.25 with Large&Pond values
 
         if(zri.ge.0.25) then
         zrgt = 2.2e-9
@@ -3280,175 +3375,153 @@ end subroutine rrec2_int
         zrgq = zrgt
         endif
 
-        zrgmd=zrgm
-        zrgtd=zrgt
-        zrgqd=zrgq
       else
-      zsea=5.e-5
-
-      zrgm=fmask(jlon,jlat)*zsea+(1.-fmask(jlon,jlat))*rgm(jlon,jlat)
-      zrgt=fmask(jlon,jlat)*zsea+(1.-fmask(jlon,jlat))*rgq(jlon,jlat)
-      zrgq=zrgt
-
-! Local roughness set to a few cm if larger (for interpolated
-! diagnostics at 2 m (and other near surface levels) and 10 m only,
-! not for computing fluxes)
-
-      zrgmd=fmask(jlon,jlat)*zsea+(1.-fmask(jlon,jlat))*min(rgm(jlon,jlat), .05)
-      zrgtd=fmask(jlon,jlat)*zsea+(1.-fmask(jlon,jlat))*min(rgq(jlon,jlat), .05)
-      zrgqd=zrgtd
+        zsea = 5.e-5
+        zrgm = fmask(jlon,jlat)*zsea+(1.-fmask(jlon,jlat))*rgm(jlon,jlat)*  &
+               (1.-0.5*fsnow(jlon,jlat)*0.4/(0.4+rgm(jlon,jlat)))
+        zrgt = fmask(jlon,jlat)*zsea+(1.-fmask(jlon,jlat))*rgq(jlon,jlat)*  &
+               (1.-0.5*fsnow(jlon,jlat)*0.4/(0.4+rgq(jlon,jlat)))
+        zrgq = zrgt
       endif
 
-!  Computation of za/l
+      rgmd(jlon,jlat) = zrgm
 
-      zalzam=alog((za+zrgm)/zrgm)
-      zalzat=alog((za+zrgt)/zrgt)
-      zalzaq=alog((za+zrgq)/zrgq)
+      zalzam = alog (zza/zrgm)
+      zalzat = alog (zza/zrgt)
+      zalzaq = alog (zza/zrgq)
 
-      zalzamd=alog((za+zrgmd)/zrgmd)
-      zalzatd=alog((za+zrgtd)/zrgtd)
-      zalzaqd=alog((za+zrgqd)/zrgqd)
+      if(zri.gt.0.) then         ! Holtslag functions
 
-      if(zri.ge.0.) then      ! Holtslag functions
+        zal = .2 + 4.*zri
+        zpsim = psism(zal, zal*zrgm/zza)
+        zpsih = psish(zal, zal*zrgt/zza)
+        do jiter = 1, 10
+        zalm = zal
+        zal = zri*(zalzam-zpsim)**2/(zalzat-zpsih)
+        error = abs(zal-zalm)/zal
+        if (error.lt.1.e-2) exit
+        zpsim = psism(zal, zal*zrgm/zza)
+        zpsih = psish(zal, zal*zrgt/zza)
+        enddo
+        zpsiq = zpsih  ! because rgt=rgq in the stable case
+        ustar(jlon,jlat) = zak*zmod/(zalzam-zpsim)
+        tstar(jlon,jlat) = zak/(zalzat-zpsih)*(tetav(jlon,jlat,1)-tetavs(jlon,jlat))
+        qstar(jlon,jlat) = zak/(zalzaq-zpsiq)*(q    (jlon,jlat,1)-qskin (jlon,jlat))
+        zcdm = ustar(jlon,jlat)**2/zmod
+        zcdt = ustar(jlon,jlat)*zak/(zalzat-zpsih)
+        zcdq = zcdt
 
-      zpsim=0.
-      zpsimd=0.
-      zpsih=0.
-      zpsihd=0.
+           do k = 1, n_zlev_sl(jlon,jlat)
+           psim_sl(k) = psism(zal*(zlev(k)+zrgm)/zza, zal*zrgm/zza)
+           psih_sl(k) = psish(zal*(zlev(k)+zrgt)/zza, zal*zrgt/zza)
+           psiq_sl(k) = psih_sl(k) ! because rgt=rgq in the stable case
+           enddo
 
-      do jiter=1,4
-      zal=zri*(zalzam-zpsim)**2/(zalzat-zpsih)
-      zald=zri*(zalzamd-zpsimd)**2/(zalzatd-zpsihd)
-      zx1=zal*(za+zrgm)/za
-      zx1d=zald*(za+zrgmd)/za
-      zx2=zal*zrgm/za
-      zx2d=zald*zrgmd/za
-      zy1=zal*(za+zrgt)/za
-      zy1d=zald*(za+zrgtd)/za
-      zy2=zal*zrgt/za
-      zy2d=zald*zrgtd/za
-      zpsim=psism(zx1,zx2)
-      zpsimd=psism(zx1d,zx2d)
-      zpsih=psish(zy1,zy2)
-      zpsihd=psish(zy1d,zy2d)
-      enddo
-      zphim=1.+zaholt*zal+zbholt*zal*(1.+zcholt-zdholt*zal)*exp(-zdholt*zal)
-      zphimd=1.+zaholt*zald+zbholt*zald*(1.+zcholt-zdholt*zald)*exp(-zdholt*zald)
-      zpsiq=zpsih
-      zpsiqd  = zpsihd
-      zpsim10= zpsimd*(10./za)
-      zpsih2 = zpsihd*(2. /za)
-      zpsiq2 = zpsih2
-!--------------------------------------------------
-          zpsih05 = zpsih*(0.5 /za)
-          zpsih005 = zpsih*(0.05 /za)
-          zpsiq05 = zpsih05
-!--------------------------------------------------
+      else                       ! Businger functions
 
-      else                    ! Businger functions
+        zpsim = 0.
+        zpsih = 0.
+        do jiter = 1, 4
+        zal = zri*(zalzam-zpsim)**2/(zalzat-zpsih)   ! za/L from eq (6.47) of Businger
+        zz1 = (1.-zgam*zal)**.25
+        zx2 = (1.-zgam*zal*zrgm/zza)**.25
+        zy2 = (1.-zgam*zal*zrgt/zza)**.25
+        zpsim = psium(zz1,zx2)
+        zpsih = psiuh(zz1,zy2)
+        enddo
+        zz2 = (1.-zgam*zal*zrgq/zza)**.25
+        zpsiq = psiuh(zz1,zz2)
+        ustar(jlon,jlat) = zak*zmod/(zalzam-zpsim)
+        tstar(jlon,jlat) = zak/(zalzat-zpsih)*(tetav(jlon,jlat,1)-tetavs(jlon,jlat))
+        qstar(jlon,jlat) = zak/(zalzaq-zpsiq)*(q    (jlon,jlat,1)-qskin (jlon,jlat))
+        zcdm = ustar(jlon,jlat)**2/zmod
+        zcdt = ustar(jlon,jlat)*zak/(zalzat-zpsih)
+        zcdq = ustar(jlon,jlat)*zak/(zalzaq-zpsiq)
 
-      zpsim=0.
-      zpsimd=0.
-      zpsih=0.
-      zpsihd=0.
-      do jiter=1,4
-      zal=zri*(zalzam-zpsim)**2/(zalzat-zpsih)
-      zald=zri*(zalzamd-zpsimd)**2/(zalzatd-zpsihd)
-      zx1=(1.-zgam*zal*(za+zrgm)/za)**.25
-      zx1d=(1.-zgam*zald*(za+zrgmd)/za)**.25
-      zx2=(1.-zgam*zal*zrgm/za)**.25
-      zx2d=(1.-zgam*zald*zrgmd/za)**.25
-      zy1=sqrt(1.-zgam*zal*(za+zrgt)/za)
-      zy1d=sqrt(1.-zgam*zald*(za+zrgtd)/za)
-      zy2=sqrt(1.-zgam*zal*zrgt/za)
-      zy2d=sqrt(1.-zgam*zald*zrgtd/za)
-      zpsim=psium(zx1,zx2)
-      zpsimd=psium(zx1d,zx2d)
-      zpsih=psiuh(zy1,zy2)
-      zpsihd=psiuh(zy1d,zy2d)
-      enddo
-      zz1=sqrt(1.-zgam*zal*(za+zrgq)/za)
-      zz1d=sqrt(1.-zgam*zald*(za+zrgqd)/za)
-      zz2=sqrt(1.-zgam*zal*zrgq/za)
-      zz2d=sqrt(1.-zgam*zald*zrgqd/za)
-      zpsiq=psiuh(zz1,zz2)
-      zpsiqd=psiuh(zz1d,zz2d)
-      zx1d=(1.-zgam*(10.+zrgmd)/za*zald)**0.25
-      zy1d=sqrt(1.-zgam*zald*(2.+zrgtd)/za)
-      zz1d=sqrt(1.-zgam*zald*(2.+zrgqd)/za)
-      zpsim10=psium(zx1d,zx2d)
-      zpsih2 =psiuh(zy1d,zy2d)
-      zpsiq2 =psiuh(zz1d,zz2d)
-!--------------------------------------------------
-          zyy1=sqrt(1.-zgam*zal*(0.5+zrgt)/za)
-          zyyy1=sqrt(1.-zgam*zal*(0.05+zrgt)/za)
-          zzz1=sqrt(1.-zgam*zal*(0.5+zrgq)/za)
-          zpsih05 =psiuh(zyy1,zy2)
-          zpsih005 =psiuh(zyyy1,zy2)
-          zpsiq05 =psiuh(zzz1,zz2)
-!--------------------------------------------------
+           do k = 1, n_zlev_sl(jlon,jlat)
+           zz1 = (1.-zgam*zal*(zlev(k)+zrgm)/zza)**.25
+           psim_sl(k) = psium(zz1, zx2)
+           zz1 = (1.-zgam*zal*(zlev(k)+zrgt)/zza)**.25
+           psih_sl(k) = psiuh(zz1, zy2)
+           zz1 = (1.-zgam*zal*(zlev(k)+zrgq)/zza)**.25
+           psiq_sl(k) = psiuh(zz1, zz2)
+           enddo
 
       endif
 
-      zustar = ak*zmod/(zalzam-zpsim)
-      ztstar = ak*(ztetav-ztevg)/(zalzat-zpsih)
-      zqstar = ak*(q(jlon,jlat,1)-qskin(jlon,jlat))/(zalzaq-zpsiq)
+!--------------------------------------------------------------------------------------------------
+! Output variables
+!--------------------------------------------------------------------------------------------------
 
-      zustard = ak*zmod/(zalzamd-zpsimd)
-      ztstard = ak*(ztetav-ztevg)/(zalzatd-zpsihd)
-      zqstard = ak*(q(jlon,jlat,1)-qskin(jlon,jlat))/(zalzaqd-zpsiqd)
+    zlev_bottom = phig(jlon,jlat)*(gzita(.5*dz,h,a0)-1.)/g + zza0
 
-!  Surface fluxes of sensible and latent heat (positive upward)
+    kturb_surf_m(jlon,jlat) = abs( -zcdm*zlev_bottom )
+    kturb_surf_h(jlon,jlat) = abs( (-zcdt/zconvg)*zlev_bottom )
+    kturb_surf_q(jlon,jlat) = abs( -zcdq*zlev_bottom)
 
-      zcdt = zustar*ak/(zalzat-zpsih)
-      zperflut = -zros*zcdt*cpd/zconvg
-      hflux(jlon,jlat)=zperflut*(ztetav-ztevg)
+!--------------------------------------------------------------------------------------------------
 
-      zcdq = zustar*ak/(zalzaq-zpsiq)
-      zlate=ylwv-2360.*(tskin(jlon,jlat)-tzer)
-      if(tskin(jlon,jlat).lt.tzer) zlate=zlate+fsnow(jlon,jlat)*(yliw+2255.*(tskin(jlon,jlat)-tzer))
-      zperfluq = -zros*zcdq*zlate
-      qflux(jlon,jlat)=zperfluq*(q(jlon,jlat,1)-qskin(jlon,jlat))
-!-----------------------------------------------------------------------
-      zv10=zustard/ak*(alog((10.+zrgmd)/zrgmd)-zpsim10)
-      zt2 =ztevg+ztstard/ak*(alog((2. +zrgtd)/zrgtd)-zpsih2)
-      zq2 =qskin(jlon,jlat)+zqstard/ak*(alog((2. +zrgqd)/zrgqd)-zpsiq2)
-!-----------------------------------------------------------------------
-      zt05 =ztevg+ztstar/ak*(alog((0.5 +zrgt)/zrgt)-zpsih05)
-      zt005 =ztevg+ztstar/ak*(alog((0.05 +zrgt)/zrgt)-zpsih005)
-      zq05 =qskin(jlon,jlat)+zqstar/ak*(alog((0.5 +zrgq)/zrgq)-zpsiq05)
-!--------------------------------------------------
+! "Interpolation" at standard levels (m) above the surface, inside the surface layer, for output purposes
 
-!  Wind components
+   do k = 1, n_zlev_sl(jlon,jlat)
 
-      u10(jlon,jlat) = zua/zmod*zv10
-      v10(jlon,jlat) = zva/zmod*zv10
+     zuv = ustar(jlon,jlat)/zak*(log((zlev(k)+zrgm)/zrgm)-psim_sl(k))
+     u_zlev(jlon,jlat,k) = zuv*zua/zmod
+     v_zlev(jlon,jlat,k) = zuv*zva/zmod
+     q_zlev(jlon,jlat,k) = qskin(jlon,jlat) +qstar(jlon,jlat)/zak*(log((zlev(k)+zrgq)/zrgq)-psiq_sl(k))
+     zconv2 = zconvg*(1.+zep*q_zlev(jlon,jlat,k))/(1.+zep*qskin(jlon,jlat))
+     t_zlev(jlon,jlat,k) = (tetavs(jlon,jlat)+tstar(jlon,jlat)/zak*(log((zlev(k)+zrgt)/zrgt)-psih_sl(k)))/zconv2
 
-!  From potential temperature to temperature at 2 m in Celsius
+!  Fix over high mountains...
 
-      zconv2 = (pzer/ps(jlon,jlat) )**rdrcp*(1.+zep*zq2)
-      zt2=zt2/zconv2
-      t2(jlon,jlat) = zt2-tzer
-      q2(jlon,jlat) = zq2
+     zglin = max (0., min((phig(jlon,jlat)-11000.)/15000., 1.))
+     u_zlev(jlon,jlat,k) = (1.-zglin)*u_zlev(jlon,jlat,k) + zglin*u(jlon,jlat,1)
+     v_zlev(jlon,jlat,k) = (1.-zglin)*v_zlev(jlon,jlat,k) + zglin*v(jlon,jlat,1)
+     if (t_zlev(jlon,jlat,k).lt.t(jlon,jlat,1)) then
+       zglin = max (0., min((phig(jlon,jlat)-10000.)/25000., 1.))
+       t_zlev(jlon,jlat,k) = (1.-zglin)*t_zlev(jlon,jlat,k) + zglin*t(jlon,jlat,1)
+       q_zlev(jlon,jlat,k) = (1.-zglin)*q_zlev(jlon,jlat,k) + zglin*q(jlon,jlat,1)
+     endif
 
-!--------------------------------------------------
-! Temperature at 0.5 m and 0.05 m and relative humidity at 0.5 m
-! (with respect to water! - WMO, not standard)
+! Definition of relative humidity and dew point temperature in the surface layer
+! Relative humidity at 2 m (with respect to water! - WMO definition)
 
-      t05(jlon,jlat)=zt05/zconv2-tzer   ! approx. using zconv2
-      t005(jlon,jlat)=zt005/zconvg-tzer ! approx. using zconvg
-      zt05=zt05/zconv2
-      call comp_esk(zesk, zqsat, zt05, ps(jlon,jlat), 3)  ! partial pressure over water
-      q05p=min(zq05,zqsat*1.01) ! ensures that q05p does not exceed 101% (1% mor for graphic smoothness)
-      eee=ps(jlon,jlat)*q05p/(eps*(1.-q05p)+q05p)
-      q05rel(jlon,jlat) = eee/zesk*100.
-!      q05rel(jlon,jlat)=min(zq05/zqsat*100., 102.)
-!--------------------------------------------------
+     call comp_esk(zesk, zqsat, t_zlev(jlon,jlat,k), ps(jlon,jlat), 3)  ! partial pressure over water
+     rh_zlev(jlon,jlat,k) = q_zlev(jlon,jlat,k)/zqsat*100.
+     zee = ps(jlon,jlat)*q_zlev(jlon,jlat,k)/(eps+q_zlev(jlon,jlat,k)*(1.-eps))
+     if (t_zlev(jlon,jlat,k) >= tzer) then
+       td_zlev(jlon,jlat,k) = (tzer-33.65/17.40*log(zee/611.))/(1.-1./17.40*log(zee/611.))
+     else
+       td_zlev(jlon,jlat,k) = (tzer- 0.75/22.45*log(zee/611.))/(1.-1./22.45*log(zee/611.))
+     endif
 
- 100  continue
+   enddo
 
-      return
-      end
+!!  FIXFIX low wind
+!
+!    if (fmask(jlon,jlat).lt.0.1) then
+!      if (tskin(jlon,jlat).gt.t_zlev(jlon,jlat,1)+.1) then
+!      zzz = u_zlev(jlon,jlat,2)**2 + v_zlev(jlon,jlat,2)**2
+!      zzz = max ((25.-zzz)/25., 0.)
+!      zzz = min (zzz, .8)
+!      t_zlev(jlon,jlat,1) = t_zlev(jlon,jlat,1) + min (zzz*(tskin(jlon,jlat)-t_zlev(jlon,jlat,1)), 2.0)
+!      endif
+!    endif
+
+! Surface fluxes (positive upward)
+
+   zros = ps(jlon,jlat)/(rd*tskin(jlon,jlat)*(1.+zep*qskin(jlon,jlat)))
+   zconvg = exp(rdrcp*(zalp0-log(ps(jlon,jlat))))*(1.+zep*qskin(jlon,jlat))
+   hflux(jlon,jlat) = kturb_surf_h(jlon,jlat)*(zros*cpd)/zlev_bottom*(tetav(jlon,jlat,1)-tetavs(jlon,jlat))
+!!!   qflux(jlon,jlat) = kturb_surf_q(jlon,jlat)*zros/zlev_bottom*(q(jlon,jlat,1)-qskin(jlon,jlat)) ! evaporation
+   zlate=ylwv-2360.*(tskin(jlon,jlat)-tzer)
+   if(tskin(jlon,jlat).lt.tzer) zlate=zlate+fsnow(jlon,jlat)*(yliw+2255.*(tskin(jlon,jlat)-tzer))
+   qflux(jlon,jlat)=kturb_surf_q(jlon,jlat)*zros*zlate/zlev_bottom*(q(jlon,jlat,1)-qskin(jlon,jlat)) ! latent heat flux
+ enddo
+ enddo
+
+ return
+end subroutine vtsurf
 !###############################################################################################################
       subroutine cclouds (nlon, nlat, nlev, h, dz, a0, b0, qccrit, phig, richs, zeta, u, v, teta,   &
                           cloudt, cloudh, cloudm, cloudl, t, p, q, qcw, qci, tvirt, pbl, zorogr)
@@ -3459,6 +3532,8 @@ end subroutine rrec2_int
 ! depending on moist static stability as Durran & Klemp (1982).
 ! Cloud cover algorithm as revised from Geleyn's (Maurizio).
 ! Low, middle, high clouds as WMO definition: < 2000 m, 2000-6000 m, > 6000 m.
+
+ use mod_postmoloch, only : tzer, pzer, ezer, rd, eps, cpd, ylwv, ccw1, ccw2, g 
 
 ! ---- For RTTOV simulation ---
 
@@ -3471,10 +3546,6 @@ end subroutine rrec2_int
       real, dimension(nlon,nlev)     :: fcloud, zqs, zteta, ztetav, zrich
       real, dimension(nlev)          :: zcol
 
-      real, parameter :: tzer=273.15, pzer=1.e5, ezer= 611., rd=287.05, rv=461.51, eps=rd/rv, &
-                         cpd=1004.6, cpv=1869.46, rdrcp=rd/cpd, cw = 4186.8,                  &
-                         yliv=2834170.5, yliw=333560.5, ylwv=yliv-yliw,                       &
-                         ccw1 = (cpv-cw)/rv, ccw2 = ylwv/tzer/rv-ccw1, g = 9.807
       ntop = nlev - 3
       zqcrit = qccrit
       huc = 0.89
@@ -3715,11 +3786,11 @@ end subroutine rrec2_int
 ! Results are saved in tvlift
 ! Liquid water may be removed during lifting (case iwl=0)
 
+ use mod_postmoloch, only : tzer, pzer, ezer, rd, rv, eps, cpd, cpv, &
+ cw, yliv, yliw, ylwv, ccw1, ccw2
+
       real, dimension(nlon,nlat)      :: qmix, tmix
       real, dimension(nlon,nlat,nlev) :: p, tvlift
-      real, parameter :: yliv=2834170.5, yliw=333560.5, ylwv=yliv-yliw, tzer=273.15, pzer=1.e5, ezer=611.0, &
-                         rd=287.05, rv=461.51, eps=rd/rv, cpd=1004.6, cpv=1869.46, cw=4186.8,               &
-                         ccw1=(cpv-cw)/rv, ccw2=ylwv/tzer/rv-ccw1
 
       tvlift(:,:,jk0) =  tmix(:,:)*(1.+(1./eps-1.)*qmix(:,:))
 
@@ -3908,6 +3979,8 @@ subroutine snowfall_height_def (qv, p, t, snowfall_level, zeta, horog, nlon, nla
 ! (equal +1,3 deg C) only, and the second is corrected by
 ! the lowest level of ice hydrometeores predomination.
 
+ use mod_postmoloch, only : tzer
+
 implicit none
 
 real, dimension(nlon,nlat), intent(out) :: snowfall_height, snowfall_height0
@@ -3918,7 +3991,7 @@ real, dimension(nlon,nlat), intent(in) :: horog
 integer, dimension(nlon,nlat), intent(in) :: snowfall_level
 real, intent(in) :: ylwv, cpd
 
-real, parameter :: tzer=273.15, twb_ref = 1.3+tzer
+real, parameter :: twb_ref = 1.3+tzer
 
 integer :: jlon, jlat, jklev, ktop, kt, ksnowfall
 real :: zp, zt, zqv, zqs, zes, zrh, ztwb1, ztwb2, zfr
@@ -4448,13 +4521,14 @@ end
 !----------- Subroutines for coding ouput data in grib2 format ---------------
 
 SUBROUTINE WRITE_GRIB2_HORIZONTAL_GRID(NLON,NLAT,NLEV,NLEVG,NLEV_SNOW_PROD,   &
- MHFR,IDATE0,IPERIOD_INP,IPERIOD_ACCUM,IDATEC,PDR,PLEVO,                      &
- TTR,ALONT,ALATT,FMASK,ZLEV,                                                  &
+ MHFR,IDATE0,IPERIOD_INP,IPERIOD_ACCUM,IDATEC,PDR,ALONT,ALATT,FMASK,          &
  ZPH,ZT,ZU,ZV,ZQ,ZRH,ZW,ZTHETAE,ZCLWI,ZPV,                                    &
+ U_ZLEV,V_ZLEV,T_ZLEV,TD_ZLEV,Q_ZLEV,RH_ZLEV,                                 &
  TG,QG,QGMAX,QGMIN,                                                           &
- ZOROGR,ZPZ0,PRECTOT,PRECSOLID,U10,V10,T2,TD2,Q2,Q2REL,ZTSKIN,HFLUX,QFLUX,        &
+ ZOROGR,ZPZ0,PRECTOT,PRECSOLID,ZTSKIN,HFLUX,QFLUX,                            &
  ZTS,ZTHES,ZUS,ZVS,ZQS,CLOUDT,CLOUDH,CLOUDM,CLOUDL,SNOW,RUNOFF,               &
- CAPE,QSKIN,ALBEDO,EMIS1,EMIS2,CSWFL,CLWFL,CHFLUX,CQFLUX,                     &
+ CAPE,QSKIN,ALBEDO,EMIS1,EMIS2,RAD_SW_DOWN,CSWFL,CLWFL,                       &
+ CHFLUX,CQFLUX,CWVFLUX,                                                       &
  T2MIN,T2MAX,WS10MAX,ZLIFT,SEAICE_F,SEAICE_TH,LAPSE_RATE_1,LAPSE_RATE_2, IWV, &
  CIN, PBL, GUST, ZLEV0,                                                       &
  SNOW_LEV_DEPTH_PROD, SNOW_T_PROD, SNOW_AGE_PROD, SNOW_DENS_PROD,             &
@@ -4466,29 +4540,27 @@ SUBROUTINE WRITE_GRIB2_HORIZONTAL_GRID(NLON,NLAT,NLEV,NLEVG,NLEV_SNOW_PROD,   &
 ! Uses module grib2_coding_data in write_grib2_data.F90
 
 USE GRIB2_CODING_DATA
-USE MOD_POSTMOLOCH, ONLY : NJUMP, NLEVPO, NZLEV, ISFLAG, IPFLAG, IZFLAG, BZITA, GZITA
+USE MOD_POSTMOLOCH, ONLY : NJUMP, NLEVPO, NZLEV, ISFLAG, IPFLAG, IZFLAG, BZITA, GZITA, PLEVO, ZLEV, TTR=>TZER
 USE DATA_OBSERV_AUX
-
 IMPLICIT NONE
 
 INTEGER :: NLON, NLAT, NLEV, NLEVG, NLEV_SNOW_PROD, MHFR
 INTEGER, DIMENSION(5) :: IDATE0, IDATEC
 INTEGER, DIMENSION(3) :: IPERIOD_INP, IPERIOD_ACCUM
 REAL, DIMENSION(100) :: PDR
-REAL, DIMENSION(NLEVPO) :: PLEVO
-REAL :: TTR
 REAL, DIMENSION(NLON,NLAT) :: ALONT, ALATT, FMASK
-REAL, DIMENSION(NZLEV) :: ZLEV
 REAL, DIMENSION(NLON,NLAT,NLEVPO) :: ZPH, ZT, ZU, ZV, ZQ, ZRH, ZW, ZTHETAE, ZCLWI, ZPV
+REAL, DIMENSION(NLON,NLAT,NZLEV) :: U_ZLEV, V_ZLEV, T_ZLEV, TD_ZLEV, Q_ZLEV, RH_ZLEV
 REAL, DIMENSION(NLON,NLAT,NLEVG) :: TG, QG, QGMAX, QGMIN
 REAL, DIMENSION(NLON,NLAT,NLEV_SNOW_PROD) :: SNOW_LEV_DEPTH_PROD, SNOW_T_PROD, SNOW_AGE_PROD, SNOW_DENS_PROD
-REAL, DIMENSION(NLON,NLAT) :: ZOROGR, ZPZ0, PRECTOT, PRECSOLID, U10, V10, T2, TD2, Q2, Q2REL, ZTSKIN,  &
- HFLUX, QFLUX, ZTS, ZTHES, ZUS, ZVS, ZQS, CLOUDT, CLOUDH, CLOUDM, CLOUDL, SNOW, RUNOFF,            &
- CAPE, QSKIN, ALBEDO, EMIS1, EMIS2, CSWFL, CLWFL, CHFLUX, CQFLUX,                                  &
+REAL, DIMENSION(NLON,NLAT) :: ZOROGR, ZPZ0, PRECTOT, PRECSOLID, ZTSKIN, &
+ HFLUX, QFLUX, ZTS, ZTHES, ZUS, ZVS, ZQS, CLOUDT, CLOUDH, CLOUDM, CLOUDL, SNOW, RUNOFF, &
+ CAPE, QSKIN, ALBEDO, EMIS1, EMIS2, RAD_SW_DOWN, CSWFL, CLWFL, &
+ CHFLUX, CQFLUX, CWVFLUX, &
  T2MIN, T2MAX, WS10MAX, ZLIFT, SEAICE_F, SEAICE_TH, LAPSE_RATE_1, LAPSE_RATE_2, IWV, CIN, PBL, GUST, ZLEV0, &
  SNOWFALL_HEIGHT, SNOWFALL_HEIGHT0, PS
 
-INTEGER :: IFIELD, I, J, K, FLAG_QG, FLAG_TG, NPAR_ISOBAR_LEV, NPAR_ZETTA_LEV, NPAR_SURF
+INTEGER :: IFIELD, I, J, K, NPAR_ISOBAR_LEV, NPAR_ZETTA_LEV, NPAR_SURF
 REAL, DIMENSION(NLEVG) :: LEV_SOIL
 REAL :: PERIOD_SEC, H, A0, B0, DZ, ZITA, AK, BK
 INTEGER, DIMENSION(1) :: ARRAY_SHAPE_1D
@@ -4497,9 +4569,8 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
   ARRAY_SHAPE_2D = SHAPE(IPFLAG)
   NPAR_ISOBAR_LEV = ARRAY_SHAPE_2D(1)
 
-!!  ARRAY_SHAPE_2D = SHAPE(IZFLAG)
-!!  NPAR_ZETTA_LEV = ARRAY_SHAPE_2D(1)
-  NPAR_ZETTA_LEV = 1
+  ARRAY_SHAPE_2D = SHAPE(IZFLAG)
+  NPAR_ZETTA_LEV = ARRAY_SHAPE_2D(1)
 
   ARRAY_SHAPE_1D = SHAPE(ISFLAG)
   NPAR_SURF = ARRAY_SHAPE_1D(1)
@@ -4512,14 +4583,9 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
 
   LEV_SOIL(1:NLEVG)=PDR(6:5+NLEVG)
 
-  FLAG_QG=0
-  IF (ANY(ISFLAG(09:12) == 1)) FLAG_QG=1
-  FLAG_TG=0
-  IF (ANY(ISFLAG(14:17) == 1)) FLAG_TG=1
-
 ! Statistical period in second
 
-  PERIOD_SEC = IPERIOD_ACCUM(1)*86400 + IPERIOD_ACCUM(2)*3600 + IPERIOD_ACCUM(3)*60
+  PERIOD_SEC = FLOAT(IPERIOD_ACCUM(1)*86400 + IPERIOD_ACCUM(2)*3600 + IPERIOD_ACCUM(3)*60)
   PERIOD_SEC=MAX(PERIOD_SEC, 1.)
 
 ! Cleaning of possible previous allocations
@@ -4614,11 +4680,12 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
 ! Data at zetta levels
 
   DO K=1,NZLEV
-!!    DO I=1,NPAR_ZETTA_LEV ! Number of parameters defined at zetta (geometric hight) levels
-      IF (IZFLAG(K) == 1) THEN
+    DO I=1,NPAR_ZETTA_LEV ! Number of parameters defined at zetta (geometric hight) levels
+      IF (IZFLAG(I,K) == 1) THEN
         IFIELD = IFIELD+1
+        IF (I == 1) IFIELD = IFIELD+1 ! 1 field for second wind component
       ENDIF
-!!    ENDDO
+    ENDDO
   ENDDO
 
 ! Data at the surface
@@ -4626,30 +4693,12 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
   DO I=1,NPAR_SURF ! Number of parameters defined at the surface
     IF (ISFLAG(I) == 1) THEN
       IFIELD = IFIELD+1
-      IF (I == 5.OR.I == 22) IFIELD = IFIELD+1 ! 1 field for second wind component
-      IF (I == 59) IFIELD = IFIELD-1+NLEV_SNOW_PROD*4 ! snow cover products: 4 variables at NLEV_SNOW_PROD levels
+      IF (I == 11) IFIELD = IFIELD+1 ! 1 field for second wind component
+      IF (I ==  6) IFIELD = IFIELD-1+NLEVG ! NLEVG fields for soil temperature at all soil levels
+      IF (I ==  8) IFIELD = IFIELD-1+NLEVG ! NLEVG fields for soil water content at all soil levels
+      IF (I == 43) IFIELD = IFIELD-1+NLEV_SNOW_PROD*4 ! snow cover products: 4 variables at NLEV_SNOW_PROD levels
     ENDIF
   ENDDO
-
-! For QG and TG at all soil level
-
-  IF (FLAG_QG == 1) THEN
-    DO I=9,12
-      IF (ISFLAG(I) == 1) IFIELD = IFIELD-1
-    ENDDO
-    DO K=1,NLEVG
-      IFIELD = IFIELD+1
-    ENDDO
-  ENDIF
-
-  IF (FLAG_TG == 1) THEN
-    DO I=14,17
-      IF (ISFLAG(I) == 1) IFIELD = IFIELD-1
-    ENDDO
-    DO K=1,NLEVG
-      IFIELD = IFIELD+1
-    ENDDO
-  ENDIF
 
   NFIELD = IFIELD
 
@@ -4782,30 +4831,91 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
     ENDDO
   ENDDO
 
-! Data at zeta (geometric height) levels
+! Data at zeta (geometric a;titude above the surface) levels
 
-!  DO K=1,NZLEV
-!
-!    IF (ITFLAG(K) == 1) THEN
-!
-!      IFIELD = IFIELD+1
-!
-!      DATA(IFIELD) % GRIB2_DESCRIPT(10) = 103 ! Specified height level above ground (m)
-!      DATA(IFIELD) % GRIB2_DESCRIPT(11) = NINT(ZLEV(K))
-!      DATA(IFIELD) % GRIB2_DESCRIPT(12) = 0
-!      DATA(IFIELD) % GRIB2_DESCRIPT(13:14) = IVALMISS
-!      DATA(IFIELD) % GRIB2_DESCRIPT(20) =
-!      DATA(IFIELD) % GRIB2_DESCRIPT(21) =
-!      DATA(IFIELD) % GRIB2_DESCRIPT(22) =
-!      DATA(IFIELD) % FIELD(:,:) =
-!
-!    ENDIF
-!
-!  ENDDO
+  DO K=1,NZLEV
+    DO I=1,NPAR_ZETTA_LEV ! Number of parameters defined at zetta
+
+      IF (IZFLAG(I,K) == 1) THEN
+
+        IFIELD = IFIELD+1
+
+        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 103 ! Specified height level above ground (m)
+        IF (ZLEV(K) >= 1.) THEN
+          DATA(IFIELD) % GRIB2_DESCRIPT(11) = NINT(ZLEV(K))
+          DATA(IFIELD) % GRIB2_DESCRIPT(12) = 0
+        ELSE IF (ZLEV(K) >= 0.1) THEN
+          DATA(IFIELD) % GRIB2_DESCRIPT(11) = NINT(ZLEV(K)*10.)
+          DATA(IFIELD) % GRIB2_DESCRIPT(12) = 1
+        ELSE
+          DATA(IFIELD) % GRIB2_DESCRIPT(11) = NINT(ZLEV(K)*100.)
+          DATA(IFIELD) % GRIB2_DESCRIPT(12) = 2
+        ENDIF
+     
+        DATA(IFIELD) % GRIB2_DESCRIPT(13:14) = IVALMISS
+        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 0   ! Discipline: Meteorological products
+
+        IF (I == 1) THEN ! Wind components
+          DATA(IFIELD) % GRIB2_DESCRIPT(21) = 2 ! Category: Momentum
+          DATA(IFIELD) % GRIB2_DESCRIPT(22) = 2 ! Parameter: u-component of wind (m s-1)
+          DATA(IFIELD) % FIELD(:,:) = U_ZLEV(:,:,K)
+          IFIELD = IFIELD+1
+          DATA(IFIELD) % GRIB2_DESCRIPT(:) = DATA(IFIELD-1) % GRIB2_DESCRIPT(:)
+          DATA(IFIELD) % GRIB2_DESCRIPT(22) = 3 ! Parameter: v-component of wind (m s-1)
+          DATA(IFIELD) % FIELD(:,:) = V_ZLEV(:,:,K)
+        ENDIF
+
+        IF (I == 2) THEN ! Temperature
+          DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0 ! Category: Temperature
+          DATA(IFIELD) % GRIB2_DESCRIPT(22) = 0 ! Parameter: Temperature (K)
+          DATA(IFIELD) % FIELD(:,:) = T_ZLEV(:,:,K)
+        ENDIF
+
+        IF (I == 3) THEN ! Dew Point Temperature
+          DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0 ! Category: Temperature
+          DATA(IFIELD) % GRIB2_DESCRIPT(22) = 6   ! Parameter: Dew point temperature (K)
+          DATA(IFIELD) % FIELD(:,:) = TD_ZLEV(:,:,K)
+        ENDIF
+
+        IF (I == 4) THEN ! Specific humidity
+          DATA(IFIELD) % GRIB2_DESCRIPT(21) = 1 ! Category: Moisture
+          DATA(IFIELD) % GRIB2_DESCRIPT(22) = 0 ! Parameter: Specific humidity (kg kg-1)
+          DATA(IFIELD) % FIELD(:,:) = Q_ZLEV(:,:,K)
+        ENDIF
+
+        IF (I == 5) THEN ! Relative humidity
+          DATA(IFIELD) % GRIB2_DESCRIPT(21) = 1 ! Category: Moisture
+          DATA(IFIELD) % GRIB2_DESCRIPT(22) = 1 ! Parameter: Relative humidity (%)
+          DATA(IFIELD) % FIELD(:,:) = RH_ZLEV(:,:,K)
+        ENDIF
+
+      ENDIF
+
+    ENDDO
+  ENDDO
 
 ! Data at the model soil levels
 
-  IF (FLAG_QG == 1) THEN
+  IF (ISFLAG(6) == 1) THEN
+
+    DO K=1,NLEVG
+
+      IFIELD = IFIELD+1
+
+      DATA(IFIELD) % GRIB2_DESCRIPT(10) = 106 ! Depth below land surface (m)
+      DATA(IFIELD) % GRIB2_DESCRIPT(11) = NINT(LEV_SOIL(K)*1.E3) ! First scaled value of level (layer)
+      DATA(IFIELD) % GRIB2_DESCRIPT(12) = 3   ! Scale of first value of level (layer)
+      DATA(IFIELD) % GRIB2_DESCRIPT(13:14) = IVALMISS
+      DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2   ! Discipline: Land surface products
+      DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Vegetation/Biomass
+      DATA(IFIELD) % GRIB2_DESCRIPT(22) = 2   ! Parameter: Soil temperature (K)
+      DATA(IFIELD) % FIELD(:,:) = TG(:,:,K)+TTR
+
+    ENDDO
+
+  ENDIF
+
+  IF (ISFLAG(8) == 1) THEN
 
     DO K=1,NLEVG
 
@@ -4825,31 +4935,12 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
 
   ENDIF
 
-  IF (FLAG_TG == 1) THEN
-
-    DO K=1,NLEVG
-
-      IFIELD = IFIELD+1
-
-      DATA(IFIELD) % GRIB2_DESCRIPT(10) = 106 ! Depth below land surface (m)
-      DATA(IFIELD) % GRIB2_DESCRIPT(11) = NINT(LEV_SOIL(K)*1.E3) ! First scaled value of level (layer)
-      DATA(IFIELD) % GRIB2_DESCRIPT(12) = 3   ! Scale of first value of level (layer)
-      DATA(IFIELD) % GRIB2_DESCRIPT(13:14) = IVALMISS
-      DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2   ! Discipline: Land surface products
-      DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Vegetation/Biomass
-      DATA(IFIELD) % GRIB2_DESCRIPT(22) = 2   ! Parameter: Soil temperature (K)
-      DATA(IFIELD) % FIELD(:,:) = TG(:,:,K)+TTR
-
-    ENDDO
-
-  ENDIF
-
 ! Data at the surface
 
   DO I=1,NPAR_SURF ! Number of parameters defined at the surface
 
-    IF (I >=  9.AND.I <= 12) CYCLE ! QG at model soil levels
-    IF (I >= 14.AND.I <= 17) CYCLE ! TG at model soil levels
+    IF (I == 6) CYCLE ! TG at model soil levels
+    IF (I == 8) CYCLE ! QG at model soil levels
 
     IF (ISFLAG(I) == 1) THEN
 
@@ -4892,158 +4983,19 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
         DATA(IFIELD) % FIELD(:,:) = PRECSOLID(:,:)*1.E-3
       ENDIF
 
-      IF (I == 5) THEN ! Wind at 10 m
-        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 103 ! Specified height level above ground (m)
-        DATA(IFIELD) % GRIB2_DESCRIPT(11) = 10  ! First scaled value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 0   ! Scale of first value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 2   ! Category: Momentum
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 2   ! Parameter: u-component of wind (m s-1)
-        DATA(IFIELD) % FIELD(:,:) = U10(:,:)
-        IFIELD = IFIELD+1
-        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 103 ! Specified height level above ground (m)
-        DATA(IFIELD) % GRIB2_DESCRIPT(11) = 10  ! First scaled value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 0   ! Scale of first value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(13:14) = IVALMISS
-        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 0   ! Discipline: Meteorological products
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 2   ! Category: Momentum
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 3   ! Parameter: v-component of wind (m s-1)
-        DATA(IFIELD) % FIELD(:,:) = V10(:,:)
-      ENDIF
-
-      IF (I == 6) THEN ! Temper. at 2m
-        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 103 ! Specified height level above ground (m)
-        DATA(IFIELD) % GRIB2_DESCRIPT(11) = 2   ! First scaled value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 0   ! Scale of first value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Temperature
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 0   ! Parameter: Temperature (K)
-        DATA(IFIELD) % FIELD(:,:) = T2(:,:)+TTR
-      ENDIF
-
-      IF (I == 7) THEN ! Specific hum. at 2 m
-        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 103 ! Specified height level above ground (m)
-        DATA(IFIELD) % GRIB2_DESCRIPT(11) = 2   ! First scaled value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 0   ! Scale of first value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 1   ! Category: Moisture
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 0   ! Parameter: Specific humidity (kg kg-1)
-        DATA(IFIELD) % FIELD(:,:) = Q2(:,:)
-      ENDIF
-
-      IF (I == 8) THEN ! Relative hum. at 2 m
-        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 103 ! Specified height level above ground (m)
-        DATA(IFIELD) % GRIB2_DESCRIPT(11) = 2   ! First scaled value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 0   ! Scale of first value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 1   ! Category: Moisture
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 1   ! Parameter: Relative humidity (%)
-        DATA(IFIELD) % FIELD(:,:) = Q2REL(:,:)
-      ENDIF
-
-!      IF (I == 9) THEN ! Ground water lev. 1
-!        K=1
-!        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 106 ! Depth below land surface (m)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(11) = NINT(LEV_SOIL(K)*1.E3) ! First scaled value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 3   ! Scale of first value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2   ! Discipline: Land surface products
-!        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Vegetation/Biomass
-!        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 9   ! Parameter: Volumetric soil moisture content (Proportion)
-!        DATA(IFIELD) % FIELD(:,:) = QG(:,:,K)
-!      ENDIF
-!
-!      IF (I == 10) THEN ! Ground water lev. 3
-!        K=3
-!        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 106 ! Depth below land surface (m)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(11) = NINT(LEV_SOIL(K)*1.E3) ! First scaled value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 3   ! Scale of first value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2   ! Discipline: Land surface products
-!        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Vegetation/Biomass
-!        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 9   ! Parameter: Volumetric soil moisture content (Proportion)
-!        DATA(IFIELD) % FIELD(:,:) = QG(:,:,K)
-!      ENDIF
-!
-!      IF (I == 11) THEN ! Ground water lev. 5
-!        K=5
-!        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 106 ! Depth below land surface (m)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(11) = NINT(LEV_SOIL(K)*1.E3) ! First scaled value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 3   ! Scale of first value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2   ! Discipline: Land surface products
-!        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Vegetation/Biomass
-!        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 9   ! Parameter: Volumetric soil moisture content (Proportion)
-!        DATA(IFIELD) % FIELD(:,:) = QG(:,:,K)
-!      ENDIF
-!
-!      IF (I == 12) THEN ! Ground water lev. 7
-!        K=7
-!        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 106 ! Depth below land surface (m)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(11) = NINT(LEV_SOIL(K)*1.E3) ! First scaled value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 3   ! Scale of first value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2   ! Discipline: Land surface products
-!        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Vegetation/Biomass
-!        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 9   ! Parameter: Volumetric soil moisture content (Proportion)
-!        DATA(IFIELD) % FIELD(:,:) = QG(:,:,K)
-!      ENDIF
-
-      IF (I == 13) THEN ! Skin temperature
+      IF (I == 5) THEN ! Surface temperature
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0 ! Category: Temperature
         DATA(IFIELD) % GRIB2_DESCRIPT(22) = 0 ! Parameter: Temperature (K)
         DATA(IFIELD) % FIELD(:,:) = ZTSKIN(:,:)+TTR
       ENDIF
 
-!      IF (I == 14) THEN ! Ground temp. lev. 1
-!        K=1
-!        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 106 ! Depth below land surface (m)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(11) = NINT(LEV_SOIL(K)*1.E3) ! First scaled value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 3   ! Scale of first value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2   ! Discipline: Land surface products
-!        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Vegetation/Biomass
-!        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 2   ! Parameter: Soil temperature (K)
-!        DATA(IFIELD) % FIELD(:,:) = TG(:,:,K)+TTR
-!      ENDIF
-!
-!      IF (I == 15) THEN ! Ground temp. lev. 3
-!        K=3
-!        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 106 ! Depth below land surface (m)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(11) = NINT(LEV_SOIL(K)*1.E3) ! First scaled value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 3   ! Scale of first value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2   ! Discipline: Land surface products
-!        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Vegetation/Biomass
-!        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 2   ! Parameter: Soil temperature (K)
-!        DATA(IFIELD) % FIELD(:,:) = TG(:,:,K)+TTR
-!      ENDIF
-!
-!      IF (I == 16) THEN ! Ground temp. lev. 5
-!        K=5
-!        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 106 ! Depth below land surface (m)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(11) = NINT(LEV_SOIL(K)*1.E3) ! First scaled value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 3   ! Scale of first value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2   ! Discipline: Land surface products
-!        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Vegetation/Biomass
-!        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 2   ! Parameter: Soil temperature (K)
-!        DATA(IFIELD) % FIELD(:,:) = TG(:,:,K)+TTR
-!      ENDIF
-!
-!      IF (I == 17) THEN ! Ground temp. lev. 7
-!        K=7
-!        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 106 ! Depth below land surface (m)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(11) = NINT(LEV_SOIL(K)*1.E3) ! First scaled value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 3   ! Scale of first value of level (layer)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2   ! Discipline: Land surface products
-!        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Vegetation/Biomass
-!        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 2   ! Parameter: Soil temperature (K)
-!        DATA(IFIELD) % FIELD(:,:) = TG(:,:,K)+TTR
-!      ENDIF
-
-      IF (I == 18) THEN ! Flux of sensible heat
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0  ! Category: Temperature
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 11 ! Parameter: Sensible heat net flux (W m-2)
-        DATA(IFIELD) % FIELD(:,:) = HFLUX(:,:)
+      IF (I == 7) THEN ! Surface air specific humidity
+        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 1 ! Category: Moisture
+        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 0 ! Parameter: Specific humidity (kg kg-1)
+        DATA(IFIELD) % FIELD(:,:) = QSKIN(:,:)
       ENDIF
 
-      IF (I == 19) THEN ! Flux of latent heat
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0  ! Category: Temperature
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 10 ! Parameter: Latent heat net flux (W m-2)
-        DATA(IFIELD) % FIELD(:,:) = QFLUX(:,:)
-      ENDIF
-
-      IF (I == 20) THEN ! Temper. at lowest atm. level
+      IF (I == 9) THEN ! Temper. at lowest atm. level
         DATA(IFIELD) % GRIB2_DESCRIPT(10) = 105 ! Hybrid level
         DATA(IFIELD) % GRIB2_DESCRIPT(11) = 1   ! First scaled value of level (layer)
         DATA(IFIELD) % GRIB2_DESCRIPT(12) = 0   ! Scale of first value of level (layer)
@@ -5052,7 +5004,7 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
         DATA(IFIELD) % FIELD(:,:) = ZTS(:,:)+TTR
       ENDIF
 
-      IF (I == 21) THEN ! Equiv. pot. temper. at lowest atm. level
+      IF (I == 10) THEN ! Equiv. pot. temper. at lowest atm. level
         DATA(IFIELD) % GRIB2_DESCRIPT(10) = 105 ! Hybrid level
         DATA(IFIELD) % GRIB2_DESCRIPT(11) = 1   ! First scaled value of level (layer)
         DATA(IFIELD) % GRIB2_DESCRIPT(12) = 0   ! Scale of first value of level (layer)
@@ -5061,7 +5013,7 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
         DATA(IFIELD) % FIELD(:,:) = ZTHES(:,:)+TTR
       ENDIF
 
-      IF (I == 22) THEN ! Wind at lowest atm. level
+      IF (I == 11) THEN ! Wind at lowest atm. level
         DATA(IFIELD) % GRIB2_DESCRIPT(10) = 105 ! Hybrid level
         DATA(IFIELD) % GRIB2_DESCRIPT(11) = 1   ! First scaled value of level (layer)
         DATA(IFIELD) % GRIB2_DESCRIPT(12) = 0   ! Scale of first value of level (layer)
@@ -5079,7 +5031,7 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
         DATA(IFIELD) % FIELD(:,:) = ZVS(:,:)
       ENDIF
 
-      IF (I == 23) THEN ! Spec. hum. at lowest atm. level
+      IF (I == 12) THEN ! Spec. hum. at lowest atm. level
         DATA(IFIELD) % GRIB2_DESCRIPT(10) = 105 ! Hybrid level
         DATA(IFIELD) % GRIB2_DESCRIPT(11) = 1   ! First scaled value of level (layer)
         DATA(IFIELD) % GRIB2_DESCRIPT(12) = 0   ! Scale of first value of level (layer)
@@ -5088,151 +5040,74 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
         DATA(IFIELD) % FIELD(:,:) = ZQS(:,:)
       ENDIF
 
-      IF (I == 24) THEN ! Total cloud cover post proc. or model
+      IF (I == 13) THEN ! Total cloud cover post proc. or model
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 6 ! Category: Cloud
         DATA(IFIELD) % GRIB2_DESCRIPT(22) = 1 ! Parameter: Total cloud cover (%)
         DATA(IFIELD) % FIELD(:,:) = CLOUDT(:,:)*1.E2
       ENDIF
 
-      IF (I == 25) THEN ! High cloud cover
+      IF (I == 14) THEN ! High cloud cover
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 6 ! Category: Cloud
         DATA(IFIELD) % GRIB2_DESCRIPT(22) = 5 ! Parameter: High cloud cover (%)
         DATA(IFIELD) % FIELD(:,:) = CLOUDH(:,:)*1.E2
       ENDIF
 
-      IF (I == 26) THEN ! Middle cloud cover
+      IF (I == 15) THEN ! Middle cloud cover
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 6 ! Category: Cloud
         DATA(IFIELD) % GRIB2_DESCRIPT(22) = 4 ! Parameter: Medium cloud cover (%)
         DATA(IFIELD) % FIELD(:,:) = CLOUDM(:,:)*1.E2
       ENDIF
 
-      IF (I == 27) THEN ! Low cloud cover
+      IF (I == 16) THEN ! Low cloud cover
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 6 ! Category: Cloud
         DATA(IFIELD) % GRIB2_DESCRIPT(22) = 3 ! Parameter: Low cloud cover (%)
         DATA(IFIELD) % FIELD(:,:) = CLOUDL(:,:)*1.E2
       ENDIF
 
-      IF (I == 28) THEN ! Snow cover
+      IF (I == 17) THEN ! Snow cover
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 1  ! Category: Moisture
         DATA(IFIELD) % GRIB2_DESCRIPT(22) = 13 ! Parameter: Water equivalent of accumulated snow depth (kg m-2)
         DATA(IFIELD) % FIELD(:,:) = SNOW(:,:)*1.E3
       ENDIF
 
-      IF (I == 29) THEN ! Runoff
+      IF (I == 18) THEN ! Runoff
         DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2 ! Discipline: Land surface products
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0 ! Category: Vegetation/Biomass
         DATA(IFIELD) % GRIB2_DESCRIPT(22) = 5 ! Parameter: Water runoff (kg m-2
         DATA(IFIELD) % FIELD(:,:) = RUNOFF(:,:)
       ENDIF
 
-      IF (I == 30) THEN ! CAPE
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 7 ! Category: Thermodynamic Stability Indices
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 6 ! Parameter: Convective available potential energy (J kg-1)
-        DATA(IFIELD) % FIELD(:,:) = CAPE(:,:)
-      ENDIF
-
-      IF (I == 31) THEN ! Skin Specific hum.
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 1 ! Category: Moisture
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 0 ! Parameter: Specific humidity (kg kg-1)
-        DATA(IFIELD) % FIELD(:,:) = QSKIN(:,:)
-      ENDIF
-
-      IF (I == 32) THEN ! Temper. at 0.5 m above surf.
-        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 103 ! Specified height level above ground (m)
-        DATA(IFIELD) % GRIB2_DESCRIPT(11) = 50  ! First scaled value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 2   ! Scale of first value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Temperature
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 0   ! Parameter: Temperature (K)
-        DATA(IFIELD) % FIELD(:,:) = T05(:,:)+TTR
-      ENDIF
-
-      IF (I == 33) THEN ! Relative hum. at 0.5 m above surf.
-        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 103 ! Specified height level above ground (m)
-        DATA(IFIELD) % GRIB2_DESCRIPT(11) = 50  ! First scaled value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 2   ! Scale of first value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 1   ! Category: Moisture
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 1   ! Parameter: Relative humidity (%)
-        DATA(IFIELD) % FIELD(:,:) = Q05REL(:,:)
-      ENDIF
-
-      IF (I == 34) THEN ! Temper. at 0.05 m above surf.
-        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 103 ! Specified height level above ground (m)
-        DATA(IFIELD) % GRIB2_DESCRIPT(11) = 5   ! First scaled value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 2   ! Scale of first value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Temperature
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 0   ! Parameter: Temperature (K)
-        DATA(IFIELD) % FIELD(:,:) = T005(:,:)+TTR
-      ENDIF
-
-      IF (I == 35) THEN ! Ground temp. at 5 cm depth
-        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 106 ! Depth below land surface (m)
-        DATA(IFIELD) % GRIB2_DESCRIPT(11) = 5   ! First scaled value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 2   ! Scale of first value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2   ! Discipline: Land surface products
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Vegetation/Biomass
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 2   ! Parameter: Soil temperature (K)
-        DATA(IFIELD) % FIELD(:,:) = TG005(:,:)+TTR
-      ENDIF
-
-      IF (I == 36) THEN ! Ground temp. at 10 cm depth
-        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 106 ! Depth below land surface (m)
-        DATA(IFIELD) % GRIB2_DESCRIPT(11) = 10  ! First scaled value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 2   ! Scale of first value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2   ! Discipline: Land surface products
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Vegetation/Biomass
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 2   ! Parameter: Soil temperature (K)
-        DATA(IFIELD) % FIELD(:,:) = TG010(:,:)+TTR
-      ENDIF
-
-      IF (I == 37) THEN ! Ground temp. at 20 cm depth
-        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 106 ! Depth below land surface (m)
-        DATA(IFIELD) % GRIB2_DESCRIPT(11) = 20  ! First scaled value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 2   ! Scale of first value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2   ! Discipline: Land surface products
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Vegetation/Biomass
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 2   ! Parameter: Soil temperature (K)
-        DATA(IFIELD) % FIELD(:,:) = TG020(:,:)+TTR
-      ENDIF
-
-      IF (I == 38) THEN ! Ground temp. at 50 cm depth
-        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 106 ! Depth below land surface (m)
-        DATA(IFIELD) % GRIB2_DESCRIPT(11) = 50  ! First scaled value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 2   ! Scale of first value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2   ! Discipline: Land surface products
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Vegetation/Biomass
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 2   ! Parameter: Soil temperature (K)
-        DATA(IFIELD) % FIELD(:,:) = TG050(:,:)+TTR
-      ENDIF
-
-      IF (I == 39) THEN ! Ground temp. at 100 cm depth
-        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 106 ! Depth below land surface (m)
-        DATA(IFIELD) % GRIB2_DESCRIPT(11) = 100 ! First scaled value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 2   ! Scale of first value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 2   ! Discipline: Land surface products
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Vegetation/Biomass
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 2   ! Parameter: Soil temperature (K)
-        DATA(IFIELD) % FIELD(:,:) = TG100(:,:)+TTR
-      ENDIF
-
-      IF (I == 40) THEN ! Albedo
+      IF (I == 19) THEN ! Albedo
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 19 ! Category: Physical atmospheric properties
         DATA(IFIELD) % GRIB2_DESCRIPT(22) = 1  ! Parameter: Albedo (%)
         DATA(IFIELD) % FIELD(:,:) = ALBEDO(:,:)*1.E2
       ENDIF
 
-      IF (I == 41) THEN ! Emissivity (broadband)
+      IF (I == 20) THEN ! Emissivity (broadband)
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 19  ! Category: Physical atmospheric properties
         DATA(IFIELD) % GRIB2_DESCRIPT(22) = 201 ! Parameter: local use Emissivity (%)
         DATA(IFIELD) % FIELD(:,:) = EMIS1(:,:)*1.E2
       ENDIF
 
-      IF (I == 42) THEN ! Emissivity (window)
+      IF (I == 21) THEN ! Emissivity (window)
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 19  ! Category: Physical atmospheric properties
         DATA(IFIELD) % GRIB2_DESCRIPT(22) = 202 ! Parameter: local use Emissivity (%)
         DATA(IFIELD) % FIELD(:,:) = EMIS2(:,:)*1.E2
       ENDIF
 
-      IF (I == 43) THEN ! Cumulated short wave radiative flux
+      IF (I == 22) THEN ! Flux of sensible heat
+        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0  ! Category: Temperature
+        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 11 ! Parameter: Sensible heat net flux (W m-2)
+        DATA(IFIELD) % FIELD(:,:) = HFLUX(:,:)
+      ENDIF
+
+      IF (I == 23) THEN ! Flux of latent heat
+        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0  ! Category: Temperature
+        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 10 ! Parameter: Latent heat net flux (W m-2)
+        DATA(IFIELD) % FIELD(:,:) = QFLUX(:,:)
+      ENDIF
+
+      IF (I == 24) THEN ! Cumulated short wave radiative net flux
         DATA(IFIELD) % GRIB2_DESCRIPT(3) = 8  ! Product template: Statistical
         DATA(IFIELD) % GRIB2_DESCRIPT(5) = 0  ! Statistical elaboration type: average
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 4 ! Category: Short-wave Radiation
@@ -5240,7 +5115,19 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
         DATA(IFIELD) % FIELD(:,:) = CSWFL(:,:)*1.E3/PERIOD_SEC
       ENDIF
 
-      IF (I == 44) THEN ! Cumulated long wave radiative flux
+      IF (I == 25) THEN ! Average short wave radiative downward flux
+        DATA(IFIELD) % GRIB2_DESCRIPT(3) = 8  ! Product template: Statistical
+        DATA(IFIELD) % GRIB2_DESCRIPT(5) = 0  ! Statistical elaboration type: average
+        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 4 ! Category: Short-wave Radiation
+        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 7 ! Parameter: Downward short-wave radiation flux (surface) (W m-2)
+        IF (PERIOD_SEC > 0.) THEN
+          DATA(IFIELD) % FIELD(:,:) = RAD_SW_DOWN(:,:)
+        ELSE
+          DATA(IFIELD) % FIELD(:,:) = RAD_SW_DOWN(:,:)/PERIOD_SEC
+        ENDIF
+      ENDIF
+
+      IF (I == 26) THEN ! Cumulated long wave radiative net flux
         DATA(IFIELD) % GRIB2_DESCRIPT(3) = 8  ! Product template: Statistical
         DATA(IFIELD) % GRIB2_DESCRIPT(5) = 0  ! Statistical elaboration type: average
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 5 ! Category: Long-wave Radiation
@@ -5248,7 +5135,7 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
         DATA(IFIELD) % FIELD(:,:) = CLWFL(:,:)*1.E3/PERIOD_SEC
       ENDIF
 
-      IF (I == 45) THEN ! Cumulated sensible heat flux
+      IF (I == 27) THEN ! Cumulated sensible heat flux
         DATA(IFIELD) % GRIB2_DESCRIPT(3) = 8   ! Product template: Statistical
         DATA(IFIELD) % GRIB2_DESCRIPT(5) = 0   ! Statistical elaboration type: average
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0  ! Category: Temperature
@@ -5256,7 +5143,7 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
         DATA(IFIELD) % FIELD(:,:) = CHFLUX(:,:)*1.E3/PERIOD_SEC
       ENDIF
 
-      IF (I == 46) THEN ! Cumulated latent heat flux
+      IF (I == 28) THEN ! Cumulated latent heat flux
         DATA(IFIELD) % GRIB2_DESCRIPT(3) = 8   ! Product template: Statistical
         DATA(IFIELD) % GRIB2_DESCRIPT(5) = 0   ! Statistical elaboration type: average
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0  ! Category: Temperature
@@ -5264,7 +5151,33 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
         DATA(IFIELD) % FIELD(:,:) = CQFLUX(:,:)*1.E3/PERIOD_SEC
       ENDIF
 
-      IF (I == 47) THEN ! T min. 2m
+      IF (I == 29) THEN ! Cumulated Evaporation flux
+        DATA(IFIELD) % GRIB2_DESCRIPT(3) = 8   ! Product template: Statistical
+        DATA(IFIELD) % GRIB2_DESCRIPT(5) = 0   ! Statistical elaboration type: average
+        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 1  ! Category: Moisture
+        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 6  ! Parameter: Evaporation (kg m-2)
+        IF (PERIOD_SEC > 0.) THEN
+          DATA(IFIELD) % FIELD(:,:) = CWVFLUX(:,:)/PERIOD_SEC
+        ELSE
+          DATA(IFIELD) % FIELD(:,:) = CWVFLUX(:,:)
+        ENDIF
+      ENDIF
+
+      IF (I == 30) THEN ! Integrated Water Vapour (kg/m2)
+        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 1  ! Category: Moisture
+        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 64 ! Parameter: Total column integrated water vapour (kg m-2)
+        DATA(IFIELD) % FIELD(:,:) = IWV(:,:)
+      ENDIF
+
+      IF (I == 31) THEN ! Surface Pressure
+        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 1 ! Ground or water surface
+        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 0 ! Discipline: Meteorological products
+        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 3 ! Category: Mass
+        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 0 ! Parameter: Pressure (Pa)
+        DATA(IFIELD) % FIELD(:,:) = PS(:,:)
+      ENDIF
+
+      IF (I == 32) THEN ! T min. 2m
         DATA(IFIELD) % GRIB2_DESCRIPT(3) = 8    ! Product template: Statistical
         DATA(IFIELD) % GRIB2_DESCRIPT(5) = 3    ! Statistical elaboration type: minimum
         DATA(IFIELD) % GRIB2_DESCRIPT(10) = 103 ! Specified height level above ground (m)
@@ -5275,7 +5188,7 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
         DATA(IFIELD) % FIELD(:,:) = T2MIN(:,:)+TTR
       ENDIF
 
-      IF (I == 48) THEN ! T max. 2m
+      IF (I == 33) THEN ! T max. 2m
         DATA(IFIELD) % GRIB2_DESCRIPT(3) = 8    ! Product template: Statistical
         DATA(IFIELD) % GRIB2_DESCRIPT(5) = 2    ! Statistical elaboration type: maximum
         DATA(IFIELD) % GRIB2_DESCRIPT(10) = 103 ! Specified height level above ground (m)
@@ -5286,7 +5199,7 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
         DATA(IFIELD) % FIELD(:,:) = T2MAX(:,:)+TTR
       ENDIF
 
-      IF (I == 49) THEN ! Wind speed max. 10m
+      IF (I == 34) THEN ! Wind speed max. 10m
         DATA(IFIELD) % GRIB2_DESCRIPT(3) = 8    ! Product template: Statistical
         DATA(IFIELD) % GRIB2_DESCRIPT(5) = 2    ! Statistical elaboration type: maximum
         DATA(IFIELD) % GRIB2_DESCRIPT(10) = 103 ! Specified height level above ground (m)
@@ -5297,60 +5210,37 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
         DATA(IFIELD) % FIELD(:,:) = WS10MAX(:,:)
       ENDIF
 
-      IF (I == 50) THEN ! Lifted index
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 7  ! Category: Thermodynamic Stability Indices
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 10 ! Parameter: Surface lifted index (K)
-        DATA(IFIELD) % FIELD(:,:) = ZLIFT(:,:)
-      ENDIF
-
-      IF (I == 51) THEN ! Sea ice fraction
-        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 10 ! Discipline: Oceanographic products
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 2  ! Category: Ice
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 0  ! Parameter: Ice cover (Proportion)
-        DATA(IFIELD) % FIELD(:,:) = SEAICE_F(:,:)
-      ENDIF
-
-      IF (I == 52) THEN ! Sea ice thickness (m)
-        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 10 ! Discipline: Oceanographic products
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 2  ! Category: Ice
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 1  ! Parameter: Ice thickness (m)
-        DATA(IFIELD) % FIELD(:,:) = SEAICE_TH(:,:)
-      ENDIF
-
-      IF (I == 53) THEN ! Dew point temperature at 2 m
-        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 103 ! Specified height level above ground (m)
-        DATA(IFIELD) % GRIB2_DESCRIPT(11) = 2   ! First scaled value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(12) = 0   ! Scale of first value of level (layer)
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 0   ! Category: Temperature
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 6   ! Parameter: Dew point temperature (K)
-        DATA(IFIELD) % FIELD(:,:) = TD2(:,:)+TTR
-      ENDIF
-
-      IF (I == 54) THEN ! Integrated Water Vapour (kg/m2)
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 1  ! Category: Moisture
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 64 ! Parameter: Total column integrated water vapour (kg m-2)
-        DATA(IFIELD) % FIELD(:,:) = IWV(:,:)
-      ENDIF
-
-      IF (I == 55) THEN ! Convective inibition (J/kg)
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 7 ! Category: Thermodynamic Stability Indices
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 7 ! Parameter: Convective inhibition (J kg-1)
-        DATA(IFIELD) % FIELD(:,:) = CIN(:,:)
-      ENDIF
-
-!      IF (I == 56) THEN ! PBL top height (above surface)
-!        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 3  ! Category: Mass
-!        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 18 ! Parameter: Planetary boundary layer height (M)
-!        DATA(IFIELD) % FIELD(:,:) = PBL(:,:)
-!      ENDIF
-
-      IF (I == 57) THEN ! Wind Gust
+      IF (I == 35) THEN ! Wind Gust
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 2  ! Category: Momentum
         DATA(IFIELD) % GRIB2_DESCRIPT(22) = 22 ! Parameter: Wind speed (gust)  (M sec-1)
         DATA(IFIELD) % FIELD(:,:) = GUST(:,:)
       ENDIF
 
-      IF (I == 58) THEN ! Hight (m) of 0 deg. C isotherm
+      IF (I == 36) THEN ! CAPE
+        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 7 ! Category: Thermodynamic Stability Indices
+        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 6 ! Parameter: Convective available potential energy (J kg-1)
+        DATA(IFIELD) % FIELD(:,:) = CAPE(:,:)
+      ENDIF
+
+      IF (I == 37) THEN ! Lifted index
+        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 7  ! Category: Thermodynamic Stability Indices
+        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 10 ! Parameter: Surface lifted index (K)
+        DATA(IFIELD) % FIELD(:,:) = ZLIFT(:,:)
+      ENDIF
+
+      IF (I == 38) THEN ! Convective inibition (J/kg)
+        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 7 ! Category: Thermodynamic Stability Indices
+        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 7 ! Parameter: Convective inhibition (J kg-1)
+        DATA(IFIELD) % FIELD(:,:) = CIN(:,:)
+      ENDIF
+
+      IF (I == 39) THEN ! PBL top height (above surface)
+        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 3  ! Category: Mass
+        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 18 ! Parameter: Planetary boundary layer height (M)
+        DATA(IFIELD) % FIELD(:,:) = PBL(:,:)
+      ENDIF
+
+      IF (I == 40) THEN ! Hight (m) of 0 deg. C isotherm
         DATA(IFIELD) % GRIB2_DESCRIPT(10) = 4   ! Level of 0 C isotherm
         DATA(IFIELD) % GRIB2_DESCRIPT(11) = 0   ! First scaled value of level (layer)
         DATA(IFIELD) % GRIB2_DESCRIPT(12) = 0   ! Scale of first value of level (layer)
@@ -5359,7 +5249,21 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
         DATA(IFIELD) % FIELD(:,:) = ZLEV0(:,:)
       ENDIF
 
-      IF (I == 59) THEN ! Snow cover products
+      IF (I == 41) THEN ! Sea ice fraction
+        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 10 ! Discipline: Oceanographic products
+        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 2  ! Category: Ice
+        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 0  ! Parameter: Ice cover (Proportion)
+        DATA(IFIELD) % FIELD(:,:) = SEAICE_F(:,:)
+      ENDIF
+
+      IF (I == 42) THEN ! Sea ice thickness (m)
+        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 10 ! Discipline: Oceanographic products
+        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 2  ! Category: Ice
+        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 1  ! Parameter: Ice thickness (m)
+        DATA(IFIELD) % FIELD(:,:) = SEAICE_TH(:,:)
+      ENDIF
+
+      IF (I == 43) THEN ! Snow cover products
 
         IFIELD = IFIELD-1
 
@@ -5405,7 +5309,7 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
 
       ENDIF
 
-      IF (I == 60) THEN ! Lapse rate in lower troposphere
+      IF (I == 44) THEN ! Lapse rate in lower troposphere
         DATA(IFIELD) % GRIB2_DESCRIPT(11) = 0   ! First scaled value of level (layer)
         DATA(IFIELD) % GRIB2_DESCRIPT(10) = 1 ! Ground or water surface
         DATA(IFIELD) % GRIB2_DESCRIPT(20) = 0 ! Discipline: Meteorological products
@@ -5420,7 +5324,7 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
 !        DATA(IFIELD) % FIELD(:,:) = LAPSE_RATE_1(:,:) ! Climatological
       ENDIF
 
-      IF (I == 61) THEN ! Height of snow fall limit (m) above sea level
+      IF (I == 45) THEN ! Height of snow fall limit (m) above sea level
         DATA(IFIELD) % GRIB2_DESCRIPT(10) = 101 ! Mean sea level
         DATA(IFIELD) % GRIB2_DESCRIPT(11) = 0   ! First scaled value of level (layer)
         DATA(IFIELD) % GRIB2_DESCRIPT(20) = 0   ! Discipline: Meteorological products
@@ -5429,21 +5333,13 @@ INTEGER, DIMENSION(2) :: ARRAY_SHAPE_2D
         DATA(IFIELD) % FIELD(:,:) = SNOWFALL_HEIGHT(:,:)
       ENDIF
 
-      IF (I == 62) THEN ! First guess of height of snow fall limit (m) above sea level
+      IF (I == 46) THEN ! First guess of height of snow fall limit (m) above sea level
         DATA(IFIELD) % GRIB2_DESCRIPT(10) = 101 ! Mean sea level
         DATA(IFIELD) % GRIB2_DESCRIPT(11) = 0   ! First scaled value of level (layer)
         DATA(IFIELD) % GRIB2_DESCRIPT(20) = 0   ! Discipline: Meteorological products
         DATA(IFIELD) % GRIB2_DESCRIPT(21) = 1   ! Category: Moisture
         DATA(IFIELD) % GRIB2_DESCRIPT(22) = 205 ! Parameter: Height of snow fall limit (m) (ISAC)
         DATA(IFIELD) % FIELD(:,:) = SNOWFALL_HEIGHT0(:,:)
-      ENDIF
-
-      IF (I == 63) THEN ! Surface Pressure
-        DATA(IFIELD) % GRIB2_DESCRIPT(10) = 1 ! Ground or water surface
-        DATA(IFIELD) % GRIB2_DESCRIPT(20) = 0 ! Discipline: Meteorological products
-        DATA(IFIELD) % GRIB2_DESCRIPT(21) = 3 ! Category: Mass
-        DATA(IFIELD) % GRIB2_DESCRIPT(22) = 0 ! Parameter: Pressure (Pa)
-        DATA(IFIELD) % FIELD(:,:) = PS(:,:)
       ENDIF
 
     ENDIF

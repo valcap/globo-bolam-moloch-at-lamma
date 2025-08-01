@@ -1,6 +1,6 @@
-! Last update 08/05/2025
+! Last update 31/07/2025
 
-! Version 25.2.1
+! Version 25.2.2
 
 ! Apr. 2025: Versione di Globo per la previsione mensile (membri perturbati)
 ! -Ds2s (#ifdef s2s)
@@ -860,7 +860,7 @@ end module u_ghost
 !--------------------------------------------------------------------------------------------------------
     if (myid == 0) then
       print *
-      print *,'    --- Bolam/Globo model Version 25.1.0 ---'
+      print *,'    --- Bolam/Globo model Version 25.2.2 ---'
       print *
     endif
 !--------------------------------------------------------------------------------------------------------
@@ -869,9 +869,9 @@ end module u_ghost
     if (myid == 0) then
       print *
 #ifdef globo
-      print *,'    --- Globo model Version 24.1.1 ---'
+      print *,'    --- Globo model Version ---'
 #else
-      print *,'    --- Bolam model Version 24.1.1 ---'
+      print *,'    --- Bolam model Version ---'
 #endif
       print *
     endif

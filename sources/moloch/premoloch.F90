@@ -2323,7 +2323,9 @@ real, allocatable, dimension(:,:,:), save :: zeta_inp_save, zetah_inp_save
    if (abs(x0_inp-x0_const) > 1.e-4) ierr=ierr+1
    if (abs(y0_inp-y0_const) > 1.e-4) ierr=ierr+1
    if (abs(alon0_inp-alon0_const) > 1.e-4) ierr=ierr+1
-   if (abs(alat0_inp-alat0_const-dlat_const*0.5) > 1.e-4) ierr=ierr+1
+   ! nesting moloch su moloch
+   ! fix check dimensions
+   if (abs(alat0_inp-(alat0_const-dlat_const*0.5)) > 1.e-4) ierr=ierr+1
 
    if (ierr /= 0) then
      write (*,*)
@@ -6010,7 +6012,7 @@ real, dimension(nlon,nlat) :: field2d_add, snow_albedo_rfc, runoff_tot_frc
      if (year_frc /= iniyear) ierr=ierr+1
      if (month_frc /= inimonth) ierr=ierr+1
      if (day_frc /= iniday) ierr=ierr+1
-!DANIELE!     if (hour_frc /= inihour) ierr=ierr+1
+     if (hour_frc /= inihour) ierr=ierr+1
 !DANIELE!     if (minute_frc /= iniminute) ierr=ierr+1
 
      if (ierr /= 0) then
@@ -6282,7 +6284,7 @@ real, dimension(nlon,nlat) :: field2d_add, snow_albedo_rfc, runoff_tot_frc
      if (year_frc /= iniyear) ierr=ierr+1
      if (month_frc /= inimonth) ierr=ierr+1
      if (day_frc /= iniday) ierr=ierr+1
-!DANIELE!     if (hour_frc /= inihour) ierr=ierr+1
+     if (hour_frc /= inihour) ierr=ierr+1
 !DANIELE!     if (minute_frc /= iniminute) ierr=ierr+1
 
      if (ierr /= 0) then
@@ -6332,6 +6334,8 @@ real, dimension(nlon,nlat) :: field2d_add, snow_albedo_rfc, runoff_tot_frc
      write (*,*)
      write (*,*) "Not found proper data and time of forecast validation in input file ",trim(file_inp) 
      write (*,*)
+     ! valcap74: forse funziona anche con rewind (iunit), controllare....
+     close (iunit)
      iflag=0
      return
 

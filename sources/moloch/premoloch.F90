@@ -2323,7 +2323,7 @@ real, allocatable, dimension(:,:,:), save :: zeta_inp_save, zetah_inp_save
    if (abs(x0_inp-x0_const) > 1.e-4) ierr=ierr+1
    if (abs(y0_inp-y0_const) > 1.e-4) ierr=ierr+1
    if (abs(alon0_inp-alon0_const) > 1.e-4) ierr=ierr+1
-   ! nesting moloch su moloch
+   ! valcap nesting moloch su moloch
    ! fix check dimensions
    if (abs(alat0_inp-(alat0_const-dlat_const*0.5)) > 1.e-4) ierr=ierr+1
 
@@ -6012,6 +6012,7 @@ real, dimension(nlon,nlat) :: field2d_add, snow_albedo_rfc, runoff_tot_frc
      if (year_frc /= iniyear) ierr=ierr+1
      if (month_frc /= inimonth) ierr=ierr+1
      if (day_frc /= iniday) ierr=ierr+1
+! valcap74: scommentato la linea sotto     
      if (hour_frc /= inihour) ierr=ierr+1
 !DANIELE!     if (minute_frc /= iniminute) ierr=ierr+1
 
@@ -6981,47 +6982,6 @@ real :: diftop, zhtop, zlapse, zzh1, zzh2, ztlake, twater, fhard, topcr, &
 
  tice(:,:,:)  = min(tice(:,:,:), 271.4)
  qg(:,:,:) = max(min(qg(:,:,:),1.),0.) ! relative value
-
-i=257; j=910
-print *
-print *,'poisk fmask',fmask(i,j)
-print *,'poisk htopi',phig(i,j)/g0
-print *,'poisk htopvar',htopvar(i,j)
-print *,'poisk tg_bottom, qg_rel_bottom, qg_rel_surf_approx, water_table_depth',&
- tg_bottom(i,j), qg_rel_bottom(i,j), qg_rel_surf_approx(i,j), water_table_depth(i,j)
-print *,'poisk ind_lev_soil_h_bottom ind_lev_soil_w_bottom',ind_lev_soil_h_bottom(i,j),ind_lev_soil_w_bottom(i,j)
-print *,'poisk soil_map',soil_map(i,j,:)
-print *,'poisk veg_map',veg_map(i,j,:)
-print *,'poisk soil_qmax',soil_qmax(i,j,:)
-print *,'poisk soil_qmin',soil_qmin(i,j,:)
-print *,'poisk soil_c',soil_c(i,j,:)
-print *,'poisk soil_rho',soil_rho(i,j,:)
-print *,'poisk soil_psi',soil_psi(i,j,:)
-print *,'poisk soil_k',soil_k(i,j,:)
-print *,'poisk soil_par_b',soil_par_b(i,j,:)
-print *,'poisk soil_qrel_wilt',soil_qrel_wilt(i,j,:)
-print *,'poisk soil_qrel_ref',soil_qrel_ref(i,j,:)
-print *,'poisk soil_albedo_dry',soil_albedo_dry(i,j)
-print *,'poisk soil_albedo_dry',soil_albedo_dry(i,j)
-print *,'poisk soil_albedo_wet',soil_albedo_wet(i,j)
-print *,'poisk soil_emiss1_dry',soil_emiss1_dry(i,j)
-print *,'poisk soil_emiss1_wet',soil_emiss1_wet(i,j)
-print *,'poisk soil_emiss2_dry',soil_emiss2_dry(i,j)
-print *,'poisk soil_emiss2_wet',soil_emiss2_wet(i,j)
-print *,'poisk veg_root_depth',veg_root_depth(i,j)
-print *,'poisk veg_roughness',veg_roughness(i,j)
-print *,'poisk veg_albedo',veg_albedo(i,j)
-print *,'poisk veg_emiss1',veg_emiss1(i,j)
-print *,'poisk veg_emiss2',veg_emiss2(i,j)
-print *,'poisk snow_dirt',snow_dirt(i,j)
-print *,'poisk veg_lai_max',veg_lai_max
-print *,'poisk tg_first_guess',tg_first_guess(i,j,:)
-print *,'poisk qg_rel_first_guess',qg_rel_first_guess(i,j,:)
-print *,'poisk veg_lai',veg_lai(i,j)
-print *,'poisk veg_frac',veg_frac(i,j)
-print *,'poisk tg',tg(i,j,:)
-print *,'poisk qg',qg(i,j,:)
-print *
 
 ! Redistribution of snow depending on orography
 

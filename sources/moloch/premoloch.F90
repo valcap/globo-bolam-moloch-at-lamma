@@ -1,4 +1,12 @@
-! Last update 16/10/2024
+! Last update 04/12/2025
+
+! Dic. 2025:
+! Cambiato il modo di gestire gli istanti dell'inizio e della fine di esecuzione
+! gestiti da inst_start e inst_stop in premoloch.inp, 
+! si puo' fare qualsiasi combinazione basta che inst_start <= inst_stop;
+! si puo' applicare il premoloch sia in modo seriale che in modo parallelo
+! sia con input_file_std = 1 (united file) che con input_file_std = 2 (separated files).
+! Nuovo campo in mhf_soil: cswfl_down (downward shortwave radiation flux). 
 
 ! Sett. 2024: 
 ! Cambiamento in subroutine physiographic_param (def_soil.F90) e scrittura
@@ -131,12 +139,12 @@ module input_data
 ! INPUT_MODEL: name of the model prodiced input data ('IFS' or 'GFS' or 'BOLAM' or 'MOLOCH' or 'COSMO')
 
  character (len=10) :: input_model, input_format
- integer :: input_file_std=0, flag_cut_paste
+ integer :: input_file_std=0
 
 ! Parameters values read from input file
 
- integer :: nlon_inp, nlat_inp, nlev_inp, nlevg_inp, nlev_atm_inp_max, nlev_soil_inp_max, res_change
- real :: dlon_inp, dlat_inp, x0_inp, y0_inp, alon0_inp, alat0_inp, flag_rot_inp=0
+ integer :: nlon_inp0, nlon_inp, nlat_inp, nlev_inp, nlevg_inp, nlev_atm_inp_max, nlev_soil_inp_max, res_change, ifl_xf
+ real :: dlon_inp, dlat_inp, x0_inp, y0_inp, alon0_inp, alon0_inp_ini, alat0_inp, flag_rot_inp=0, flag_cut_paste
 
 ! ------- Basic parameters ---------
 
@@ -263,8 +271,6 @@ integer, parameter :: npoint=0
 real, dimension(npoint,1) :: lon_point=reshape((/11.34/),(/npoint,1/)), &
  lat_point=reshape((/44.49/),(/npoint,1/)), lon_rot_point, lat_rot_point
 
-logical :: nlbuco
-
 ! Definition of (output) model grid parameters and other parameters
 
  open (11, file='premoloch.inp', status='old')
@@ -299,9 +305,9 @@ logical :: nlbuco
  endif
 
  do i = 1,ninst
-   write (input_file(i)(6:8),'(i3.3)') i
-   write (input_file_atm(i)(6:8),'(i3.3)') i
-   write (input_file_soil(i)(6:8),'(i3.3)') i
+   write (input_file(i)(6:8),'(i3.3)') i+inst_start-1
+   write (input_file_atm(i)(6:8),'(i3.3)') i+inst_start-1
+   write (input_file_soil(i)(6:8),'(i3.3)') i+inst_start-1
  enddo
 
  if (input_file_std == 1) then ! case of Bolam/Globo mhf or Moloch mhf file
@@ -315,12 +321,11 @@ logical :: nlbuco
    endif
  endif
 
- inst = 1
- file_name_work = input_file(inst)
+ file_name_work = input_file(1)
  if (input_format == 'mhfb' .or. input_format == 'MHFB' .or. input_format == 'mhfm' .or. input_format == 'MHFM') then
-   file_name_work      = input_file_atm(inst)
-   file_name_work_atm  = input_file_atm(inst)
-   file_name_work_soil = input_file_soil(inst)
+   file_name_work      = input_file_atm(1)
+   file_name_work_atm  = input_file_atm(1)
+   file_name_work_soil = input_file_soil(1)
  endif
 
  do while (.true.)
@@ -353,8 +358,8 @@ logical :: nlbuco
 ! Definitions of input data provider centre (input model) and origin of rotated input grid
 
   if (input_format == 'grib2' .or. input_format == 'GRIB2') then
-    call read_grib2_data(inst,file_name_work,1,.true.,flag_cut_paste,icentre_inp,isubcentre_inp,imodel_inp, &
-              nlon_inp,nlat_inp,nlev_inp,nlev_atm_inp_max,nlevg_inp,nlev_soil_inp_max, &
+    call read_grib2_data(1,file_name_work,1,.true.,flag_cut_paste,icentre_inp,isubcentre_inp,imodel_inp, &
+              nlon_inp0,nlat_inp,nlev_inp,nlev_atm_inp_max,nlevg_inp,nlev_soil_inp_max, &
               x0_inp,y0_inp,alon0_inp,alat0_inp,dlon_inp,dlat_inp,idate0_inp,iperiod_inp_grib2, &
               lev_list_inp,soil_lev_inp,level_type, &
               npar3d,npar2d,npar3d_soil,field3d,field2d,field3d_soil,ak,bk,val_missing)
@@ -375,7 +380,7 @@ logical :: nlbuco
     input_model = 'BOLAM'
     imodel_inp = 1
     call read_bolam_mhf_data(0,file_name_work_atm,file_name_work_soil,input_file_std,.true., &
-              nlon_inp,nlat_inp,nlev_inp,nlev_atm_inp_max,nlevg_inp,nlev_soil_inp_max, &
+              nlon_inp0,nlat_inp,nlev_inp,nlev_atm_inp_max,nlevg_inp,nlev_soil_inp_max, &
               x0_inp,y0_inp,alon0_inp,alat0_inp,dlon_inp,dlat_inp,idate0_inp,iperiod_inp, &
               lev_list_inp,soil_lev_inp,level_type,  &
               npar3d,npar2d,npar3d_soil,field3d,field2d,field3d_soil,ak,bk,val_missing)
@@ -385,7 +390,7 @@ logical :: nlbuco
     input_model = 'MOLOCH'
     imodel_inp = 2
     call read_moloch_mhf_data(0, file_name_work_atm, file_name_work_soil, input_file_std, .true., &
-         nlev_atm_inp_max, nlev_soil_inp_max, nlon_inp, nlat_inp, nlev_inp, nlevg_inp, &
+         nlev_atm_inp_max, nlev_soil_inp_max, nlon_inp0, nlat_inp, nlev_inp, nlevg_inp, &
          x0_inp, y0_inp, alon0_inp, alat0_inp, dlon_inp, dlat_inp, &
          level_type, lev_list_inp, soil_lev_inp, idate0_inp, iperiod_inp, &
  frame, mask_frame, &
@@ -684,7 +689,7 @@ logical :: nlbuco
 
 ! Case of input data on a global model grid
 
- if (x0_inp==0..and.y0_inp==0..and.alon0_inp+float(nlon_inp-1)*dlon_inp>357.) then
+ if (x0_inp==0..and.y0_inp==0..and.alon0_inp+float(nlon_inp0-1)*dlon_inp>357.) then
    x_t(:,:) = x_t(:,:)+360.
    x_u(:,:) = x_u(:,:)+360.
    x_v(:,:) = x_v(:,:)+360.
@@ -714,6 +719,21 @@ logical :: nlbuco
  6007 format(i4, 1x, 2f11.2)
    print*
 
+ flag_cut_paste = 0
+ nlon_inp = nlon_inp0
+
+! Case when the model domain includes the whole longitude circle (typically for circumpolar domain location)
+! One degree is a suitable interval to check if the model domain covers a full circumpolar area
+
+   if (input_model /= 'BOLAM'.and.input_model /= 'MOLOCH'.and.flag_rot_inp == 0) then
+! point_extr(7) - minimum values of model domain longitude
+! point_extr(8) - maximum values of model domain longitude
+     if ((abs(point_extr(7)) < 1. .and. abs(point_extr(8)-360.) < 1.).or.(abs(point_extr(7)+180.) < 1. .and. abs(point_extr(8)-180.) < 1.)) then
+       nlon_inp = nlon_inp0 + 1
+     endif
+   endif
+
+
 ! For control:
 ! call anti_rot_grid(x0, y0, lon_point(1:npoint,1), lat_point(1:npoint,1), &
 ! lon_rot_point(1:npoint,1), lat_rot_point(1:npoint,1), npoint, 1)
@@ -726,18 +746,18 @@ logical :: nlbuco
 !      Basic loop on input data instants
 !--------------------------------------------------------------------------
 
- inst_loop: do inst = 1, ninst
+ inst_loop: do inst = inst_start, inst_stop
 
 ! Reading of input data grid parameters,
 ! this parametes can be different for various time instant
 ! because of input data may have different resolution 
 ! at various time instant
 
- file_name_work = input_file(inst)
+ file_name_work = input_file(inst-inst_start+1)
  if (input_model == 'BOLAM'.or.input_model == 'MOLOCH') then
-   file_name_work      = input_file_atm(inst)
-   file_name_work_atm  = input_file_atm(inst)
-   file_name_work_soil = input_file_soil(inst)
+   file_name_work      = input_file_atm(inst-inst_start +1)
+   file_name_work_atm  = input_file_atm(inst-inst_start +1)
+   file_name_work_soil = input_file_soil(inst-inst_start +1)
  endif
 
  do while (.true.)
@@ -764,20 +784,20 @@ logical :: nlbuco
 
  if (input_format == 'grib2' .or. input_format == 'GRIB2') then
     call read_grib2_data(inst,file_name_work,1,.true.,flag_cut_paste,icentre_inp,isubcentre_inp,imodel_inp, &
-              nlon_inp,nlat_inp,nlev_inp,nlev_atm_inp_max,nlevg_inp,nlev_soil_inp_max, &
+              nlon_inp0,nlat_inp,nlev_inp,nlev_atm_inp_max,nlevg_inp,nlev_soil_inp_max, &
               x0_inp,y0_inp,alon0_inp,alat0_inp,dlon_inp,dlat_inp,idate0_inp,iperiod_inp_grib2, &
               lev_list_inp,soil_lev_inp,level_type, &
               npar3d,npar2d,npar3d_soil,field3d,field2d,field3d_soil,ak,bk,val_missing)
- elseif (input_model == 'BOLAM'.and.inst == 1) then
+ elseif (input_model == 'BOLAM'.and.inst == inst_start) then
     call read_bolam_mhf_data(inst,file_name_work_atm,file_name_work_soil,input_file_std,.true., &
-              nlon_inp,nlat_inp,nlev_inp,nlev_atm_inp_max,nlevg_inp,nlev_soil_inp_max, &
+              nlon_inp0,nlat_inp,nlev_inp,nlev_atm_inp_max,nlevg_inp,nlev_soil_inp_max, &
               x0_inp,y0_inp,alon0_inp,alat0_inp,dlon_inp,dlat_inp,idate0_inp,iperiod_inp, &
               lev_list_inp,soil_lev_inp,level_type, &
               npar3d,npar2d,npar3d_soil,field3d,field2d,field3d_soil,ak,bk,val_missing)
- elseif (input_model == 'MOLOCH'.and.inst == 1) then
+ elseif (input_model == 'MOLOCH'.and.inst == inst_start) then
     call read_moloch_mhf_data(inst, file_name_work_atm, file_name_work_soil, input_file_std, .true., &
          nlev_atm_inp_max, nlev_soil_inp_max, &
-         nlon_inp, nlat_inp, nlev_inp, nlevg_inp, &
+         nlon_inp0, nlat_inp, nlev_inp, nlevg_inp, &
          x0_inp, y0_inp, alon0_inp, alat0_inp, dlon_inp, dlat_inp, &
          level_type, lev_list_inp, soil_lev_inp, idate0_inp, iperiod_inp, &
  frame, mask_frame, &
@@ -788,11 +808,22 @@ logical :: nlbuco
 
 !--------------------------------------------------------------------------
 
+  if (alon0_inp > 180.) alon0_inp = alon0_inp-360. ! Necessary, otherwise negative long. coordinates are mistaken
+
+  nlon_inp = nlon_inp0
+  if (input_model /= 'BOLAM'.and.input_model /= 'MOLOCH'.and.flag_rot_inp == 0) then
+! point_extr(7) - minimum values of model domain longitude
+! point_extr(8) - maximum values of model domain longitude
+    if ((abs(point_extr(7)) < 1. .and. abs(point_extr(8)-360.) < 1.).or.(abs(point_extr(7)+180.) < 1. .and. abs(point_extr(8)-180.) < 1.)) then
+      nlon_inp = nlon_inp0 + 1
+    endif
+  endif
+
 ! Allocation of input data array
 
- if (.not.allocated(field3d))      allocate(field3d(nlon_inp,nlat_inp,nlev_atm_inp_max,npar3d))
- if (.not.allocated(field2d))      allocate(field2d(nlon_inp,nlat_inp,npar2d))
- if (.not.allocated(field3d_soil)) allocate(field3d_soil(nlon_inp,nlat_inp,nlev_soil_inp_max,npar3d_soil))
+ if (.not.allocated(field3d))      allocate(field3d(nlon_inp0,nlat_inp,nlev_atm_inp_max,npar3d))
+ if (.not.allocated(field2d))      allocate(field2d(nlon_inp0,nlat_inp,npar2d))
+ if (.not.allocated(field3d_soil)) allocate(field3d_soil(nlon_inp0,nlat_inp,nlev_soil_inp_max,npar3d_soil))
 
  if (.not.allocated(alon_t_inp)) allocate(alon_t_inp(nlon_inp,nlat_inp))
  if (.not.allocated(alon_u_inp)) allocate(alon_u_inp(nlon_inp,nlat_inp))
@@ -845,6 +876,62 @@ logical :: nlbuco
  if (.not.allocated(u_inp_work)) allocate(u_inp_work(nlon_inp,nlat_inp))
  if (.not.allocated(v_inp_work)) allocate(v_inp_work(nlon_inp,nlat_inp))
  if (.not.allocated(tsurf_work_inp)) allocate(tsurf_work_inp(nlon_inp,nlat_inp))
+
+!--------------------------------------------------------------------------
+
+ write (*,*)
+ write (*,*) '     Parameters of input data horizontal grid:'
+ write(*,'(a,i4,a,i4,a,f9.4,a,f9.4)') ' nx =',nlon_inp0,', ny =',nlat_inp,',  x west extreem =',alon0_inp,',  y south extreem =',alat0_inp
+ write(*,'(a,f6.3,a,f6.3)') ' dx =',dlon_inp,', dy =',dlat_inp
+
+  flag_cut_paste = 0
+
+! Case of input data on a global grid (typically for historical GFS data or ERA5 data...)
+! In case of global area in input data, grid points having positive longitudes but west of
+! Greenwich are "cut" and "pasted" (giving them negative longitudes) in order to reconstruct
+! a grid crossing the Greenwich meridian
+
+ if (nlon_inp0 == nlon_inp) then
+
+! point_extr(7) - minimum values of model domain longitude
+! point_extr(8) - maximum values of model domain longitude
+
+   if (flag_rot_inp==0.and.alon0_inp==0..and.alon0_inp+dlon_inp*float(nlon_inp-1)>359.) then
+    alon0_inp_ini = alon0_inp
+    if (point_extr(7)*point_extr(8) >= 0.) then
+      if (alon0_inp == 0.) ifl_xf = 0
+      if (alon0_inp == -180.) ifl_xf = 1
+    else
+      if ( alon0_inp ==0.) ifl_xf = 1
+      if ( alon0_inp ==-180.) ifl_xf = 0
+    endif
+    if (ifl_xf == 1) then
+      if (alon0_inp == 0.) then
+        alon0_inp = -180.
+      elseif (alon0_inp == -180.) then
+        alon0_inp = 0.
+      endif
+
+      flag_cut_paste = 1
+
+      print *
+      print*,'Shift of the input grid longitude:',' alon0_inp ',alon0_inp,' initial values ',alon0_inp_ini
+    endif
+   endif
+
+   if (flag_rot_inp==0) then
+     if (alon0_inp > 0..and.minval(alon_t(:,:)) <= 0.) then
+       if (alon0_inp-360.+float(nlon_inp-1)*dlon_inp >= maxval(alon_t(:,:))) alon0_inp = alon0_inp-360.
+     elseif (alon0_inp < 0..and.minval(alon_t(:,:)) >= 0.) then
+       if (alon0_inp+360. <= minval(alon_t(:,:))) alon0_inp = alon0_inp+360.
+     endif
+   endif
+
+ else
+
+   flag_cut_paste = 0
+
+ endif
 
 !--------------------------------------------------------------------------
 
@@ -958,82 +1045,76 @@ logical :: nlbuco
 !    (vertical levels in input data must be ordered upward)
 !---------------------------------------------------------------------------
 
-    nlbuco = .false.
-    if (inst > 1 ) nlbuco = .true.
-
 #ifdef oper
     if (inst_stop < 1) then
     inst_start = 1
     inst_stop = 1
-    nlbuco = .true.
     endif
 #endif
 
-! poisk
-    nlbuco = .false.
-
-    if (nlbuco) then
-      surf_elaborate = .false.
-    else
+    if (inst == inst_start) then
       surf_elaborate = .true.
+    else
+      surf_elaborate = .false.
     endif
 
-    print*, 'buco=', nlbuco,' surf_elaborate ',surf_elaborate
+    print *
+    print*, 'surf_elaborate ',surf_elaborate
     print *
 
 ! Call of the procedure for reading and decoding input data files
 
-   file_name_work = input_file(inst)
+   file_name_work = input_file(inst-inst_start+1)
    if (input_model == 'BOLAM'.or.input_model == 'MOLOCH') then
-     file_name_work_atm  = input_file_atm(inst)
-     file_name_work_soil = input_file_soil(inst)
+     file_name_work_atm  = input_file_atm(inst-inst_start +1)
+     file_name_work_soil = input_file_soil(inst-inst_start +1)
    endif
 
    if (input_format == 'grib2' .or. input_format == 'GRIB2') then
       call read_grib2_data(inst,file_name_work,1,.false.,flag_cut_paste,icentre_inp,isubcentre_inp,imodel_inp, &
-                nlon_inp,nlat_inp,nlev_inp,nlev_atm_inp_max,nlevg_inp,nlev_soil_inp_max, &
+                nlon_inp0,nlat_inp,nlev_inp,nlev_atm_inp_max,nlevg_inp,nlev_soil_inp_max, &
                 x0_inp,y0_inp,alon0_inp,alat0_inp,dlon_inp,dlat_inp,idate0_inp,iperiod_inp_grib2, &
                 lev_list_inp,soil_lev_inp,level_type, &
                 npar3d,npar2d,npar3d_soil,field3d,field2d,field3d_soil,ak,bk,val_missing)
- else ! Bolam or Moloch
-    if (input_file_std == 1 .and. inst == 1) then ! skip of initial instants in the united input file
+   else ! Bolam or Moloch
+      if (input_file_std == 1 .and. inst == inst_start) then ! skip of initial instants in the united input file
        do inst2 = 1, inst_start-1
-         print*, "Reading and skipping instant no.", inst2
-         if (input_model == 'BOLAM') &
- call read_bolam_mhf_data(inst,file_name_work_atm,file_name_work_soil,input_file_std,.false., &
-                   nlon_inp,nlat_inp,nlev_inp,nlev_atm_inp_max,nlevg_inp,nlev_soil_inp_max, &
+          print*, "Reading and skipping instant no.", inst2
+          if (input_model == 'BOLAM') &
+            call read_bolam_mhf_data(inst2,file_name_work_atm,file_name_work_soil,input_file_std,.false., &
+                   nlon_inp0,nlat_inp,nlev_inp,nlev_atm_inp_max,nlevg_inp,nlev_soil_inp_max, &
                    x0_inp,y0_inp,alon0_inp,alat0_inp,dlon_inp,dlat_inp,idate0_inp,iperiod_inp, &
                    lev_list_inp,soil_lev_inp,level_type, &
                    npar3d,npar2d,npar3d_soil,field3d,field2d,field3d_soil,ak,bk,val_missing)
-         if (input_model == 'MOLOCH') &
- call read_moloch_mhf_data(inst, file_name_work_atm, file_name_work_soil, input_file_std, .false., &
-         nlev_atm_inp_max, nlev_soil_inp_max, &
-         nlon_inp, nlat_inp, nlev_inp, nlevg_inp, &
-         x0_inp, y0_inp, alon0_inp, alat0_inp, dlon_inp, dlat_inp, &
-         level_type, lev_list_inp, soil_lev_inp, idate0_inp, iperiod_inp, &
- frame, mask_frame, &
-        htop_inp, fmask_inp, ps_inp, &
-        zeta_inp, zetah_inp, p_inp, t_inp, u_inp, v_inp, w_inp, q_inp, qcw_inp, qci_inp, &
-        tg_inp, qg_inp, tsurf_inp, qvsurf_inp, snow_inp, fice_inp, iceth_inp, qgmax_inp, qgmin_inp)
-       enddo
-     endif
-     print*, "Start reading and processing instant no.", inst + inst_start -1
-     if (input_model == 'BOLAM') &
- call read_bolam_mhf_data(inst,file_name_work_atm,file_name_work_soil,input_file_std,.false., &
-               nlon_inp,nlat_inp,nlev_inp,nlev_atm_inp_max,nlevg_inp,nlev_soil_inp_max, &
+          if (input_model == 'MOLOCH') &
+            call read_moloch_mhf_data(inst2, file_name_work_atm, file_name_work_soil, input_file_std, .false., &
+                   nlev_atm_inp_max, nlev_soil_inp_max, &
+                   nlon_inp0, nlat_inp, nlev_inp, nlevg_inp, &
+                   x0_inp, y0_inp, alon0_inp, alat0_inp, dlon_inp, dlat_inp, &
+                   level_type, lev_list_inp, soil_lev_inp, idate0_inp, iperiod_inp, &
+                   frame, mask_frame, &
+                   htop_inp, fmask_inp, ps_inp, &
+                   zeta_inp, zetah_inp, p_inp, t_inp, u_inp, v_inp, w_inp, q_inp, qcw_inp, qci_inp, &
+                   tg_inp, qg_inp, tsurf_inp, qvsurf_inp, snow_inp, fice_inp, iceth_inp, qgmax_inp, qgmin_inp)
+        enddo
+      endif
+      print*, "Start reading and processing instant no.", inst
+      if (input_model == 'BOLAM') &
+        call read_bolam_mhf_data(inst,file_name_work_atm,file_name_work_soil,input_file_std,.false., &
+               nlon_inp0,nlat_inp,nlev_inp,nlev_atm_inp_max,nlevg_inp,nlev_soil_inp_max, &
                x0_inp,y0_inp,alon0_inp,alat0_inp,dlon_inp,dlat_inp,idate0_inp,iperiod_inp, &
                lev_list_inp,soil_lev_inp,level_type,  &
                npar3d,npar2d,npar3d_soil,field3d,field2d,field3d_soil,ak,bk,val_missing)
-     if (input_model == 'MOLOCH') &
- call read_moloch_mhf_data(inst, file_name_work_atm, file_name_work_soil, input_file_std, .false., &
-         nlev_atm_inp_max, nlev_soil_inp_max, &
-         nlon_inp, nlat_inp, nlev_inp, nlevg_inp, &
-         x0_inp, y0_inp, alon0_inp, alat0_inp, dlon_inp, dlat_inp, &
-         level_type, lev_list_inp, soil_lev_inp, idate0_inp, iperiod_inp, &
- frame, mask_frame, &
-        htop_inp, fmask_inp, ps_inp, &
-        zeta_inp, zetah_inp, p_inp, t_inp, u_inp, v_inp, w_inp, q_inp, qcw_inp, qci_inp, &
-        tg_inp, qg_inp, tsurf_inp, qvsurf_inp, snow_inp, fice_inp, iceth_inp, qgmax_inp, qgmin_inp)
+      if (input_model == 'MOLOCH') &
+        call read_moloch_mhf_data(inst, file_name_work_atm, file_name_work_soil, input_file_std, .false., &
+               nlev_atm_inp_max, nlev_soil_inp_max, &
+               nlon_inp0, nlat_inp, nlev_inp, nlevg_inp, &
+               x0_inp, y0_inp, alon0_inp, alat0_inp, dlon_inp, dlat_inp, &
+               level_type, lev_list_inp, soil_lev_inp, idate0_inp, iperiod_inp, &
+               frame, mask_frame, &
+               htop_inp, fmask_inp, ps_inp, &
+               zeta_inp, zetah_inp, p_inp, t_inp, u_inp, v_inp, w_inp, q_inp, qcw_inp, qci_inp, &
+               tg_inp, qg_inp, tsurf_inp, qvsurf_inp, snow_inp, fice_inp, iceth_inp, qgmax_inp, qgmin_inp)
    endif
 
 !--------------------------------------------------------------------------
@@ -1056,8 +1137,7 @@ logical :: nlbuco
   endif
   print *
 
-  if (inst==1) then
-
+  if (inst == inst_start) then
     write(*, '(a,2i5)') ' The first and last instants to be processed are:', inst_start, inst_stop
 
 ! Definition of the initial instant
@@ -1083,6 +1163,7 @@ logical :: nlbuco
     endif
     gammac = 4.5e-3 + 2.8e-3*coeday
 
+   write(*,*)
    write(*, '(a,f8.4)') ' Climatological lapse rate =', gammac
 
 ! Definition of all physiographic parameters on the model grid:
@@ -1233,7 +1314,7 @@ logical :: nlbuco
     print*, "Wind anti-rotation is computed"
    endif
 
-  endif ! inst==1
+  endif ! inst == inst_start
 
 !--------------------------------------------------------------------------
 !  Storage of date and time
@@ -1525,17 +1606,6 @@ logical :: nlbuco
 
     do    j = 1, nlat
     do 44 i = 1, nlon
-      if (nlbuco .and. (j.gt.33.and.j.lt.nlat-32) .and. (i.gt.33.and.i.lt.nlon-32)) then
-      t(i,j,:) = 275.
-      q(i,j,:) = 0.
-      qcw(i,j,:) = 0.
-      qci(i,j,:) = 0.
-      tvirt(i,j,:) = t(i,j,:)
-      do k = 1, nlev
-      p(i,j,k) = ps(i,j)*float(nlev-k+1)/float(nlev)
-      enddo
-      go to 44
-      endif
 
 ! Array of input grid coordinates
 
@@ -1674,10 +1744,6 @@ logical :: nlbuco
 
     do    j = 1, nlat
     do 45 i = 1, nlon
-      if (nlbuco .and. (j.gt.33.and.j.lt.nlat-32) .and. (i.gt.33.and.i.lt.nlon-32)) then
-      u(i,j,:) = 0.
-      go to 45
-      endif
 
     ip1 = min(nlon, i+1)
 
@@ -1724,10 +1790,6 @@ logical :: nlbuco
       jm1 = max(1, j-1)
       jp1 = min(nlat, j+1)
     do 46 i = 1, nlon
-      if (nlbuco .and. (j.gt.33.and.j.lt.nlat-32) .and. (i.gt.33.and.i.lt.nlon-32)) then
-      v(i,j,:) = 0.
-      go to 46
-      endif
 
     if (input_model == 'BOLAM'.or.input_model == 'MOLOCH') then
       zlinp(1:nlev_inp) = 0.5*(zeta_inp_mod(i,j,1:nlev_inp)+zeta_inp_mod(i,jm1,1:nlev_inp))
@@ -1772,10 +1834,6 @@ logical :: nlbuco
 
     do    j = 1, nlat
     do 47 i = 1, nlon
-      if (nlbuco .and. (j.gt.33.and.j.lt.nlat-32) .and. (i.gt.33.and.i.lt.nlon-32)) then
-      w(i,j,:) = 0.
-      go to 47
-      endif
 
     jp1 = min(j+1,nlat)
     jm1 = max(j-1,1)
@@ -2300,7 +2358,7 @@ real, allocatable, dimension(:,:,:), save :: zeta_inp_save, zetah_inp_save
 
  endif
 
- if (ifl == 1) then
+ if (ifl >= 1) then
 
 ! Reading of constant physiographical parameters of input model
 
@@ -2323,9 +2381,7 @@ real, allocatable, dimension(:,:,:), save :: zeta_inp_save, zetah_inp_save
    if (abs(x0_inp-x0_const) > 1.e-4) ierr=ierr+1
    if (abs(y0_inp-y0_const) > 1.e-4) ierr=ierr+1
    if (abs(alon0_inp-alon0_const) > 1.e-4) ierr=ierr+1
-   ! valcap nesting moloch su moloch
-   ! fix check dimensions
-   if (abs(alat0_inp-(alat0_const-dlat_const*0.5)) > 1.e-4) ierr=ierr+1
+   if (abs(alat0_inp-alat0_const-dlat_const*0.5) > 1.e-4) ierr=ierr+1
 
    if (ierr /= 0) then
      write (*,*)
@@ -2369,7 +2425,7 @@ real, allocatable, dimension(:,:,:), save :: zeta_inp_save, zetah_inp_save
 
    close (unit_const)
 
- endif ! ifl == 1
+ endif ! ifl >= 1
 
  frame=.false.
  mask_frame(:,:) = 1
@@ -2657,7 +2713,7 @@ real, dimension(nlon_inp,nlat_inp) :: read2d_work
 
  endif
 
- if (ifl == 1) then
+ if (ifl >= 1) then
 
 ! Reading of constant physiographical parameters of input model
 
@@ -2729,7 +2785,7 @@ real, dimension(nlon_inp,nlat_inp) :: read2d_work
 
    close (unit_const)
 
- endif ! ifl == 1
+ endif ! ifl >= 1
 
  if (any(nfdr(10:12) /= nfdr_soil(10:12))) then
    print *,"Not coincidence of validity time read from ",trim(filename_atm)," and ",trim(filename_soil),":"
@@ -2873,7 +2929,7 @@ integer :: i, j
  if (surf_elaborate) then
 
    do j = 1,nlat_inp
-   do i = 1,nlon_inp
+   do i = 1,nlon_inp0
 
 ! Redefinition of soil water content in relative terms, using input
 ! data of specific soil water content and its maximum and minimum values
@@ -2893,6 +2949,10 @@ integer :: i, j
 
    enddo
    enddo
+
+   if (nlon_inp0 /= nlon_inp) then
+     qg_inp(nlon_inp,:,:) = qg_inp(1,:,:)
+   endif
 
  endif ! surf_elaborate
 
@@ -2943,7 +3003,7 @@ subroutine conv_bolam_data(ist)
 ! 
 !------------------------------------------------------------------------
 
-use parameters, only : pzer, ep, g0, pi, a, rd, nst, surf_elaborate, val_missing
+use parameters, only : pzer, ep, g0, pi, a, rd, nst, surf_elaborate, val_missing, inst_start
 use input_data
 
 implicit none
@@ -2969,23 +3029,38 @@ real :: zsigmed, zsigalf, zdsigalf, &
 
  do k=1,nlev_inp
    k1=nlev_inp-k+1
-   t_inp (:,:,k) = field3d(:,:,k1,2)
-   u_inp (:,:,k) = field3d(:,:,k1,3)
-   v_inp (:,:,k) = field3d(:,:,k1,4)
-   q_inp (:,:,k) = field3d(:,:,k1,5)
-   qc_inp(:,:,k) = field3d(:,:,k1,7)
+   t_inp (1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,2)
+   u_inp (1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,3)
+   v_inp (1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,4)
+   q_inp (1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,5)
+   qc_inp(1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,7)
  enddo
+
+ if (nlon_inp0 /= nlon_inp) then
+   t_inp(nlon_inp,:,:) = t_inp(1,:,:)
+   u_inp(nlon_inp,:,:) = u_inp(1,:,:)
+   v_inp(nlon_inp,:,:) = v_inp(1,:,:)
+   q_inp(nlon_inp,:,:) = q_inp(1,:,:)
+   qc_inp(nlon_inp,:,:) = qc_inp(1,:,:)
+ endif
 
  q_inp(:,:,:)  = max(q_inp(:,:,:), 0.)
  qc_inp(:,:,:) = max(qc_inp(:,:,:), 0.)
 
- ps_inp(:,:)    = field2d(:,:,4)
+ ps_inp(1:nlon_inp0,:)    = field2d(1:nlon_inp0,:,4)
 
- if (ist==1) then
+! htop_inp_2(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,2)/g0
+ htop_inp(1:nlon_inp0,:)   = field2d(1:nlon_inp0,:,2)/g0
+ fmask_inp(1:nlon_inp0,:)  = field2d(1:nlon_inp0,:,3) ! 1-sea, 0-land
 
-!   htop_inp_2(:,:) = field2d(:,:,2)/g0
-   htop_inp(:,:)   = field2d(:,:,2)/g0
-   fmask_inp(:,:)  = field2d(:,:,3) ! 1-sea, 0-land
+ if (nlon_inp0 /= nlon_inp) then
+   ps_inp(nlon_inp,:) = ps_inp(1,:)
+   htop_inp(nlon_inp,:) = htop_inp(1,:)
+!   htop_inp_2(nlon_inp,:) = htop_inp_2(1,:)
+   fmask_inp(nlon_inp,:) = fmask_inp(1,:)
+ endif
+
+ if (ist == inst_start) then
 
    if (level_type == 1) then
      print *, 'Input data on isobaric levels with the following values:'
@@ -3039,7 +3114,7 @@ real :: zsigmed, zsigalf, zdsigalf, &
      hxt(j)=cos((alat0_inp+(j-1)*dlat_inp+dlat_inp*0.5)*pi/180.)
    enddo
 
- endif ! ist==1
+ endif ! ist == ist_start
 
 ! Definition of virtual temperature, specific humidity,
 ! cloud liquid water and ice content,
@@ -3149,17 +3224,29 @@ real :: zsigmed, zsigalf, zdsigalf, &
 
  if (surf_elaborate) then
 
-   snow_inp(:,:)   = field2d(:,:,14)
-   tsurf_inp(:,:)  = field2d(:,:,5)
-   qvsurf_inp(:,:)  = field2d(:,:,25)
-   fice_inp(:,:)  = min(max( field2d(:,:,22), 0.), 1.)
-   iceth_inp(:,:) = max(field2d(:,:,26), 0.)
+   snow_inp(1:nlon_inp0,:)   = field2d(1:nlon_inp0,:,14)
+   tsurf_inp(1:nlon_inp0,:)  = field2d(1:nlon_inp0,:,5)
+   qvsurf_inp(1:nlon_inp0,:)  = field2d(1:nlon_inp0,:,25)
+   fice_inp(1:nlon_inp0,:)  = min(max( field2d(1:nlon_inp0,:,22), 0.), 1.)
+   iceth_inp(1:nlon_inp0,:) = max(field2d(1:nlon_inp0,:,26), 0.)
 
-   tg_inp(:,:,1:nlevg_inp) = field3d_soil(:,:,1:nlevg_inp,1)
-   qg_inp(:,:,1:nlevg_inp) = field3d_soil(:,:,1:nlevg_inp,2)
+   tg_inp(1:nlon_inp0,:,1:nlevg_inp) = field3d_soil(1:nlon_inp0,:,1:nlevg_inp,1)
+   qg_inp(1:nlon_inp0,:,1:nlevg_inp) = field3d_soil(1:nlon_inp0,:,1:nlevg_inp,2)
 
-   qgmax_inp(:,:,1:nlevg_inp) = field3d_soil(:,:,1:nlevg_inp,7)
-   qgmin_inp(:,:,1:nlevg_inp) = field3d_soil(:,:,1:nlevg_inp,8)
+   qgmax_inp(1:nlon_inp0,:,1:nlevg_inp) = field3d_soil(1:nlon_inp0,:,1:nlevg_inp,7)
+   qgmin_inp(1:nlon_inp0,:,1:nlevg_inp) = field3d_soil(1:nlon_inp0,:,1:nlevg_inp,8)
+
+   if (nlon_inp0 /= nlon_inp) then
+     snow_inp(nlon_inp,:) = snow_inp(1,:)
+     tsurf_inp(nlon_inp,:) = tsurf_inp(1,:)
+     qvsurf_inp(nlon_inp,:) = qvsurf_inp(1,:)
+     fice_inp(nlon_inp,:) = fice_inp(1,:)
+     iceth_inp(nlon_inp,:) = iceth_inp(1,:)
+     tg_inp(nlon_inp,:,:) = tg_inp(1,:,:)
+     qg_inp(nlon_inp,:,:) = qg_inp(1,:,:)
+     qgmax_inp(nlon_inp,:,:) = qgmax_inp(1,:,:)
+     qgmin_inp(nlon_inp,:,:) = qgmin_inp(1,:,:)
+   endif
 
    do j = 1,nlat_inp
    do i = 1,nlon_inp
@@ -3231,13 +3318,13 @@ subroutine conv_ifs_data(ist)
 ! qg_inp - 3d array with relative soil water content (proportion) at soil levels of input data;
 ! snow_inp - 2d array with total water content of surface snow cover (kg/m^2);
 ! tsurf_inp - 2d array with surface temperature (K);
-! qvsurf_inp - 2d array with specipic humidity (kg/kg) at the surface;
+! qvsurf_inp - 2d array with specific humidity (kg/kg) at the surface;
 ! fice_inp - 2d array with fraction of sea ice cover (proportion) at the surface;
 ! iceth_inp - 2d array with thickness of sea ice cover (m) at the surface.
 ! 
 !------------------------------------------------------------------------
 
-use parameters, only : g0, eps, ep, rd, surf_elaborate, val_missing
+use parameters, only : g0, eps, ep, rd, surf_elaborate, val_missing, inst_start
 use input_data, alon_inp=>alon_t_inp, alat_inp=>alat_t_inp
 
 implicit none
@@ -3263,7 +3350,7 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
 ! Control of grid resolution changing
 
  res_change = 0
- if(ist > 1.and.(nlon_inp /= nlon_inp_old.or.nlat_inp /= nlat_inp_old)) then
+ if(ist > inst_start .and.(nlon_inp /= nlon_inp_old.or.nlat_inp /= nlat_inp_old)) then
    print*
    print*, "The IFS grid resolution has changed at instant: ist =", ist
    print*
@@ -3311,7 +3398,7 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
 
 ! Definition of hynbrid level number in input model
 
-   if (ist == 1) then 
+   if (ist == inst_start) then 
      do k = 1, nlev_atm_inp_max+1
        if (ak(k) < 1.e-4.and.abs(bk(k)-1) < 1.e-4) then
          nlev_all_inp=k-1
@@ -3322,7 +3409,7 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
 
  endif
 
- if (ist <= 2) then
+ if (ist == inst_start) then
    print*
    if (level_type == 1) then ! Isobaric levels
     write(*,'(a,i3)') " Number of isobaric levels in input data ", nlev_inp
@@ -3342,7 +3429,7 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
 
 ! For the case in which input data are defined only on frames:
 
- if (ist > 1) then
+ if (ist > inst_start) then
    print *
    ind_field = 2 ! Temperature at atm. levels in input data
    k = nlev_inp
@@ -3375,16 +3462,22 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
        print *,'No geopotential data in input at level ',p_level_inp(k)*0.01,'e2, stop'
        stop
      else
-       zeta_inp(:,:,k) = field3d(:,:,k1,1)/g0
+       zeta_inp(1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,1)/g0
      endif
    enddo
+   if (nlon_inp0 /= nlon_inp) then
+     zeta_inp(nlon_inp,:,:) = zeta_inp(1,:,:)
+   endif
  else ! Hybrid levels
 ! Logarithm of surface pressure
    if (any(int(field2d(:,:,4)) == int(val_missing)) ) then
      print *,'No surface pressure logarithm data in input, stop'
      stop
    else
-     psl_inp(:,:) = field2d(:,:,4)
+     psl_inp(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,4)
+     if (nlon_inp0 /= nlon_inp) then
+       psl_inp(nlon_inp,:) = psl_inp(1,:)
+     endif
    endif
  endif
 
@@ -3399,7 +3492,7 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
      endif
      stop
    else
-     t_inp(:,:,k) = field3d(:,:,k1,2)
+     t_inp(1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,2)
    endif
 ! U-component of wind
    if (any(int(field3d(:,:,k,3)) == int(val_missing)) ) then
@@ -3410,7 +3503,7 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
      endif
      stop
    else
-     u_inp(:,:,k) = field3d(:,:,k1,3)
+     u_inp(1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,3)
    endif
 ! V-component of wind
    if (any(int(field3d(:,:,k,4)) == int(val_missing)) ) then
@@ -3421,7 +3514,7 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
      endif
      stop
    else
-     v_inp(:,:,k) = field3d(:,:,k1,4)
+     v_inp(1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,4)
    endif
 ! Specific Hhumidity
    if (any(int(field3d(:,:,k,5)) == int(val_missing)) ) then
@@ -3432,7 +3525,14 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
      endif
      stop
    else
-     q_inp(:,:,k) = field3d(:,:,k1,5)
+     q_inp(1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,5)
+   endif
+
+   if (nlon_inp0 /= nlon_inp) then
+     t_inp(nlon_inp,:,:) = t_inp(1,:,:)
+     u_inp(nlon_inp,:,:) = u_inp(1,:,:)
+     v_inp(nlon_inp,:,:) = v_inp(1,:,:)
+     q_inp(nlon_inp,:,:) = q_inp(1,:,:)
    endif
 
  enddo
@@ -3491,43 +3591,52 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
 ! Check availability of total cloud water (liquid + ice) in input data
 
  if (any(int(field3d(:,:,1:nlev_inp,7)) == int(val_missing)).or.maxval(field3d(:,:,1:nlev_inp,7)) < zqcmin) then
-   if (ist <= 2) print*, "Total cloud water (liquid + ice) is not available in input"
+   if (ist == inst_start) print*, "Total cloud water (liquid + ice) is not available in input"
    iflag_cl = 0
  else
    iflag_cl = 1
-   if (ist <= 2) print*, "Total cloud water (liquid + ice) is available in input"
+   if (ist == inst_start) print*, "Total cloud water (liquid + ice) is available in input"
    do k=1,nlev_inp
      k1=nlev_inp-k+1
-     qc_inp(:,:,k) = max(0., field3d(:,:,k1,7))
+     qc_inp(1:nlon_inp0,:,k) = max(0., field3d(1:nlon_inp0,:,k1,7))
    enddo
+   if (nlon_inp0 /= nlon_inp) then
+     qc_inp(nlon_inp,:,:) = qc_inp(1,:,:)
+   endif
  endif
 
 ! Check availability of cloud liquid water in input data
 
  if (any(int(field3d(:,:,1:nlev_inp,8)) == int(val_missing)).or.maxval(field3d(:,:,1:nlev_inp,8)) < zqcmin) then
-   if (ist <= 2) print*, "Cloud liquid water is not available in input"
+   if (ist == inst_start) print*, "Cloud liquid water is not available in input"
    iflag_clw = 0
  else
    iflag_clw = 1
-   if (ist <= 2) print*, "Cloud liquid water is available in input"
+   if (ist == inst_start) print*, "Cloud liquid water is available in input"
    do k=1,nlev_inp
      k1=nlev_inp-k+1
-     qcw_inp(:,:,k) = max(0., field3d(:,:,k1,8))
+     qcw_inp(1:nlon_inp0,:,k) = max(0., field3d(1:nlon_inp0,:,k1,8))
    enddo
+   if (nlon_inp0 /= nlon_inp) then
+     qcw_inp(nlon_inp,:,:) = qcw_inp(1,:,:)
+   endif
  endif
 
 ! Check availability of cloud ice in input data
 
  if (any(int(field3d(:,:,1:nlev_inp,9)) == int(val_missing)).or.maxval(field3d(:,:,1:nlev_inp,9)) < zqcmin) then
-   if (ist <= 2) print*, "Cloud ice is not available in input"
+   if (ist == inst_start) print*, "Cloud ice is not available in input"
    iflag_cli = 0
  else
    iflag_cli = 1
-   if (ist <= 2) print*, "Cloud ice is available in input"
+   if (ist == inst_start) print*, "Cloud ice is available in input"
    do k=1,nlev_inp
      k1=nlev_inp-k+1
-     qci_inp(:,:,k) = max(0., field3d(:,:,k1,9))
+     qci_inp(1:nlon_inp0,:,k) = max(0., field3d(1:nlon_inp0,:,k1,9))
    enddo
+   if (nlon_inp0 /= nlon_inp) then
+     qci_inp(nlon_inp,:,:) = qci_inp(1,:,:)
+   endif
  endif
 
 ! Control of cloud water content and division total cloud water content into
@@ -3573,7 +3682,7 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
 ! geopotential is missing, the program stops with a message.
 ! In case of input data on isobaric levels, the 3-D geopotential is not required.
 
- if (ist == 1) then
+ if (ist == inst_start) then
 
    if ((any(int(field2d(:,:,2)) == int(val_missing))).and.(any(int(field2d(:,:,1)) == int(val_missing)))) then
      print*, "Neither the 3-D model level geopotential nor the 2-D geopotential"
@@ -3587,10 +3696,12 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
      print*, "Therefore it is substituted with the 3-D model level surface geopotential"
      print*, "This may imply some errors in interpolating surface variables"
      print*, "from the input data ground surface to the output ground surface."
-     htop_atm_inp(:,:) = field2d(:,:,2)/g0
+     htop_atm_inp(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,2)/g0
+     if (nlon_inp0 /= nlon_inp) htop_atm_inp(nlon_inp,:) = htop_atm_inp(1,:)
      htop_inp(:,:) = htop_atm_inp(:,:)
    else
-     htop_inp(:,:) = field2d(:,:,1)/g0
+     htop_inp(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,1)/g0
+     if (nlon_inp0 /= nlon_inp) htop_inp(nlon_inp,:) = htop_inp(1,:)
      allocate (htop_inp_save(nlon_inp,nlat_inp))
      htop_inp_save(:,:) = htop_inp(:,:)
    endif
@@ -3602,13 +3713,14 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
        print*, "when input data are on hybrid levels, stop"
        stop
      else
-       htop_atm_inp(:,:) = field2d(:,:,2)/g0
+       htop_atm_inp(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,2)/g0
+       if (nlon_inp0 /= nlon_inp) htop_atm_inp(nlon_inp,:) = htop_atm_inp(1,:)
        allocate (htop_atm_inp_save(nlon_inp,nlat_inp))
        htop_atm_inp_save(:,:) = htop_atm_inp(:,:)
      endif
    endif
 
- else ! ist > 1
+ else ! ist > inst_start
 
    if (any (int(field2d(:,:,2)) == int(val_missing)).and.any (int(field2d(:,:,1)) == int(val_missing)).and.res_change /= 0 ) then
      print *,"Grid resolution of IFS input data has changed at instant = ",ist
@@ -3626,9 +3738,11 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
        print*, "This may imply some errors in interpolating surface variables"
        print*, "from the input data ground surface to the output ground surface."
        
-       htop_inp(:,:) = field2d(:,:,2)/g0
+       htop_inp(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,2)/g0
+       if (nlon_inp0 /= nlon_inp) htop_inp(nlon_inp,:) = htop_inp(1,:)
      else
-       htop_inp(:,:) = field2d(:,:,1)/g0
+       htop_inp(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,1)/g0
+       if (nlon_inp0 /= nlon_inp) htop_inp(nlon_inp,:) = htop_inp(1,:)
      endif
      htop_inp_save(:,:) = htop_inp(:,:)
    else
@@ -3642,7 +3756,8 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
          print *,"but the field of 3-D model level surface geopotential is missing in IFS input data in this instant, stop" 
          stop
        else
-         htop_atm_inp(:,:) = field2d(:,:,2)/g0
+         htop_atm_inp(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,2)/g0
+         if (nlon_inp0 /= nlon_inp) htop_atm_inp(nlon_inp,:) = htop_atm_inp(1,:)
          deallocate (htop_atm_inp_save)
          allocate (htop_atm_inp_save(nlon_inp,nlat_inp))
          htop_atm_inp_save(:,:) = htop_atm_inp(:,:)
@@ -3683,7 +3798,7 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
      zzz = -8000.*log(p_inp_local(1,1,k)/1000.e2)
      nsmooth = int((zzz/1000.)**2/45.)
      nsmooth = nsmooth/3
-     if ( ist == 1.and.nsmooth > 0) print *,"IFS lev.",h_level_inp(k),"p(1,1), hPa",p_inp_local(1,1,k)/100.,"nsmooth",nsmooth
+     if ( ist == inst_start .and.nsmooth > 0) print *,"IFS lev.",h_level_inp(k),"p(1,1), hPa",p_inp_local(1,1,k)/100.,"nsmooth",nsmooth
      if (nsmooth >= 1) then
        call smooth_soil(zeta_inp(1,1,k), work_inp,nlon_inp,nlat_inp,wei,nsmooth)
        call smooth_soil(t_inp(1,1,k), work_inp,nlon_inp,nlat_inp,wei,nsmooth)
@@ -3714,7 +3829,7 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
 
  w_inp(:,:,:) = 0.
 
- if (ist == 1)  then
+ if (ist == inst_start)  then
    allocate(fmask_inp_save(nlon_inp,nlat_inp))
    fmask_inp_save(:,:) = val_missing
    allocate(soil_type_inp_save(nlon_inp,nlat_inp))
@@ -3744,7 +3859,8 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
        endif
      endif
    else
-     fmask_inp(:,:) = field2d(:,:,3)
+     fmask_inp(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,3)
+     if (nlon_inp0 /= nlon_inp) fmask_inp(nlon_inp,:) = fmask_inp(1,:)
      fmask_inp(:,:) = min(max(1.-fmask_inp(:,:),0.),1.) ! Conversion of FMASK: 0-sea, 1-land to 1-sea, 0-land
      deallocate(fmask_inp_save)
      allocate(fmask_inp_save(nlon_inp,nlat_inp))
@@ -3771,7 +3887,8 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
        endif
      endif
    else
-     soil_type_inp(:,:) = field2d(:,:,21)
+     soil_type_inp(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,21)
+     if (nlon_inp0 /= nlon_inp) soil_type_inp(nlon_inp,:) = soil_type_inp(1,:)
      deallocate(soil_type_inp_save)
      allocate(soil_type_inp_save(nlon_inp,nlat_inp))
      soil_type_inp_save(:,:) = soil_type_inp(:,:)
@@ -3801,7 +3918,7 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
        print *,'but surface analysis has been required, stop'
        stop
      else
-       tg_inp(:,:,k) = field3d_soil(:,:,k,1)
+       tg_inp(1:nlon_inp0,:,k) = field3d_soil(1:nlon_inp0,:,k,1)
      endif
 ! Water content
      iflag=1
@@ -3819,8 +3936,14 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
        stop
      else
        qg_inp(:,:,k) = field3d_soil(:,:,k,2)
+       qg_inp(1:nlon_inp0,:,k) = field3d_soil(1:nlon_inp0,:,k,2)
      endif
    enddo
+
+   if (nlon_inp0 /= nlon_inp) then
+     tg_inp(nlon_inp,:,:) = tg_inp(1,:,:)
+     qg_inp(nlon_inp,:,:) = qg_inp(1,:,:)
+   endif
 
 ! Surface temperature
 
@@ -3828,7 +3951,8 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
      print *,'      Attention:'
      print *,'No surface temperature data in input but surface analysis has been required'
    else
-     tsurf_inp(:,:) = field2d(:,:,5)
+     tsurf_inp(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,5)
+     if (nlon_inp0 /= nlon_inp) tsurf_inp(nlon_inp,:) = tsurf_inp(1,:)
    endif
 
 ! Snow water content
@@ -3847,10 +3971,11 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
      print *,'but surface analysis has been required, stop'
    else
      do j = 1,nlat_inp
-       do i = 1,nlon_inp
+       do i = 1,nlon_inp0
          snow_inp(i,j) = max(0., field2d(i,j,14)*1.e-3) ! Conversion from kg m**-2 (mm) into m of water
        enddo
      enddo
+     if (nlon_inp0 /= nlon_inp) snow_inp(nlon_inp,:) = snow_inp(1,:)
    endif
 
 ! Sea ice fraction and temperature
@@ -3869,7 +3994,8 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
      print *,'No sea ice fraction data in input but surface analysis has been required'
      fice_inp(:,:) = 0.
    else
-     fice_inp(:,:) = min( max( field2d(:,:,22), 0.), 1.)
+     fice_inp(1:nlon_inp0,:) = min( max( field2d(1:nlon_inp0,:,22), 0.), 1.)
+     if (nlon_inp0 /= nlon_inp) fice_inp(nlon_inp,:) = fice_inp(1,:)
    endif
 
    iflag=1
@@ -3886,7 +4012,8 @@ real :: zqcmin=1.e-7, qsat, qsatw, qsati, esat, esatw, esati, eee, fracw, zzz, w
      print *,'No sea ice temperature data in input but surface analysis has been required'
      tice_inp(:,:,:) = val_missing
    else
-     tice_inp(:,:,1:nlevg_inp) = min( max( field3d_soil(:,:,1:nlevg_inp,6), 200.), 273.)
+     tice_inp(1:nlon_inp0,:,1:nlevg_inp) = min( max( field3d_soil(1:nlon_inp0,:,1:nlevg_inp,6), 200.), 273.)
+     if (nlon_inp0 /= nlon_inp) tice_inp(nlon_inp,:,1:nlevg_inp) = tice_inp(1,:,1:nlevg_inp)
    endif
 
 ! There are not data about sea ice thickness in IFS data
@@ -4012,7 +4139,7 @@ subroutine conv_gfs_data(ist)
 ! 
 !------------------------------------------------------------------------
 
-use parameters, only : g0, eps, ep, rd, pi, surf_elaborate, val_missing
+use parameters, only : g0, eps, ep, rd, pi, surf_elaborate, val_missing, inst_start
 use input_data, alon_inp=>alon_t_inp, alat_inp=>alat_t_inp
 
 implicit none
@@ -4039,7 +4166,7 @@ real, dimension(nlevg_inp) :: zdtg
 ! Control of grid resolution changign
 
  res_change = 0
- if(ist > 1.and.(nlon_inp /= nlon_inp_old.or.nlat_inp /= nlat_inp_old)) then
+ if(ist > inst_start .and.(nlon_inp /= nlon_inp_old.or.nlat_inp /= nlat_inp_old)) then
    print*
    print*, "The GFS grid resolution has changed at instant: ist =", ist
    print*
@@ -4059,7 +4186,7 @@ real, dimension(nlevg_inp) :: zdtg
    iperiod_inp(3) = iperiod_inp_grib2(2)-iperiod_inp(1)*24*60-iperiod_inp(2)*60 ! Minutes
  endif
 
- if (ist==1) then
+ if (ist == inst_start) then
    nday = idate0_inp(3)
    do j = 1,idate0_inp(2)-1
      nday = nday + imon(j)
@@ -4083,7 +4210,7 @@ real, dimension(nlevg_inp) :: zdtg
    p_level_inp(k)  = lev_list_inp(k1)
  enddo
 
- if (ist <= 2) then
+ if (ist == inst_start) then
   write(*,'(a,i3)') " Number of isobaric levels in input data ", nlev_inp
   print *,'Isobaric levels for which T is available in input data:'
   do k = 1,nlev_inp
@@ -4102,35 +4229,35 @@ real, dimension(nlevg_inp) :: zdtg
      print *,'No geopotential data in input at level ',p_level_inp(k)*0.01,'e2, stop'
      stop
    else
-     zeta_inp(:,:,k) = field3d(:,:,k1,1)/g0
+     zeta_inp(1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,1)/g0
    endif
 ! Temperature
    if (any( int(field3d(:,:,k1,2)) == int(val_missing) )) then 
      print *,'No temperature data in input at level ',p_level_inp(k)*0.01,'e2, stop'
      stop
    else
-     t_inp(:,:,k) = field3d(:,:,k1,2)
+     t_inp(1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,2)
    endif
 ! U-component of wind
    if (any( int(field3d(:,:,k1,3)) == int(val_missing) )) then 
      print *,'No data of U-component of wind in input at level ',p_level_inp(k)*0.01,'e2, stop'
      stop
    else
-     u_inp(:,:,k) = field3d(:,:,k1,3)
+     u_inp(1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,3)
    endif
 ! V-component of wind
    if (any( int(field3d(:,:,k1,4)) == int(val_missing) )) then 
      print *,'No data of V-component of wind in input at level ',p_level_inp(k)*0.01,'e2, stop'
      stop
    else
-     v_inp(:,:,k) = field3d(:,:,k1,4)
+     v_inp(1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,4)
    endif
 ! Relative humidity
    if (any( int(field3d(:,:,k1,6)) == int(val_missing) ).and.p_level_inp(k) > 100.e2) then 
      print *,'No relative humidity data in input at level ',p_level_inp(k)*0.01,'e2, stop'
      stop
    else
-     rh_inp  (:,:,k) = field3d(:,:,k1,6)
+     rh_inp  (1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,6)
    endif
    if(p_level_inp(k) <=   1.e2) rh_inp(:,:,k) = 0.0003
    if(p_level_inp(k) <=   3.e2) rh_inp(:,:,k) = 0.004
@@ -4140,6 +4267,14 @@ real, dimension(nlevg_inp) :: zdtg
    if(p_level_inp(k) <=  70.e2) rh_inp(:,:,k) = 2.0
    if(p_level_inp(k) <= 100.e2) rh_inp(:,:,k) = 4.0
  enddo
+
+ if (nlon_inp0 /= nlon_inp) then
+   zeta_inp(nlon_inp,:,:) = zeta_inp(1,:,:)
+   t_inp(nlon_inp,:,:) = t_inp(1,:,:)
+   u_inp(nlon_inp,:,:) = u_inp(1,:,:)
+   v_inp(nlon_inp,:,:) = v_inp(1,:,:)
+   rh_inp(nlon_inp,:,:) = rh_inp(1,:,:)
+ endif
 
 ! Cloud water content
 
@@ -4154,14 +4289,15 @@ real, dimension(nlevg_inp) :: zdtg
 
  if (any(int(field3d(:,:,ktop_cl:nlev_inp,7)) == int(val_missing)).or.maxval(field3d(:,:,ktop_cl:nlev_inp,7))<1.e-7) then
    iflag_cloude = 0
-   if (ist <= 2) print*, "Cloud total water (liquid+ice) is not available in input"
+   if (ist == inst_start) print*, "Cloud total water (liquid+ice) is not available in input"
  else
    iflag_cloude = 1
    do k1 = ktop_cl,nlev_inp
      k=nlev_inp-k1+1
-     qc_inp(:,:,k) = field3d(:,:,k1,7)
+     qc_inp(1:nlon_inp0,:,k) = field3d(1:nlon_inp0,:,k1,7)
    enddo
-   if( ist<=2 ) print*, "Cloud total water (liquid+ice) is available in input"
+   if (nlon_inp0 /= nlon_inp) qc_inp(nlon_inp,:,:) = qc_inp(1,:,:)
+   if( ist == inst_start ) print*, "Cloud total water (liquid+ice) is available in input"
  endif
 
 ! Conversion of relative humidity into specific humidity
@@ -4209,18 +4345,19 @@ real, dimension(nlevg_inp) :: zdtg
 
 ! Definition of topography hight (htop_inp) using the surface geopotential
 
- if (ist == 1) then
+ if (ist == inst_start) then
 
    if (any (int(field2d(:,:,1)) == int(val_missing)) ) then
      print*, "The topography field is missing in GFS input data in 1-st instant, stop" 
      stop
    else
-     htop_inp(:,:) = field2d(:,:,1)/g0
+     htop_inp(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,1)/g0
+     if (nlon_inp0 /= nlon_inp) htop_inp(nlon_inp,:) = htop_inp(1,:)
      allocate (htop_inp_save(nlon_inp,nlat_inp))
      htop_inp_save(:,:) = htop_inp(:,:)
    endif
 
- else ! ist > 1
+ else ! ist > inst_start
 
    if (res_change /= 0) then
      if (any (int(field2d(:,:,1)) == int(val_missing)) ) then
@@ -4228,7 +4365,8 @@ real, dimension(nlevg_inp) :: zdtg
        print *,"but the topography field is missing in GFS input data in this instant, stop" 
        stop
      else
-       htop_inp(:,:) = field2d(:,:,1)/g0
+       htop_inp(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,1)/g0
+       if (nlon_inp0 /= nlon_inp) htop_inp(nlon_inp,:) = htop_inp(1,:)
        deallocate (htop_inp_save)
        allocate (htop_inp_save(nlon_inp,nlat_inp))
        htop_inp_save(:,:) = htop_inp(:,:)
@@ -4270,12 +4408,13 @@ real, dimension(nlevg_inp) :: zdtg
 
 ! Horizontal filtering of the upper level (atmospheric) input fields
 
+ if ( ist == inst_start.and.nsmooth > 0) write (*,*)
  wei = 0.5
  do k = 1,nlev_inp
    zzz = -8000.*log(p_level_inp(k)/1000.e2)
    nsmooth = int((zzz/1000.)**2/45.)
    nsmooth = nsmooth/4
-   if ( ist == 1.and.nsmooth > 0) write (*,'(a,i4,a,f8.3,a,i3)') " GFS lev.",k,",  p(k) hPa",p_level_inp(k)/100.,", nsmooth",nsmooth
+   if ( ist == inst_start.and.nsmooth > 0) write (*,'(a,i4,a,f8.3,a,i3)') " GFS lev.",k,",  p(k) hPa",p_level_inp(k)/100.,", nsmooth",nsmooth
    if (nsmooth >= 1) then
      call smooth_soil(zeta_inp(1,1,k), work_inp,nlon_inp,nlat_inp,wei,nsmooth)
      call smooth_soil(t_inp(1,1,k), work_inp,nlon_inp,nlat_inp,wei,nsmooth)
@@ -4328,7 +4467,7 @@ real, dimension(nlevg_inp) :: zdtg
 !
 ! if (iflag_80m == 1) then
 !
-!  if (ist <= 2) then
+!  if (ist == inst_start) then
 !    print *,"There are input data at additional level 80 m above the surface"
 !  endif
 !
@@ -4387,7 +4526,7 @@ real, dimension(nlevg_inp) :: zdtg
 
  w_inp(:,:,:) = 0.
 
- if (ist ==1)  then
+ if (ist == inst_start)  then
    allocate(fmask_inp_save(nlon_inp,nlat_inp))
    fmask_inp_save(:,:) = val_missing
  endif
@@ -4416,8 +4555,9 @@ real, dimension(nlevg_inp) :: zdtg
 ! Land-sea mask LANDN (coding discipline=2, category=0, parameter=218, index=46 here), valid
 ! after 19.07.2017, takes precedence over the "old" LAND (discipline=2, category=0,
 ! parameter=0, index=3 here), which is the standard land-sea mask to be used before 19.07.2017.
-     if (all (int(field2d(:,:,3)) /= int(val_missing)) ) fmask_inp(:,:) = field2d(:,:,3)
-     if (all (int(field2d(:,:,46)) /= int(val_missing)) ) fmask_inp(:,:) = field2d(:,:,46)
+     if (all (int(field2d(:,:,3)) /= int(val_missing)) ) fmask_inp(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,3)
+     if (all (int(field2d(:,:,46)) /= int(val_missing)) ) fmask_inp(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,46)
+     if (nlon_inp0 /= nlon_inp) fmask_inp(nlon_inp,:) = fmask_inp(1,:)
      fmask_inp(:,:) = min(max(1.-fmask_inp(:,:),0.),1.) ! Conversion of FMASK: 0-sea, 1-land to 1-sea, 0-land
      deallocate(fmask_inp_save)
      allocate(fmask_inp_save(nlon_inp,nlat_inp))
@@ -4451,7 +4591,7 @@ real, dimension(nlevg_inp) :: zdtg
        print *,'but surface analysis has been required, stop'
        stop
      else
-       tg_inp(:,:,k) = field3d_soil(:,:,k,1)
+       tg_inp(1:nlon_inp0,:,k) = field3d_soil(1:nlon_inp0,:,k,1)
      endif
 ! Water content
      iflag=1
@@ -4468,9 +4608,13 @@ real, dimension(nlevg_inp) :: zdtg
        print *,'but surface analysis has been required, stop'
        stop
      else
-       qg_inp(:,:,k) = field3d_soil(:,:,k,2)
+       qg_inp(1:nlon_inp0,:,k) = field3d_soil(1:nlon_inp0,:,k,2)
      endif
    enddo
+   if (nlon_inp0 /= nlon_inp) then
+     tg_inp(nlon_inp,:,:) = tg_inp(1,:,:)
+     qg_inp(nlon_inp,:,:) = qg_inp(1,:,:)
+   endif
 
 ! Surface temperature
 
@@ -4478,7 +4622,8 @@ real, dimension(nlevg_inp) :: zdtg
      print *,'      Attention:'
      print *,'No surface temperature data in input but surface analysis has been required'
    else
-     tsurf_inp(:,:) = field2d(:,:,5)
+     tsurf_inp(1:nlon_inp0,:) = field2d(1:nlon_inp0,:,5)
+     if (nlon_inp0 /= nlon_inp) tsurf_inp(nlon_inp,:) = tsurf_inp(1,:)
    endif
 
 ! Snow water content
@@ -4498,10 +4643,11 @@ real, dimension(nlevg_inp) :: zdtg
      stop
    else
      do j = 1,nlat_inp
-       do i = 1,nlon_inp
+       do i = 1,nlon_inp0
          snow_inp(i,j) = max(0., field2d(i,j,14)*1.e-3) ! Conversion from kg m**-2 (mm) into m of water
        enddo
      enddo
+     if (nlon_inp0 /= nlon_inp) snow_inp(nlon_inp,:) = snow_inp(1,:)
    endif
 
 ! Sea ice fraction and thickness
@@ -4519,7 +4665,8 @@ real, dimension(nlevg_inp) :: zdtg
      print *,'      Attention:'
      print *,'No sea ice fraction data in input but surface analysis has been required'
    else
-     fice_inp(:,:) = min( max( field2d(:,:,22), 0.), 1.)
+     fice_inp(1:nlon_inp0,:) = min( max( field2d(1:nlon_inp0,:,22), 0.), 1.)
+     if (nlon_inp0 /= nlon_inp) fice_inp(nlon_inp,:) = fice_inp(1,:)
    endif
 
    iflag=1
@@ -4535,7 +4682,8 @@ real, dimension(nlevg_inp) :: zdtg
      print *,'      Attention:'
      print *,'No sea ice thickness data in input but surface analysis has been required'
    else
-     iceth_inp(:,:) = max( field2d(:,:,26), 0.)
+     iceth_inp(1:nlon_inp0,:) = max( field2d(1:nlon_inp0,:,26), 0.)
+     if (nlon_inp0 /= nlon_inp) iceth_inp(nlon_inp,:) = iceth_inp(1,:)
    endif
 
 ! Conversion of specific volumetric soil water content into relative soil humidity
@@ -4661,7 +4809,8 @@ real, dimension(nlevg_inp) :: zdtg
 
    qg_inp(:,:,:) = max(min(qg_inp(:,:,:),1.),0.) ! reset to min-max of relative values
 
-   print*, "Soil temperature and soil water content has been corrected"
+   print *
+   print *, "Soil temperature and soil water content has been corrected"
 
  endif ! surf_elaborate
 
@@ -4724,7 +4873,7 @@ subroutine conv_cosmo_data(ist)
 ! 
 !------------------------------------------------------------------------
 
-use parameters, only : ep, surf_elaborate, val_missing
+use parameters, only : ep, surf_elaborate, val_missing, inst_start
 use input_data, alon_inp=>alon_t_inp, alat_inp=>alat_t_inp
 
 implicit none
@@ -4752,7 +4901,7 @@ real :: zqcmin=1.e-7
 ! Control of grid resolution changing
 
  res_change = 0
- if(ist > 1.and.(nlon_inp /= nlon_inp_old.or.nlat_inp /= nlat_inp_old)) then
+ if(ist > inst_start .and.(nlon_inp /= nlon_inp_old.or.nlat_inp /= nlat_inp_old)) then
    print*
    print*, "The COSMO grid resolution has changed at instant: ist =", ist
    print*
@@ -4801,7 +4950,7 @@ real :: zqcmin=1.e-7
    endif
  enddo
 
- if (ist < 2) then
+ if (ist == inst_start) then
    print*
    write(*,'(a,i3)') " Number of hybrid levels in input data ", nlev_inp
    if (nlev_inp /= nlev_all_inp) then
@@ -4815,7 +4964,7 @@ real :: zqcmin=1.e-7
 
 ! For the case in which input data are defined only on frames:
 
- if (ist > 1) then
+ if (ist > inst_start) then
    print *
    ind_field = 2 ! Temperature at atm. levels in input data
    k = nlev_inp
@@ -4933,7 +5082,7 @@ real :: zqcmin=1.e-7
 
 ! Definition of topography hight (htop_inp)
 
- if (ist == 1) then
+ if (ist == inst_start) then
 
    if (any (int(field2d(:,:,9)) == int(val_missing)) ) then
      print*, "The topography field is missing in COSMO input data in 1-st instant, stop"
@@ -4944,7 +5093,7 @@ real :: zqcmin=1.e-7
      htop_inp_save(:,:) = htop_inp(:,:)
    endif
 
- else ! ist > 1
+ else ! ist > inst_start
 
    if (res_change /= 0) then
      if (any (int(field2d(:,:,1)) == int(val_missing)) ) then
@@ -4995,7 +5144,7 @@ real :: zqcmin=1.e-7
    enddo
  enddo
 
- if (ist ==1)  then
+ if (ist == inst_start)  then
    allocate(fmask_inp_save(nlon_inp,nlat_inp))
    fmask_inp_save(:,:) = val_missing
  endif
@@ -6012,8 +6161,7 @@ real, dimension(nlon,nlat) :: field2d_add, snow_albedo_rfc, runoff_tot_frc
      if (year_frc /= iniyear) ierr=ierr+1
      if (month_frc /= inimonth) ierr=ierr+1
      if (day_frc /= iniday) ierr=ierr+1
-! valcap74: scommentato la linea sotto     
-     if (hour_frc /= inihour) ierr=ierr+1
+!DANIELE!     if (hour_frc /= inihour) ierr=ierr+1
 !DANIELE!     if (minute_frc /= iniminute) ierr=ierr+1
 
      if (ierr /= 0) then
@@ -6286,7 +6434,7 @@ real, dimension(nlon,nlat) :: field2d_add, snow_albedo_rfc, runoff_tot_frc
      if (month_frc /= inimonth) ierr=ierr+1
      if (day_frc /= iniday) ierr=ierr+1
      if (hour_frc /= inihour) ierr=ierr+1
-!DANIELE!     if (minute_frc /= iniminute) ierr=ierr+1
+     if (minute_frc /= iniminute) ierr=ierr+1
 
      if (ierr /= 0) then
 
@@ -6335,9 +6483,8 @@ real, dimension(nlon,nlat) :: field2d_add, snow_albedo_rfc, runoff_tot_frc
      write (*,*)
      write (*,*) "Not found proper data and time of forecast validation in input file ",trim(file_inp) 
      write (*,*)
-     ! valcap74: forse funziona anche con rewind (iunit), controllare....
-     close (iunit)
      iflag=0
+     close (iunit)
      return
 
    endif ! iread_err
@@ -7163,7 +7310,7 @@ real :: diftop, zhtop, zlapse, zzh1, zzh2, ztlake, twater, fhard, topcr, &
       enddo
     endif
 
-! Glaciers: T must remain below 0°C.
+! Glaciers: T must remain below 0 degC.
 ! (NST-1=14, but NST-1 used here in case new soil types are introduced)
 
    if (fmask(i,j) <= 0.5.and.soil_map(i,j,1) == nst-1) then

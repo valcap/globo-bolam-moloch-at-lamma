@@ -18,8 +18,8 @@ Models are suitable for operational weather forecast and for meteorological rese
 
 The implementation instruction can be found [here](isac-nwp-models_readme.txt)
 
-# This version of the ISAC models is maintened by the NWP working group @ LaMMA
+# This version of the ISAC models is a fork of the original and is maintened by the NWP group @ LaMMA
 
 Amended versions of the source code are provided for the MOLOCH model, mainly.
 
-FOr more infromation write to capecchi and pasi @ lamma.
+For more infromation write to capecchi and pasi @ lamma.

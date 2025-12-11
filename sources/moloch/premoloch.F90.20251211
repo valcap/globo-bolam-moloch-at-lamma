@@ -6335,9 +6335,9 @@ real, dimension(nlon,nlat) :: field2d_add, snow_albedo_rfc, runoff_tot_frc
      write (*,*)
      write (*,*) "Not found proper data and time of forecast validation in input file ",trim(file_inp) 
      write (*,*)
-     ! valcap74: forse funziona anche con rewind (iunit), controllare....
-     close (iunit)
+     ! valcap74: forse funziona anche con rewind (iunit), controllare
      iflag=0
+     close (iunit)
      return
 
    endif ! iread_err

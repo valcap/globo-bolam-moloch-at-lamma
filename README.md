@@ -17,3 +17,9 @@ These models include state-of-the-art parametrizations of physical processes, mo
 Models are suitable for operational weather forecast and for meteorological research studies.
 
 The implementation instruction can be found [here](isac-nwp-models_readme.txt)
+
+# This version of the ISAC models is maintened by the NWP working group @ LaMMA
+
+Amended versions of the source code are provided for the MOLOCH model, mainly.
+
+FOr more infromation write to capecchi and pasi @ lamma.

@@ -22,4 +22,4 @@ The implementation instruction can be found [here](isac-nwp-models_readme.txt)
 
 Amended versions of the source code are provided for the MOLOCH model, mainly.
 
-For more infromation write to capecchi and pasi @ lamma.
+For more infromation write to capecchi and pasi ---> both@lamma.toscana.it

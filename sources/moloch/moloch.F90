@@ -117,12 +117,20 @@
                nhist_full_res, ntnudg, nrst, nxspray=70, nyspray=70, nzspray=50
     logical :: nlbfix=.false., nlmic2=.false., nlana=.true., nlradar=.false., nlclimate=.false., nlrst=.false., &
  nltwice=.false., nlhdiff=.false., nlconv=.false., nlsnudg=.false., nlord=.false.
+! SPPT - Stochastic Perturbation of Physics Tendencies
+    logical           :: nlsppt         = .false.  ! flag attivazione SPPT
+    real              :: sppt_amp       = 0.50     ! ampiezza massima perturbazione [0-1]
+    real              :: sppt_tau       = 6.0      ! decorrelazione temporale [ore]
+    real              :: sppt_lscale    = 500.     ! decorrelazione spaziale [km]
+    integer           :: sppt_seed      = 0        ! seme RNG (0 = clock, >0 = riproducibile)
+    logical           :: sppt_taper_bnd = .true.   ! tapering ai bordi laterali (nbl punti)
     namelist /model/ dtstep, nadv, nsound, nbl, nradm, hrun, hist, hist_full_res, hbound, hdiag, &
                      mhfr, srad, mslfilter, htop, &
                      nlmic2, nlbfix, nlana, &
                      mswshf, ddamp, nlbfix, nlana, nlord, &
                      nlconv, nsnudg, nlradar, nltwice, nlhdiff, nlclimate, nlrst, &
-                     hrst, hback, hspray, nxspray, nyspray, nzspray, xsorg, ysorg
+                     hrst, hback, hspray, nxspray, nyspray, nzspray, xsorg, ysorg, &
+                     nlsppt, sppt_amp, sppt_tau, sppt_lscale, sppt_seed, sppt_taper_bnd
 
     integer, parameter :: nlon = (gnlon-2)/nprocsx+2, nlat = (gnlat-2)/nprocsy+2, &
                           km=gnlon/40, lm=gnlat/40
@@ -169,6 +177,10 @@
                                          ub1, vb1, tb1, pb1, qb1, qcwb1, qcib1, ub2, vb2, tb2, pb2, pf,       &
                                          qb2, qcwb2, qcib2, rradar, dtdt, ut, vt, wt, tket, ncw, nci, fcloud, &
                                          zeta, pai, tetav, qsatw, chm, dqdt, dqcwdt, dqcidt, dqpwdt, dqpi1dt
+! SPPT arrays (dipendono da nlon, nlat, nlev definiti sopra)
+    real, dimension(nlon,nlat)      :: sppt_mu = 0.  ! pattern stocastico 2D adimensionale [-sppt_amp, +sppt_amp]
+    real, dimension(nlon,nlat,nlev) :: sppt_u_pre    ! u salvata prima della fisica
+    real, dimension(nlon,nlat,nlev) :: sppt_v_pre    ! v salvata prima della fisica
     real, dimension(nlon,nlat,nlevp1) :: w, s, wb1, wb2, fmzh, wwkw, tke, cvm, mlz, prandtl, deltaw, rich, tetavh
     integer, dimension(nlon,nlat) :: level_snowfall
 
@@ -829,6 +841,13 @@ end module u_ghost
     open (iunit_inp, file='moloch.inp', status='old')
     read (iunit_inp, model)
     close (iunit_inp)
+
+! SPPT: inizializzazione pattern stocastico (dopo lettura namelist)
+    if (nlsppt) then
+      if (myid == 0) print *, ' SPPT enabled: amp=', sppt_amp, &
+                               ' tau(h)=', sppt_tau, ' lscale(km)=', sppt_lscale
+      call sppt_init
+    endif
 
 #ifndef rad_ecmwf
     nradm = min(nradm, 1) ! No ECMWF radiation scheme
@@ -1724,6 +1743,12 @@ end module u_ghost
 !enddo
 !enddo
 
+! SPPT: salva u,v prima delle parametrizzazioni fisiche (per calcolo tendenza)
+    if (nlsppt) then
+      sppt_u_pre = u
+      sppt_v_pre = v
+    endif
+
 !--------------------------------------------------------------------------------------------------------
 !  Turbulent diffusion
 !--------------------------------------------------------------------------------------------------------
@@ -1993,6 +2018,12 @@ end module u_ghost
 !    dfrirr = (gelirr+corirr           -frirr)/float(ntsrad)
 
     endif ! condition on ntsrad
+
+! SPPT: aggiorna pattern AR(1) e applica perturbazione stocastica alle tendenze fisiche
+    if (nlsppt) then
+      call sppt_update(jstep)
+      call sppt_apply
+    endif
 
 ! update fields with radiation and convection contributions
 
@@ -8770,18 +8801,14 @@ end subroutine wrshf_radar
       zboui = zboul * max(.01, min((zp-100.e2)/300.e2, 1.))  ! to reduce high clouds
 
 ! cloud nucleation as a function of land/sea mask
+! fmask=0 -> continental, fmask=1 -> maritime; interpolazione lineare
+! per eliminare il salto discontinuo sulla zona costiera
 
       if (nlmic2) then
-      if (fmask(jlon,jlat).gt.0.5) then
-      cccw = cccwm        !2m
-      kcw  = kcwm         !2m
-      yncmax = yncmaxm    !2m
-      else
-      cccw = cccwc        !2m
-      kcw  = kcwc         !2m
-      yncmax = yncmaxc    !2m
-      endif
-      ynclow = yncmax*.05 !2m
+      cccw   = cccwm   + (cccwc   - cccwm  ) * (1.0 - fmask(jlon,jlat))  !2m
+      kcw    = kcwm    + (kcwc    - kcwm   ) * (1.0 - fmask(jlon,jlat))  !2m
+      yncmax = yncmaxm + (yncmaxc - yncmaxm) * (1.0 - fmask(jlon,jlat))  !2m
+      ynclow = yncmax*.05                                                   !2m
       endif
 
 ! calculation of enthalpy zh before microphysical processes
@@ -15116,4 +15143,191 @@ INTEGER, DIMENSION(NX_GLOB, NY_GLOB) ::  FIELD_GLOB_I
 
 RETURN
 END SUBROUTINE WRRF_POCHVA
+!###############################################################################################################
+
+!###############################################################################################################
+      subroutine sppt_init
+!###############################################################################################################
+! SPPT - Stochastic Perturbation of Physics Tendencies
+! Inizializza il generatore di numeri casuali e il pattern stocastico sppt_mu.
+! Da chiamare una sola volta dopo la lettura del namelist.
+
+      use mod_moloch, only : nlon, nlat, sppt_mu, sppt_seed, sppt_amp, sppt_lscale, dx, myid
+
+      implicit none
+
+      integer :: seed_array(8), i, npass
+      real    :: eta(nlon,nlat), eta_sm(nlon,nlat)
+      real    :: sigma_grid
+
+! Inizializzazione RNG: seme fisso (riproducibilita') o da clock (ensemble)
+      if (sppt_seed /= 0) then
+        do i = 1, 8
+          seed_array(i) = sppt_seed + (i-1)*1000 + myid*100
+        enddo
+        call random_seed(put=seed_array(1:8))
+      else
+        call random_seed()   ! seme da clock, diverso per ogni run e ogni membro
+      endif
+
+! Pattern iniziale: noise bianco [-1,1] + smoothing spaziale per correlazione
+      call random_number(eta)
+      eta = 2.0*(eta - 0.5)    ! da [0,1] a [-1,+1]
+
+! Numero di passate del filtro Shapiro per approssimare
+! una Gaussiana con sigma = sppt_lscale [km]:  npass ~ sigma_grid^2 / 8
+      sigma_grid = sppt_lscale * 1.e3 / max(dx, 1.)
+      npass = max(2, nint(sigma_grid**2 / 8.))
+      npass = min(npass, 100)
+
+      eta_sm = eta
+      do i = 1, npass
+        call filt2d(eta_sm, 0.25)    ! filtro Shapiro (anu2=0.25)
+      enddo
+
+! Normalizza e scala per l'ampiezza richiesta
+      sppt_mu = sppt_amp * eta_sm / max(maxval(abs(eta_sm)), 1.e-6)
+
+      if (myid == 0) print '(a,i6,a,f6.3)', ' SPPT init: npass=', npass, &
+                                             '  max|mu|=', maxval(abs(sppt_mu))
+
+      return
+      end subroutine sppt_init
+!###############################################################################################################
+
+!###############################################################################################################
+      subroutine sppt_update(jstep)
+!###############################################################################################################
+! Aggiorna il pattern sppt_mu con processo AR(1) + smoothing spaziale.
+! Da chiamare ad ogni passo temporale PRIMA di sppt_apply.
+!
+! Schema AR(1):  mu^(n+1) = alpha * mu^n + sqrt(1-alpha^2) * sigma * G[eta]
+!   alpha = exp(-dt/tau),  eta ~ U[-1,1],  G = filtro Shapiro
+
+      use mod_moloch, only : nlon, nlat, sppt_mu, sppt_amp, sppt_tau, sppt_lscale, dtstep, dx
+
+      implicit none
+
+      integer, intent(in) :: jstep   ! numero passo temporale (usato per diagnostica)
+      real    :: alpha, sigma_noise
+      real    :: eta(nlon,nlat), eta_sm(nlon,nlat)
+      real    :: sigma_grid, var_local
+      integer :: i, npass
+
+! Coefficiente di memoria AR(1): alpha = exp(-dt/tau)
+      alpha = exp(-dtstep / (sppt_tau * 3600.))
+
+! Deviazione standard del noise fresco per garantire varianza stazionaria = sppt_amp^2
+      sigma_noise = sppt_amp * sqrt(1.0 - alpha**2)
+
+! Genera noise bianco 2D e applica correlazione spaziale tramite filtro Shapiro
+      call random_number(eta)
+      eta = 2.0*(eta - 0.5)    ! [-1, 1]
+
+      sigma_grid = sppt_lscale * 1.e3 / max(dx, 1.)
+      npass = max(2, nint(sigma_grid**2 / 8.))
+      npass = min(npass, 100)
+
+      eta_sm = eta
+      do i = 1, npass
+        call filt2d(eta_sm, 0.25)
+      enddo
+
+! Normalizza a varianza unitaria sul dominio locale (ogni processo MPI indipendente)
+      var_local = sum(eta_sm**2) / real(nlon*nlat)
+      eta_sm = eta_sm / max(sqrt(var_local), 1.e-8)
+
+! Aggiornamento AR(1)
+      sppt_mu = alpha * sppt_mu + sigma_noise * eta_sm
+
+! Taglia al range fisico [-sppt_amp, +sppt_amp]
+      sppt_mu = max(-sppt_amp, min(sppt_amp, sppt_mu))
+
+      return
+      end subroutine sppt_update
+!###############################################################################################################
+
+!###############################################################################################################
+      subroutine sppt_apply
+!###############################################################################################################
+! Applica la perturbazione stocastica SPPT alle tendenze fisiche del passo corrente.
+!
+! Tendenze scalari (T, q, idrometeore): dtdt, dqdt, dqcwdt, dqcidt, dqpwdt, dqpi1dt
+!   vengono moltiplicate per w = (1 + mu * taper) -- saranno applicate dal codice esistente.
+!
+! Tendenze vettoriali (u, v): applicate direttamente al campo per
+!   u_new = u_pre + w * (u_current - u_pre)  =>  u += mu*taper*(u - sppt_u_pre)
+!
+! Tapering: coseno a zero sui nbl punti di bordo (per non interferire con le BCs),
+!           smorzamento lineare nell'ultimo 10% della colonna verticale (stratosfera).
+!
+! Da chiamare DOPO sppt_update e PRIMA del blocco "update fields" (t = t + dtdt*dtstep).
+
+      use mod_moloch, only : nlon, nlat, nlev, nbl, htop, pi, nlonm1, nlatm1,  &
+                             dtdt, dqdt, dqcwdt, dqcidt, dqpwdt, dqpi1dt,      &
+                             u, v, sppt_u_pre, sppt_v_pre,                      &
+                             sppt_mu, sppt_taper_bnd
+
+      implicit none
+
+      integer :: jlon, jlat, jklev, ib
+      real    :: taper_xy(nlon,nlat)
+      real    :: taper_z, w, frac_lev, mu_taper, du, dv
+
+!--- 1. Tapering laterale: fattore coseno sui nbl punti di bordo ---
+!   (0 al bordo esterno, 1 dal nbl-esimo punto in poi)
+
+      taper_xy = 1.0
+
+      if (sppt_taper_bnd) then
+        do ib = 1, nbl
+          w = 0.5*(1.0 - cos(pi * real(ib-1) / real(nbl)))
+          taper_xy(:, ib)             = min(taper_xy(:, ib),             w)
+          taper_xy(:, nlat-ib+1)      = min(taper_xy(:, nlat-ib+1),      w)
+          taper_xy(ib, :)             = min(taper_xy(ib, :),             w)
+          taper_xy(nlon-ib+1, :)      = min(taper_xy(nlon-ib+1, :),      w)
+        enddo
+      endif
+
+!--- 2. Loop su livelli e punti interni ---
+
+      do jklev = 1, nlev
+
+!     Tapering verticale: smorzamento lineare nell'ultimo 10% della colonna
+!     (per non perturbare la stratosfera e le onde di gravita' al top)
+        frac_lev = real(jklev) / real(nlev)
+        if (frac_lev > htop - 0.10) then
+          taper_z = max(0., (htop - frac_lev) / 0.10)
+        else
+          taper_z = 1.0
+        endif
+
+        do jlat = 2, nlatm1
+        do jlon = 2, nlonm1
+
+          mu_taper = sppt_mu(jlon,jlat) * taper_xy(jlon,jlat) * taper_z
+          w        = 1.0 + mu_taper
+
+!         Tendenze scalari: moltiplicazione diretta (applicazione rinviata)
+          dtdt   (jlon,jlat,jklev) = dtdt   (jlon,jlat,jklev) * w
+          dqdt   (jlon,jlat,jklev) = dqdt   (jlon,jlat,jklev) * w
+          dqcwdt (jlon,jlat,jklev) = dqcwdt (jlon,jlat,jklev) * w
+          dqcidt (jlon,jlat,jklev) = dqcidt (jlon,jlat,jklev) * w
+          dqpwdt (jlon,jlat,jklev) = dqpwdt (jlon,jlat,jklev) * w
+          dqpi1dt(jlon,jlat,jklev) = dqpi1dt(jlon,jlat,jklev) * w
+
+!         Tendenze vettoriali: applicate direttamente al campo
+!         u_new = u_pre + w*(u-u_pre)  =>  delta_extra = mu_taper*(u-u_pre)
+          du = mu_taper * (u(jlon,jlat,jklev) - sppt_u_pre(jlon,jlat,jklev))
+          dv = mu_taper * (v(jlon,jlat,jklev) - sppt_v_pre(jlon,jlat,jklev))
+          u(jlon,jlat,jklev) = u(jlon,jlat,jklev) + du
+          v(jlon,jlat,jklev) = v(jlon,jlat,jklev) + dv
+
+        enddo
+        enddo
+
+      enddo
+
+      return
+      end subroutine sppt_apply
 !###############################################################################################################

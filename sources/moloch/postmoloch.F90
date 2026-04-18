@@ -2871,7 +2871,8 @@ end subroutine rrec2_int
 
       read (iunit) nlon_local, nlat_local, nlevg_local, dlon_local, dlat_local, x0_local, y0_local, alon0_local, alat0_local, &
  nst_local, nvt_local
-
+      
+      ierr=0
       if (nlon_local /= nlon) ierr=ierr+1
       if (nlat_local /= nlat) ierr=ierr+1
       if (nlevg_local /= nlevg) ierr=ierr+1

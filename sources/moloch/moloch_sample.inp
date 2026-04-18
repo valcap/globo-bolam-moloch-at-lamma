@@ -6,7 +6,8 @@ mhfr=INDEX_OUTPUT_RES,
 srad = 480., mslfilter = 5., htop = 0.92,
 nlmic2=.false., nlana=.true.,
 nlconv=.false., nlradar=.false., nltwice=.false., nlhdiff=.false., nlclimate=.false., nlrst=.false.,
-hrst= 240., hback=-0.1, hspray=-0.50, nxspray= 70, nyspray= 70, nzspray=45, xsorg=15.200, ysorg=37.24 ! Sicilia
+hrst= 240., hback=-0.1, hspray=-0.50, nxspray= 70, nyspray= 70, nzspray=45, xsorg=15.200, ysorg=37.24, ! Sicilia
+nlsppt=.false., sppt_amp=0.50, sppt_tau=6.0, sppt_lscale=500., sppt_seed=0, sppt_taper_bnd=.true.
 &end
 
 ! dtstep    integration time step (in seconds)
@@ -39,3 +40,9 @@ hrst= 240., hback=-0.1, hspray=-0.50, nxspray= 70, nyspray= 70, nzspray=45, xsor
 ! hrst      interval (in hours) between two restart files writting
 ! hback     interval (in hours) between two outputs of trajectory file (if negative, file is not written)
 ! hspray    interval (in hours) between two outputs of SPRAY file (if negative, file is not written)
+! nlsppt    if true, SPPT (Stochastic Perturbation of Physics Tendencies) is active
+! sppt_amp  maximum amplitude of stochastic perturbation [0-1] (default: 0.50)
+! sppt_tau  temporal decorrelation time scale [hours] (default: 6.0)
+! sppt_lscale spatial decorrelation length scale [km] (default: 500.)
+! sppt_seed RNG seed: 0 = clock-based (different each run), N>0 = fixed/reproducible
+! sppt_taper_bnd if true, cosine tapering to zero on lateral boundary (nbl points)
